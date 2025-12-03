@@ -1,0 +1,150 @@
+# =============================================================================
+# DEVSECOPS CONFIGURATION - Configuration de la qualité et sécurité
+# =============================================================================
+# Ce fichier contient les variables de configuration pour les gates de qualité
+# et de sécurité dans le pipeline CI/CD.
+# 
+# Version: 1.0.0
+# Dernière mise à jour: $(date)
+# Les numéros de version doivent respecter le format standard international (XX.YY.ZZ) https://semver.org/
+# 
+# MAJOR.MINOR.PATCH
+# 1. MAJOR version when you make incompatible API changes
+# 2. MINOR version when you add functionality in a backward compatible manner
+# 3. PATCH version when you make backward compatible bug fixes
+# =============================================================================
+
+# =============================================================================
+# VERSION DU PROJET
+# =============================================================================
+project:
+  version: "1.0.0"
+  name: "dvg_web_backend"
+  description: "Backend NestJS pour DVG Web"
+  organization: "teamdivergentes"
+
+# =============================================================================
+# CONFIGURATION DOCKER REGISTRY
+# =============================================================================
+registry:
+  url: "ghcr.io"
+  organization: "teamdivergentes"
+  repository: "website_backend"
+  image_name: "dvg_web_backend"
+  
+  tags:
+    unstable: "unstable"
+    dev: "dev"
+    preprod: "PREPROD"
+    release: "RELEASE"
+
+# =============================================================================
+# CONFIGURATION CI/CD
+# =============================================================================
+pipeline:
+  node_version: "20"
+  nestjs_version: "11"
+  prisma_version: "6"
+
+# =============================================================================
+# CONFIGURATION DOCKER
+# =============================================================================
+docker:
+  base_image: "node:20-alpine"
+  non_root_user: "nestjs"
+  exposed_port: 3000
+
+# =============================================================================
+# CONFIGURATION BASE DE DONNÉES
+# =============================================================================
+database:
+  type: "postgresql"
+  version: "17"  # Version MAJEURE fixée (17.x = derniers patches automatiques)
+  # Note: Ne pas utiliser "latest" pour éviter les breaking changes
+  external: true  # Base de données externe (non incluse dans l'image Docker)
+  test_database:
+    enabled: true
+    image: "postgres:17-alpine"  # Utilise 17.x (derniers patches de sécurité)
+    user: "testuser"
+    password: "testpass"
+    database: "testdb"
+
+# =============================================================================
+# CONFIGURATION ENVIRONNEMENTS
+# =============================================================================
+environments:
+  preprod:
+    name: "PREPROD"
+    url: "https://preprod-api.teamdivergentes.fr"
+    description: "Environnement de pré-production pour les tests de recette"
+    
+  prod:
+    name: "PROD"
+    url: "https://api.teamdivergentes.fr"
+    description: "Environnement de production"
+
+# =============================================================================
+# CONFIGURATION DÉPLOIEMENT
+# =============================================================================
+deployment:
+  timeout_minutes: 10
+  check_interval_seconds: 15
+  max_retries: 40
+  curl:
+    connect_timeout: 30
+    max_time: 60
+    retry_count: 3
+    retry_delay: 2
+    retry_max_time: 120
+
+# =============================================================================
+# CONFIGURATION QUALITÉ
+# =============================================================================
+quality:
+  eslint:
+    config_file: "eslint.config.mjs"
+  
+  prettier:
+    enabled: true
+    config_file: ".prettierrc"
+  
+  tests:
+    unit:
+      enabled: true
+      coverage_threshold: 80
+    e2e:
+      enabled: true
+      timeout: 60000
+
+# =============================================================================
+# CONFIGURATION SÉCURITÉ
+# =============================================================================
+security:
+  semgrep:
+    enabled: true
+    rules:
+      - "p/javascript"
+      - "p/typescript"
+      - "p/nodejs"
+      - "p/docker"
+      - "p/sql-injection"
+      - "p/xss"
+
+# =============================================================================
+# FONCTIONNALITÉS NON DISPONIBLES (pour référence future)
+# =============================================================================
+# Les fonctionnalités suivantes ne sont pas encore implémentées mais peuvent
+# être ajoutées dans le futur :
+#
+# - Snyk (analyse de vulnérabilités)
+# - OWASP ZAP (tests de sécurité dynamique)
+# - Trivy (scan de vulnérabilités Docker)
+# - Load Tests (tests de charge)
+# - Performance Tests (tests de performance)
+# - Smoke Tests (tests de fumée)
+# - Database Migration Tests (tests de migration)
+# - Slack/Email/Teams Notifications
+# - Backup et Disaster Recovery
+# - API Documentation Generation (Swagger)
+# =============================================================================
+
