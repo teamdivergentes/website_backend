@@ -18,7 +18,7 @@ interface AuthenticatedRequest extends Request {
   user: { id: number; email: string };
 }
 
-@Controller('auth')
+@Controller('api/auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 

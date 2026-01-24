@@ -12,10 +12,35 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 export class RolesService {
   constructor(private prisma: PrismaService) {}
 
+  getPermissions() {
+    return {
+      users: ['users:read', 'users:write', 'users:delete'],
+      roles: ['roles:read', 'roles:write', 'roles:delete'],
+      teams: ['teams:read', 'teams:write', 'teams:delete'],
+      games: ['games:read', 'games:write', 'games:delete'],
+      sponsors: ['sponsors:read', 'sponsors:write', 'sponsors:delete'],
+      staff: ['staff:read', 'staff:write', 'staff:delete'],
+      config: ['config:read', 'config:write'],
+      annonces: ['annonces:read', 'annonces:write', 'annonces:delete'],
+      articles: ['articles:read', 'articles:write', 'articles:delete'],
+    };
+  }
+
   async findAll() {
-    return this.prisma.role.findMany({
+    const roles = await this.prisma.role.findMany({
       orderBy: { createdAt: 'asc' },
+      include: {
+        _count: {
+          select: { users: true },
+        },
+      },
     });
+
+    return roles.map((role) => ({
+      ...role,
+      userCount: role._count.users,
+      _count: undefined,
+    }));
   }
 
   async findOne(id: number) {
@@ -78,6 +103,11 @@ export class RolesService {
 
     if (!existing) {
       throw new NotFoundException('Rôle non trouvé');
+    }
+
+    // Empêcher la suppression des rôles système
+    if (existing.isSystem) {
+      throw new BadRequestException('Impossible de supprimer un rôle système');
     }
 
     // Vérifier si le rôle est utilisé par des utilisateurs

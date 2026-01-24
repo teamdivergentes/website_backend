@@ -5,10 +5,28 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
+import { UploadModule } from './upload/upload.module';
+import { ConfigModule } from './config/config.module';
+import { StaffModule } from './staff/staff.module';
+import { TeamsModule } from './teams/teams.module';
+import { GamesModule } from './games/games.module';
+import { ProfileModule } from './profile/profile.module';
+import { SponsorsModule } from './sponsors/sponsors.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
-  imports: [AuthModule, UsersModule, RolesModule],
+  imports: [
+    AuthModule,
+    UsersModule,
+    RolesModule,
+    UploadModule,
+    ConfigModule,
+    StaffModule,
+    TeamsModule,
+    GamesModule,
+    ProfileModule,
+    SponsorsModule,
+  ],
   controllers: [AppController],
   providers: [
     AppService,

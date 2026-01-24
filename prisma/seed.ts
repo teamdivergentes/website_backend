@@ -4,90 +4,251 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Starting database seeding...');
+  console.log('Starting seed...');
 
-  // Définition des permissions pour chaque rôle
-  const roles = [
+  // Create roles
+  const adminPermissions = [
+    'users:read',
+    'users:write',
+    'users:delete',
+    'roles:read',
+    'roles:write',
+    'roles:delete',
+    'teams:read',
+    'teams:write',
+    'teams:delete',
+    'games:read',
+    'games:write',
+    'games:delete',
+    'sponsors:read',
+    'sponsors:write',
+    'sponsors:delete',
+    'staff:read',
+    'staff:write',
+    'staff:delete',
+    'config:read',
+    'config:write',
+    'annonces:read',
+    'annonces:write',
+    'annonces:delete',
+    'articles:read',
+    'articles:write',
+    'articles:delete',
+  ];
+
+  const cmPermissions = [
+    'annonces:read',
+    'annonces:write',
+    'annonces:delete',
+    'articles:read',
+    'articles:write',
+    'articles:delete',
+  ];
+
+  const gestionnairePermissions = [
+    'teams:read',
+    'teams:write',
+    'teams:delete',
+    'games:read',
+    'games:write',
+    'games:delete',
+    'sponsors:read',
+    'sponsors:write',
+    'sponsors:delete',
+    'staff:read',
+    'staff:write',
+    'staff:delete',
+    'annonces:read',
+    'annonces:write',
+    'annonces:delete',
+    'articles:read',
+    'articles:write',
+    'articles:delete',
+  ];
+
+  const adminRole = await prisma.role.upsert({
+    where: { name: 'Admin' },
+    update: { permissions: adminPermissions, isSystem: true },
+    create: {
+      name: 'Admin',
+      permissions: adminPermissions,
+      isSystem: true,
+    },
+  });
+
+  console.log('Admin role created:', adminRole);
+
+  const cmRole = await prisma.role.upsert({
+    where: { name: 'CM' },
+    update: { permissions: cmPermissions, isSystem: true },
+    create: {
+      name: 'CM',
+      permissions: cmPermissions,
+      isSystem: true,
+    },
+  });
+
+  console.log('CM role created:', cmRole);
+
+  const gestionnaireRole = await prisma.role.upsert({
+    where: { name: 'Gestionnaire' },
+    update: { permissions: gestionnairePermissions, isSystem: true },
+    create: {
+      name: 'Gestionnaire',
+      permissions: gestionnairePermissions,
+      isSystem: true,
+    },
+  });
+
+  console.log('Gestionnaire role created:', gestionnaireRole);
+
+  // Create admin user
+  const hashedPassword = await bcrypt.hash('admin123', 10);
+  const adminUser = await prisma.user.upsert({
+    where: { email: 'admin@teamdivergentes.fr' },
+    update: {},
+    create: {
+      email: 'admin@teamdivergentes.fr',
+      password: hashedPassword,
+      roleId: adminRole.id,
+      actif: true,
+    },
+  });
+
+  console.log('Admin user created:', { email: adminUser.email });
+
+  // Create initial config entries
+  const configs = [
     {
-      name: 'admin',
-      permissions: [
-        'users:read', 'users:write', 'users:delete',
-        'roles:read', 'roles:write', 'roles:delete',
-        'teams:read', 'teams:write', 'teams:delete',
-        'sponsors:read', 'sponsors:write', 'sponsors:delete',
-        'recrutement:read', 'recrutement:write', 'recrutement:delete',
-        'config:read', 'config:write',
-      ],
+      key: 'youtube_link',
+      value: 'https://www.youtube.com/embed/IqoIktEIeU0',
+      description: 'Lien de la video YouTube de presentation',
     },
     {
-      name: 'modifieur',
-      permissions: [
-        'teams:read', 'teams:write', 'teams:delete',
-        'sponsors:read', 'sponsors:write', 'sponsors:delete',
-        'recrutement:read', 'recrutement:write', 'recrutement:delete',
-      ],
+      key: 'site_name',
+      value: 'TeamDivergentes - Structure Esportive Francaise',
+      description: 'Nom du site',
     },
     {
-      name: 'community_manager',
-      permissions: [
-        'teams:read',
-        'sponsors:read',
-      ],
+      key: 'contact_email',
+      value: 'contact@teamdivergentes.fr',
+      description: 'Email de contact',
+    },
+    {
+      key: 'facebook_url',
+      value: '',
+      description: 'Lien Facebook',
+    },
+    {
+      key: 'twitter_url',
+      value: 'https://x.com/teamdivergentes',
+      description: 'Lien Twitter/X',
+    },
+    {
+      key: 'instagram_url',
+      value: 'https://www.instagram.com/teamdivergentes/',
+      description: 'Lien Instagram',
+    },
+    {
+      key: 'discord_url',
+      value: 'https://discord.com/invite/mF67YZKnU3',
+      description: 'Lien Discord',
     },
   ];
 
-  // Créer les rôles
-  for (const roleData of roles) {
-    const existingRole = await prisma.role.findUnique({
-      where: { name: roleData.name },
+  for (const config of configs) {
+    await prisma.config.upsert({
+      where: { key: config.key },
+      update: {},
+      create: config,
+    });
+  }
+
+  console.log('Config entries created:', configs.length);
+
+  // Create initial staff members
+  const staffMembers = [
+    {
+      name: 'Vilvi',
+      role: 'President',
+      category: 'ADMIN' as const,
+      position: 0,
+    },
+    {
+      name: 'Ianis',
+      role: 'Directeur General',
+      category: 'HEADSTAFF' as const,
+      position: 0,
+    },
+  ];
+
+  for (const member of staffMembers) {
+    const existing = await prisma.staffMember.findFirst({
+      where: { name: member.name, category: member.category },
     });
 
-    if (!existingRole) {
-      await prisma.role.create({
-        data: roleData,
+    if (!existing) {
+      await prisma.staffMember.create({
+        data: member,
       });
-      console.log(`Created role: ${roleData.name}`);
-    } else {
-      console.log(`Role ${roleData.name} already exists`);
     }
   }
 
-  // Créer un utilisateur admin par défaut
-  const adminRole = await prisma.role.findUnique({
-    where: { name: 'admin' },
-  });
+  console.log('Staff members created:', staffMembers.length);
 
-  if (adminRole) {
-    const adminEmail = 'admin@divergente.fr';
-    const existingAdmin = await prisma.user.findUnique({
-      where: { email: adminEmail },
+  // Create initial sponsors
+  const sponsors = [
+    {
+      name: 'Pulsar Corp',
+      slug: 'pulsar-corp',
+      description:
+        "Pulsar Corp est une micro entreprise de graphisme qui se distingue par son approche innovante et creative. Pilotee par un talentueux graphiste passionne, elle propose des services sur mesure, transformant chaque projet en une oeuvre d'art visuelle.",
+      imageLayout: 'LAYOUT_1' as const,
+      position: 0,
+      active: true,
+    },
+    {
+      name: 'Monster Energy',
+      slug: 'monster-energy',
+      description:
+        "Nous sommes fiers d'annoncer notre partenariat avec Monster Energy, une marque emblematique connue pour ses boissons energetiques qui repoussent les limites de l'ordinaire.",
+      imageLayout: 'LAYOUT_2' as const,
+      position: 1,
+      active: true,
+    },
+    {
+      name: 'SecretLab',
+      slug: 'secretlab',
+      description:
+        "Nous sommes ravis d'annoncer notre partenariat avec Secretlab, la marque de chaises gaming et de bureau de renommee mondiale, reputee pour son confort et sa qualite inegales.",
+      imageLayout: 'LAYOUT_3' as const,
+      position: 2,
+      active: true,
+    },
+  ];
+
+  for (const sponsor of sponsors) {
+    const existing = await prisma.sponsor.findUnique({
+      where: { slug: sponsor.slug },
     });
 
-    if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash('Admin123!', 12);
-      await prisma.user.create({
-        data: {
-          email: adminEmail,
-          password: hashedPassword,
-          roleId: adminRole.id,
-          actif: true,
-        },
+    if (!existing) {
+      await prisma.sponsor.create({
+        data: sponsor,
       });
-      console.log(`Created admin user: ${adminEmail}`);
-    } else {
-      console.log(`Admin user ${adminEmail} already exists`);
     }
   }
 
-  console.log('Seeding completed successfully!');
+  console.log('Sponsors created:', sponsors.length);
+
+  console.log('Seed completed successfully!');
 }
 
 main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error('Error during seeding:', e);
-    await prisma.$disconnect();
+  .catch((e) => {
+    console.error('Error during seed:', e);
     process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
   });

@@ -1,18 +1,18 @@
 # ================================
-# Stage 1: Dependencies
+# Stage 1: Dependencies (dev + prod)
 # ================================
 FROM node:20-alpine AS dependencies
 
 WORKDIR /app
 
-# Copy package files
+# Copy only package files for better caching
 COPY package*.json ./
-COPY prisma ./prisma/
+COPY prisma/schema.prisma ./prisma/
 
-# Install dependencies (including dev dependencies for build)
-RUN npm ci
+# Install ALL dependencies (cached if package-lock unchanged)
+RUN npm ci --no-audit --no-fund
 
-# Generate Prisma Client
+# Generate Prisma Client (only once)
 RUN npx prisma generate
 
 # ================================
@@ -33,33 +33,21 @@ COPY . .
 RUN npm run build
 
 # ================================
-# Stage 3: Production
+# Stage 3: Production Dependencies
+# ================================
+FROM node:20-alpine AS prod-deps
+
+WORKDIR /app
+
+COPY package*.json ./
+
+# Install ONLY production dependencies (no dev deps)
+RUN npm ci --only=production --no-audit --no-fund && npm cache clean --force
+
+# ================================
+# Stage 4: Production
 # ================================
 FROM node:20-alpine AS production
-
-# Labels Docker pour les métadonnées de build
-LABEL org.opencontainers.image.title="DVG Web Backend"
-LABEL org.opencontainers.image.description="Backend NestJS pour l'application DVG Web - Build unstable (SUCCESS)"
-LABEL org.opencontainers.image.version="v1.0.0"
-LABEL org.opencontainers.image.revision="abc123"
-LABEL org.opencontainers.image.source="https://github.com/teamdivergentes/website_backend"
-LABEL org.opencontainers.image.created="2025-09-16 18:48:08 UTC"
-LABEL org.opencontainers.image.authors="tellebma"
-LABEL org.opencontainers.image.url="https://github.com/teamdivergentes/website_backend"
-LABEL org.opencontainers.image.documentation="https://github.com/teamdivergentes/website_backend#readme"
-LABEL org.opencontainers.image.licenses="UNLICENSED"
-LABEL build.status="SUCCESS"
-LABEL build.type="unstable"
-LABEL build.image.tag="test-image"
-LABEL build.workflow.tag="v1.0.0"
-LABEL build.branch="feature/test"
-LABEL build.commit="abc123"
-LABEL build.actor="tellebma"
-LABEL build.nestjs="success"
-LABEL build.lint="success"
-LABEL build.test="success"
-LABEL build.semgrep="success"
-LABEL build.time="2025-09-16 18:48:08 UTC"
 
 WORKDIR /app
 
@@ -70,19 +58,28 @@ RUN apk add --no-cache dumb-init
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001
 
-# Copy package files
+# Copy production dependencies from prod-deps stage (NOT reinstalling!)
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# Copy package files (needed for node to resolve modules)
 COPY package*.json ./
+
+# Copy Prisma files
 COPY prisma ./prisma/
-
-# Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
-
-# Generate Prisma Client for production
-RUN npx prisma generate
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/generated ./generated
+
+# Copy generated Prisma client to dist/generated
+# (compiled code in dist/src/ imports '../generated/prisma' which resolves to dist/generated/prisma)
+COPY --from=builder /app/generated ./dist/generated
+
+# Copy entrypoint script
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+# Create uploads directory
+RUN mkdir -p uploads && chown nestjs:nodejs uploads
 
 # Change ownership to non-root user
 RUN chown -R nestjs:nodejs /app
@@ -101,5 +98,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
-CMD ["node", "dist/src/main.js"]
-
+CMD ["./entrypoint.sh"]

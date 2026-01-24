@@ -16,19 +16,25 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
-@Controller('roles')
+@Controller('api/roles')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class RolesController {
   constructor(private rolesService: RolesService) {}
 
+  // Accessible à tous les utilisateurs authentifiés (pour les dropdowns)
   @Get()
-  @Roles('admin')
   async findAll() {
     return this.rolesService.findAll();
   }
 
+  // Liste toutes les permissions disponibles groupées par module
+  @Get('permissions')
+  async getPermissions() {
+    return this.rolesService.getPermissions();
+  }
+
+  // Accessible à tous les utilisateurs authentifiés
   @Get(':id')
-  @Roles('admin')
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.rolesService.findOne(id);
   }
