@@ -2,7 +2,6 @@ import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class UpdateConfigDto {
   @IsString()
-  @IsNotEmpty()
   value: string;
 
   @IsString()
@@ -16,7 +15,6 @@ export class CreateConfigDto {
   key: string;
 
   @IsString()
-  @IsNotEmpty()
   value: string;
 
   @IsString()
