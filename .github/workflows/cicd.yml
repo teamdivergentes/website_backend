@@ -9,6 +9,10 @@ on:
 env:
   NODE_VERSION: 20
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,14 +38,6 @@ jobs:
       - name: Build NestJS
         id: build
         run: npm run build
-
-      - name: Upload dist as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nestjs-dist
-          path: |
-            dist/
-            generated/
 
   lint:
     runs-on: ubuntu-latest
