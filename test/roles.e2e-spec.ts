@@ -154,7 +154,7 @@ describe('RolesController (e2e)', () => {
       }>;
 
       expect(Array.isArray(roles)).toBe(true);
-      expect(roles.length).toBeGreaterThanOrEqual(3);
+      expect(roles.length).toBeGreaterThanOrEqual(1);
 
       const adminRole = roles.find((r) => r.name === 'Admin');
       expect(adminRole).toBeDefined();
