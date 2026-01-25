@@ -4,7 +4,6 @@ import { RolesService } from './roles.service';
 
 describe('RolesController', () => {
   let controller: RolesController;
-  let service: RolesService;
 
   const mockRolesService = {
     findAll: jest.fn(),
@@ -27,7 +26,6 @@ describe('RolesController', () => {
     }).compile();
 
     controller = module.get<RolesController>(RolesController);
-    service = module.get<RolesService>(RolesService);
   });
 
   afterEach(() => {
@@ -53,12 +51,12 @@ describe('RolesController', () => {
       const result = await controller.findAll();
 
       expect(result).toEqual(mockRoles);
-      expect(service.findAll).toHaveBeenCalled();
+      expect(mockRolesService.findAll).toHaveBeenCalled();
     });
   });
 
   describe('getPermissions', () => {
-    it('should return all available permissions grouped by module', async () => {
+    it('should return all available permissions grouped by module', () => {
       const mockPermissions = {
         users: ['users:read', 'users:write', 'users:delete'],
         roles: ['roles:read', 'roles:write', 'roles:delete'],
@@ -66,10 +64,10 @@ describe('RolesController', () => {
 
       mockRolesService.getPermissions.mockReturnValue(mockPermissions);
 
-      const result = await controller.getPermissions();
+      const result = controller.getPermissions();
 
       expect(result).toEqual(mockPermissions);
-      expect(service.getPermissions).toHaveBeenCalled();
+      expect(mockRolesService.getPermissions).toHaveBeenCalled();
     });
   });
 
@@ -89,7 +87,7 @@ describe('RolesController', () => {
       const result = await controller.findOne(1);
 
       expect(result).toEqual(mockRole);
-      expect(service.findOne).toHaveBeenCalledWith(1);
+      expect(mockRolesService.findOne).toHaveBeenCalledWith(1);
     });
   });
 
@@ -113,7 +111,7 @@ describe('RolesController', () => {
       const result = await controller.create(createRoleDto);
 
       expect(result).toEqual(mockCreatedRole);
-      expect(service.create).toHaveBeenCalledWith(createRoleDto);
+      expect(mockRolesService.create).toHaveBeenCalledWith(createRoleDto);
     });
   });
 
@@ -137,7 +135,7 @@ describe('RolesController', () => {
       const result = await controller.update(1, updateRoleDto);
 
       expect(result).toEqual(mockUpdatedRole);
-      expect(service.update).toHaveBeenCalledWith(1, updateRoleDto);
+      expect(mockRolesService.update).toHaveBeenCalledWith(1, updateRoleDto);
     });
   });
 
@@ -150,7 +148,7 @@ describe('RolesController', () => {
       const result = await controller.delete(1);
 
       expect(result).toEqual(mockResponse);
-      expect(service.delete).toHaveBeenCalledWith(1);
+      expect(mockRolesService.delete).toHaveBeenCalledWith(1);
     });
   });
 });

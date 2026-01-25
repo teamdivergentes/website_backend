@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { ReorderDto } from './dto/reorder.dto';
+import { Prisma } from '../../generated/prisma';
 
 @Injectable()
 export class TeamsService {
@@ -106,7 +107,7 @@ export class TeamsService {
    */
   async update(id: number, updateTeamDto: UpdateTeamDto) {
     try {
-      const updateData: any = {};
+      const updateData: Prisma.TeamUpdateInput = {};
 
       if (updateTeamDto.name !== undefined) {
         updateData.name = updateTeamDto.name;
@@ -144,8 +145,13 @@ export class TeamsService {
         ...result,
         membersCount: result.members.length,
       };
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Équipe #${id} non trouvée`);
       }
       throw error;
@@ -162,8 +168,13 @@ export class TeamsService {
       });
 
       return { message: 'Équipe supprimée avec succès' };
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Équipe #${id} non trouvée`);
       }
       throw error;
@@ -213,8 +224,13 @@ export class TeamsService {
         ...updated,
         membersCount: updated.members.length,
       };
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Équipe #${id} non trouvée`);
       }
       throw error;

@@ -29,7 +29,7 @@ export class RolesController {
 
   // Liste toutes les permissions disponibles groupées par module
   @Get('permissions')
-  async getPermissions() {
+  getPermissions() {
     return this.rolesService.getPermissions();
   }
 

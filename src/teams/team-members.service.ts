@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { ReorderDto } from './dto/reorder.dto';
+import { Prisma } from '../../generated/prisma';
 
 @Injectable()
 export class TeamMembersService {
@@ -77,7 +78,7 @@ export class TeamMembersService {
         throw new NotFoundException(`Membre #${id} n'appartient pas à l'équipe #${teamId}`);
       }
 
-      const updateData: any = {};
+      const updateData: Prisma.TeamMemberUpdateInput = {};
 
       if (updateMemberDto.name !== undefined) updateData.name = updateMemberDto.name;
       if (updateMemberDto.realName !== undefined) updateData.realName = updateMemberDto.realName;
@@ -89,8 +90,13 @@ export class TeamMembersService {
         where: { id },
         data: updateData,
       });
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Membre #${id} non trouvé`);
       }
       throw error;
@@ -120,8 +126,13 @@ export class TeamMembersService {
       });
 
       return { message: 'Membre supprimé avec succès' };
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Membre #${id} non trouvé`);
       }
       throw error;

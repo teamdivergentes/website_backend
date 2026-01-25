@@ -110,8 +110,13 @@ export class GamesService {
         where: { id },
         data: updateGameDto,
       });
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Jeu #${id} non trouvé`);
       }
       throw error;
@@ -128,8 +133,13 @@ export class GamesService {
       });
 
       return { message: 'Jeu supprimé avec succès' };
-    } catch (error: any) {
-      if (error.code === 'P2025') {
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2025'
+      ) {
         throw new NotFoundException(`Jeu #${id} non trouvé`);
       }
       throw error;

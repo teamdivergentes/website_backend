@@ -5,7 +5,6 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 
 describe('RolesService', () => {
   let service: RolesService;
-  let prisma: PrismaService;
 
   const mockPrismaService = {
     role: {
@@ -29,7 +28,6 @@ describe('RolesService', () => {
     }).compile();
 
     service = module.get<RolesService>(RolesService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {
@@ -87,7 +85,7 @@ describe('RolesService', () => {
       expect(result[0]).toHaveProperty('userCount', 5);
       expect(result[1]).toHaveProperty('userCount', 2);
       expect(result[0]._count).toBeUndefined();
-      expect(prisma.role.findMany).toHaveBeenCalledWith({
+      expect(mockPrismaService.role.findMany).toHaveBeenCalledWith({
         orderBy: { createdAt: 'asc' },
         include: {
           _count: {
@@ -114,7 +112,7 @@ describe('RolesService', () => {
       const result = await service.findOne(1);
 
       expect(result).toEqual(mockRole);
-      expect(prisma.role.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
+      expect(mockPrismaService.role.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
     });
 
     it('should throw NotFoundException if role not found', async () => {
@@ -145,7 +143,7 @@ describe('RolesService', () => {
       const result = await service.create(createRoleDto);
 
       expect(result).toEqual(mockCreatedRole);
-      expect(prisma.role.create).toHaveBeenCalledWith({
+      expect(mockPrismaService.role.create).toHaveBeenCalledWith({
         data: {
           name: createRoleDto.name,
           permissions: createRoleDto.permissions,
@@ -194,7 +192,7 @@ describe('RolesService', () => {
       const result = await service.update(1, updateRoleDto);
 
       expect(result).toEqual(updatedRole);
-      expect(prisma.role.update).toHaveBeenCalledWith({
+      expect(mockPrismaService.role.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: updateRoleDto,
       });
@@ -236,7 +234,7 @@ describe('RolesService', () => {
       const result = await service.delete(1);
 
       expect(result).toEqual({ message: 'Rôle supprimé avec succès' });
-      expect(prisma.role.delete).toHaveBeenCalledWith({ where: { id: 1 } });
+      expect(mockPrismaService.role.delete).toHaveBeenCalledWith({ where: { id: 1 } });
     });
 
     it('should throw NotFoundException if role not found', async () => {
@@ -261,7 +259,7 @@ describe('RolesService', () => {
       await expect(service.delete(1)).rejects.toThrow(
         new BadRequestException('Impossible de supprimer un rôle système'),
       );
-      expect(prisma.role.delete).not.toHaveBeenCalled();
+      expect(mockPrismaService.role.delete).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException if role has assigned users', async () => {
@@ -282,7 +280,7 @@ describe('RolesService', () => {
           'Ce rôle est assigné à 2 utilisateur(s). Réassignez-les avant de supprimer ce rôle.',
         ),
       );
-      expect(prisma.role.delete).not.toHaveBeenCalled();
+      expect(mockPrismaService.role.delete).not.toHaveBeenCalled();
     });
   });
 });

@@ -27,6 +27,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
+interface RequestWithUser extends Request {
+  user: { id: number };
+}
+
 @Controller('api/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
@@ -68,7 +72,7 @@ export class UsersController {
 
   @Delete(':id')
   @Roles('admin')
-  delete(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+  delete(@Param('id', ParseIntPipe) id: number, @Request() req: RequestWithUser) {
     // Prevent self-deletion
     if (req.user.id === id) {
       throw new ForbiddenException('Vous ne pouvez pas supprimer votre propre compte');
@@ -78,7 +82,7 @@ export class UsersController {
 
   @Patch(':id/toggle')
   @Roles('admin')
-  toggleActive(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+  toggleActive(@Param('id', ParseIntPipe) id: number, @Request() req: RequestWithUser) {
     // Prevent self-deactivation
     if (req.user.id === id) {
       throw new ForbiddenException('Vous ne pouvez pas désactiver votre propre compte');

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 
@@ -32,15 +32,30 @@ describe('RolesController (e2e)', () => {
     const adminRole = await prisma.role.findFirst({
       where: { name: 'Admin' },
     });
+
+    if (!adminRole) {
+      throw new Error('Admin role not found in database');
+    }
+
     adminRoleId = adminRole.id;
 
     // Login as admin to get token
-    const loginResponse = await request(app.getHttpServer()).post('/api/auth/login').send({
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+    const loginResponse = await request(server).post('/api/auth/login').send({
       email: 'admin@teamdivergentes.fr',
       password: 'admin123',
     });
 
-    authToken = loginResponse.body.access_token;
+    if (!loginResponse.body || typeof loginResponse.body !== 'object') {
+      throw new Error('Invalid login response');
+    }
+
+    const body = loginResponse.body as { access_token?: string };
+    if (!body.access_token) {
+      throw new Error('No access token in login response');
+    }
+
+    authToken = body.access_token;
   });
 
   afterAll(async () => {
@@ -48,65 +63,78 @@ describe('RolesController (e2e)', () => {
   });
 
   describe('/api/roles/permissions (GET)', () => {
-    it('should return all available permissions grouped by module', () => {
-      return request(app.getHttpServer())
+    it('should return all available permissions grouped by module', async () => {
+      const server = app.getHttpServer() as Parameters<typeof request>[0];
+      const response = await request(server)
         .get('/api/roles/permissions')
         .set('Authorization', `Bearer ${authToken}`)
-        .expect(200)
-        .expect((res) => {
-          expect(res.body).toHaveProperty('users');
-          expect(res.body).toHaveProperty('roles');
-          expect(res.body).toHaveProperty('teams');
-          expect(res.body).toHaveProperty('games');
-          expect(res.body).toHaveProperty('sponsors');
-          expect(res.body).toHaveProperty('staff');
-          expect(res.body).toHaveProperty('config');
-          expect(res.body).toHaveProperty('annonces');
-          expect(res.body).toHaveProperty('articles');
+        .expect(200);
 
-          expect(res.body.users).toEqual(['users:read', 'users:write', 'users:delete']);
-          expect(res.body.roles).toEqual(['roles:read', 'roles:write', 'roles:delete']);
-        });
+      const body = response.body as Record<string, string[]>;
+
+      expect(body).toHaveProperty('users');
+      expect(body).toHaveProperty('roles');
+      expect(body).toHaveProperty('teams');
+      expect(body).toHaveProperty('games');
+      expect(body).toHaveProperty('sponsors');
+      expect(body).toHaveProperty('staff');
+      expect(body).toHaveProperty('config');
+      expect(body).toHaveProperty('annonces');
+      expect(body).toHaveProperty('articles');
+
+      expect(body.users).toEqual(['users:read', 'users:write', 'users:delete']);
+      expect(body.roles).toEqual(['roles:read', 'roles:write', 'roles:delete']);
     });
 
-    it('should require authentication', () => {
-      return request(app.getHttpServer()).get('/api/roles/permissions').expect(401);
+    it('should require authentication', async () => {
+      const server = app.getHttpServer() as Parameters<typeof request>[0];
+      await request(server).get('/api/roles/permissions').expect(401);
     });
   });
 
   describe('/api/roles (GET)', () => {
-    it('should return all roles with user count', () => {
-      return request(app.getHttpServer())
+    it('should return all roles with user count', async () => {
+      const server = app.getHttpServer() as Parameters<typeof request>[0];
+      const response = await request(server)
         .get('/api/roles')
         .set('Authorization', `Bearer ${authToken}`)
-        .expect(200)
-        .expect((res) => {
-          expect(Array.isArray(res.body)).toBe(true);
-          expect(res.body.length).toBeGreaterThanOrEqual(3);
+        .expect(200);
 
-          const adminRole = res.body.find((r) => r.name === 'Admin');
-          expect(adminRole).toBeDefined();
-          expect(adminRole).toHaveProperty('userCount');
-          expect(adminRole).toHaveProperty('isSystem', true);
-          expect(adminRole.permissions).toContain('users:read');
-        });
+      const roles = response.body as Array<{
+        name: string;
+        userCount: number;
+        isSystem: boolean;
+        permissions: string[];
+      }>;
+
+      expect(Array.isArray(roles)).toBe(true);
+      expect(roles.length).toBeGreaterThanOrEqual(3);
+
+      const adminRole = roles.find((r) => r.name === 'Admin');
+      expect(adminRole).toBeDefined();
+      expect(adminRole).toHaveProperty('userCount');
+      expect(adminRole).toHaveProperty('isSystem', true);
+      expect(adminRole?.permissions).toContain('users:read');
     });
   });
 
   describe('/api/roles/:id (DELETE)', () => {
     it('should prevent deletion of system roles', async () => {
-      return request(app.getHttpServer())
+      const server = app.getHttpServer() as Parameters<typeof request>[0];
+      const response = await request(server)
         .delete(`/api/roles/${adminRoleId}`)
         .set('Authorization', `Bearer ${authToken}`)
-        .expect(400)
-        .expect((res) => {
-          expect(res.body.message).toBe('Impossible de supprimer un rôle système');
-        });
+        .expect(400);
+
+      const body = response.body as { message: string };
+      expect(body.message).toBe('Impossible de supprimer un rôle système');
     });
 
     it('should allow deletion of non-system roles with no users', async () => {
+      const server = app.getHttpServer() as Parameters<typeof request>[0];
+
       // Create a test role
-      const createResponse = await request(app.getHttpServer())
+      const createResponse = await request(server)
         .post('/api/roles')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -115,33 +143,36 @@ describe('RolesController (e2e)', () => {
         })
         .expect(201);
 
-      const roleId = createResponse.body.id;
+      const createBody = createResponse.body as { id: number };
+      const roleId = createBody.id;
 
       // Delete it
-      await request(app.getHttpServer())
+      const deleteResponse = await request(server)
         .delete(`/api/roles/${roleId}`)
         .set('Authorization', `Bearer ${authToken}`)
-        .expect(200)
-        .expect((res) => {
-          expect(res.body.message).toBe('Rôle supprimé avec succès');
-        });
+        .expect(200);
+
+      const deleteBody = deleteResponse.body as { message: string };
+      expect(deleteBody.message).toBe('Rôle supprimé avec succès');
 
       // Verify it's deleted
-      await request(app.getHttpServer())
+      await request(server)
         .get(`/api/roles/${roleId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(404);
     });
 
     it('should prevent deletion of roles with assigned users', async () => {
+      const server = app.getHttpServer() as Parameters<typeof request>[0];
+
       // Admin role has at least one user (the admin user)
-      return request(app.getHttpServer())
+      const response = await request(server)
         .delete(`/api/roles/${adminRoleId}`)
         .set('Authorization', `Bearer ${authToken}`)
-        .expect(400)
-        .expect((res) => {
-          expect(res.body.message).toContain('Impossible de supprimer un rôle système');
-        });
+        .expect(400);
+
+      const body = response.body as { message: string };
+      expect(body.message).toContain('Impossible de supprimer un rôle système');
     });
   });
 });

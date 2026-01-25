@@ -20,7 +20,8 @@ export class ContactService {
       await this.sendEmail(contactDto);
       results.email = true;
     } catch (error) {
-      this.logger.error(`Email sending failed: ${error.message}`);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Email sending failed: ${message}`);
     }
 
     // Envoi Discord webhook
@@ -28,7 +29,8 @@ export class ContactService {
       await this.sendDiscordWebhook(contactDto);
       results.discord = true;
     } catch (error) {
-      this.logger.error(`Discord webhook failed: ${error.message}`);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Discord webhook failed: ${message}`);
     }
 
     if (!results.email && !results.discord) {
@@ -154,7 +156,9 @@ Ce message a été envoyé via le formulaire de contact DVG
     const webhookUrl = await this.configService.getValue('contact_discord_webhook');
 
     if (!webhookUrl) {
-      this.logger.warn('Discord webhook URL not configured in database - skipping Discord notification');
+      this.logger.warn(
+        'Discord webhook URL not configured in database - skipping Discord notification',
+      );
       return;
     }
 
@@ -179,9 +183,10 @@ Ce message a été envoyé via le formulaire de contact DVG
         },
         {
           name: 'Message',
-          value: contactDto.message.length > 1024
-            ? contactDto.message.substring(0, 1021) + '...'
-            : contactDto.message,
+          value:
+            contactDto.message.length > 1024
+              ? contactDto.message.substring(0, 1021) + '...'
+              : contactDto.message,
           inline: false,
         },
       ],
