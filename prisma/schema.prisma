@@ -12,9 +12,9 @@ model Role {
   id          Int      @id @default(autoincrement())
   name        String   @unique
   permissions String[]
-  isSystem    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  isSystem    Boolean  @default(false)
   users       User[]
 
   @@map("roles")
@@ -110,16 +110,16 @@ model Sponsor {
   id          Int            @id @default(autoincrement())
   name        String
   slug        String         @unique
-  description String?        @db.Text
+  description String?
   position    Int            @default(0)
   active      Boolean        @default(true)
-  imageLayout ImageLayout    @default(LAYOUT_1)
-  images      SponsorImage[]
-  links       SponsorLink[]
   startDate   DateTime?
   endDate     DateTime?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+  imageLayout ImageLayout    @default(LAYOUT_1)
+  images      SponsorImage[]
+  links       SponsorLink[]
 
   @@map("sponsors")
 }
@@ -131,8 +131,8 @@ model SponsorImage {
   isPrimary Boolean  @default(false)
   position  Int      @default(0)
   sponsorId Int
-  sponsor   Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  sponsor   Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
 
   @@index([sponsorId])
   @@map("sponsor_images")
@@ -145,8 +145,8 @@ model SponsorLink {
   type      LinkType @default(WEBSITE)
   isPrimary Boolean  @default(false)
   sponsorId Int
-  sponsor   Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  sponsor   Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
 
   @@index([sponsorId])
   @@map("sponsor_links")
@@ -160,7 +160,6 @@ enum StaffCategory {
   @@map("staff_category")
 }
 
-
 enum LinkType {
   WEBSITE
   TWITTER
@@ -173,9 +172,9 @@ enum LinkType {
 }
 
 enum ImageLayout {
-  LAYOUT_1 // Secondaire 1 bas-gauche, Secondaire 2 haut-droite (comme Pulsar)
-  LAYOUT_2 // Secondaire 1 haut-gauche, Secondaire 2 bas-droite (comme Monster)
-  LAYOUT_3 // Secondaire 1 haut-droite, Secondaire 2 bas-gauche (comme SecretLab)
+  LAYOUT_1
+  LAYOUT_2
+  LAYOUT_3
 
   @@map("image_layout")
 }

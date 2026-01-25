@@ -196,6 +196,25 @@ async function main() {
 
   console.log('Staff members created:', staffMembers.length);
 
+  // Create initial games
+  const games = [
+    { key: 'lol', name: 'League of Legends', position: 0, active: true },
+    { key: 'valorant', name: 'Valorant', position: 1, active: true },
+    { key: 'rl', name: 'Rocket League', position: 2, active: true },
+    { key: 'cs', name: 'Counter-Strike', position: 3, active: true },
+    { key: 'tft', name: 'Teamfight Tactics', position: 4, active: true },
+  ];
+
+  for (const game of games) {
+    await prisma.game.upsert({
+      where: { key: game.key },
+      update: {},
+      create: game,
+    });
+  }
+
+  console.log('Games created:', games.length);
+
   // Create initial sponsors
   const sponsors = [
     {

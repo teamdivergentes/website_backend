@@ -62,7 +62,7 @@ ON CONFLICT (name) DO UPDATE SET
 -- Mot de passe: admin123 (hashe bcrypt)
 -- CHANGER LE MOT DE PASSE EN PRODUCTION !
 INSERT INTO users (email, password, "roleId", actif, "createdAt", "updatedAt") VALUES
-  ('admin@teamdivergentes.fr', '$2a$10$tyWgTRo7cB8WlUCbs.O4b.ZNRQD.0oLvFntOuw/BLmgvi08vC6S6W',
+  ('admin@teamdivergentes.fr', '$2a$12$x3nEp8QwYkScMlxrALCFFeVYY6iyI7Qb1B7EJPBw4A8t3I50kLNoq',
    (SELECT id FROM roles WHERE name = 'Admin'), true, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 

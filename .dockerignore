@@ -61,6 +61,5 @@ docker-compose.yml
 # CI/CD temporary files
 frontendCI
 
-# Prisma (keep only schema, ignore migrations for now)
-prisma/migrations
-
+# Prisma
+# Note: migrations are required for prisma migrate deploy

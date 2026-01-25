@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsObject, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateTeamDto {
@@ -26,15 +26,4 @@ export class CreateTeamDto {
   @IsOptional()
   @Type(() => Boolean)
   active?: boolean;
-
-  @IsObject()
-  @IsOptional()
-  socials?: {
-    twitter?: string;
-    discord?: string;
-    youtube?: string;
-    twitch?: string;
-    instagram?: string;
-    website?: string;
-  };
 }

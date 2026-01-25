@@ -1,8 +1,8 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsUrl } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AddImageDto {
-  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @IsString()
   @IsNotEmpty()
   url: string;
 
