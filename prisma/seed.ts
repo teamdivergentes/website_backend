@@ -135,11 +135,6 @@ async function main() {
       description: 'Email de contact',
     },
     {
-      key: 'facebook_url',
-      value: '',
-      description: 'Lien Facebook',
-    },
-    {
       key: 'twitter_url',
       value: 'https://x.com/teamdivergentes',
       description: 'Lien Twitter/X',
@@ -153,6 +148,32 @@ async function main() {
       key: 'discord_url',
       value: 'https://discord.com/invite/mF67YZKnU3',
       description: 'Lien Discord',
+    },
+    // Pages visibility
+    {
+      key: 'page_shop_visible',
+      value: 'true',
+      description: 'Afficher la page Boutique',
+    },
+    {
+      key: 'page_contact_visible',
+      value: 'true',
+      description: 'Afficher la page Contact',
+    },
+    {
+      key: 'page_equipes_visible',
+      value: 'true',
+      description: 'Afficher la page Équipes/Ambassadeurs',
+    },
+    {
+      key: 'page_sponsors_visible',
+      value: 'true',
+      description: 'Afficher la page Sponsors',
+    },
+    {
+      key: 'page_recrutement_visible',
+      value: 'true',
+      description: 'Afficher la page Recrutement',
     },
   ];
 

@@ -71,10 +71,16 @@ INSERT INTO configs (key, value, description, "createdAt", "updatedAt") VALUES
   ('youtube_link', 'https://www.youtube.com/embed/IqoIktEIeU0', 'Lien de la video YouTube de presentation', NOW(), NOW()),
   ('site_name', 'TeamDivergentes - Structure Esportive Francaise', 'Nom du site', NOW(), NOW()),
   ('contact_email', 'contact@teamdivergentes.fr', 'Email de contact', NOW(), NOW()),
-  ('facebook_url', '', 'Lien Facebook', NOW(), NOW()),
+
   ('twitter_url', 'https://x.com/teamdivergentes', 'Lien Twitter/X', NOW(), NOW()),
   ('instagram_url', 'https://www.instagram.com/teamdivergentes/', 'Lien Instagram', NOW(), NOW()),
-  ('discord_url', 'https://discord.com/invite/mF67YZKnU3', 'Lien Discord', NOW(), NOW())
+  ('discord_url', 'https://discord.com/invite/mF67YZKnU3', 'Lien Discord', NOW(), NOW()),
+  -- Visibilite des pages
+  ('page_shop_visible', 'true', 'Afficher la page Boutique', NOW(), NOW()),
+  ('page_contact_visible', 'true', 'Afficher la page Contact', NOW(), NOW()),
+  ('page_equipes_visible', 'true', 'Afficher la page Equipes/Ambassadeurs', NOW(), NOW()),
+  ('page_sponsors_visible', 'true', 'Afficher la page Sponsors', NOW(), NOW()),
+  ('page_recrutement_visible', 'true', 'Afficher la page Recrutement', NOW(), NOW())
 ON CONFLICT (key) DO NOTHING;
 
 -- 4. Creation des membres du staff initiaux
