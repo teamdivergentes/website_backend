@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
+import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 
@@ -28,16 +29,61 @@ describe('RolesController (e2e)', () => {
 
     prisma = app.get<PrismaService>(PrismaService);
 
-    // Get admin role
-    const adminRole = await prisma.role.findFirst({
+    // Ensure Admin role exists (create if missing)
+    const adminPermissions = [
+      'users:read',
+      'users:write',
+      'users:delete',
+      'roles:read',
+      'roles:write',
+      'roles:delete',
+      'teams:read',
+      'teams:write',
+      'teams:delete',
+      'games:read',
+      'games:write',
+      'games:delete',
+      'sponsors:read',
+      'sponsors:write',
+      'sponsors:delete',
+      'staff:read',
+      'staff:write',
+      'staff:delete',
+      'config:read',
+      'config:write',
+      'annonces:read',
+      'annonces:write',
+      'annonces:delete',
+      'articles:read',
+      'articles:write',
+      'articles:delete',
+    ];
+
+    const adminRole = await prisma.role.upsert({
       where: { name: 'Admin' },
+      update: {},
+      create: {
+        name: 'Admin',
+        permissions: adminPermissions,
+        isSystem: true,
+      },
     });
 
-    if (!adminRole) {
-      throw new Error('Admin role not found in database');
-    }
-
     adminRoleId = adminRole.id;
+
+    // Ensure admin user exists
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+
+    await prisma.user.upsert({
+      where: { email: 'admin@teamdivergentes.fr' },
+      update: {},
+      create: {
+        email: 'admin@teamdivergentes.fr',
+        password: hashedPassword,
+        roleId: adminRole.id,
+        actif: true,
+      },
+    });
 
     // Login as admin to get token
     const server = app.getHttpServer() as Parameters<typeof request>[0];
