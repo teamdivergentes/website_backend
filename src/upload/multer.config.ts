@@ -1,0 +1,51 @@
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+import { BadRequestException } from '@nestjs/common';
+import { Request } from 'express';
+
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/svg+xml',
+];
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+export const multerConfig = {
+  storage: diskStorage({
+    destination: './uploads',
+    filename: (req: Request, file: Express.Multer.File, cb) => {
+      const randomName = Array(32)
+        .fill(null)
+        .map(() => Math.round(Math.random() * 16).toString(16))
+        .join('');
+      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const ext = extname(sanitizedName);
+      cb(null, `${randomName}${ext}`);
+    },
+  }),
+  fileFilter: (
+    req: Request,
+    file: Express.Multer.File,
+
+    cb: any,
+  ) => {
+    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call
+      return cb(
+        new BadRequestException(
+          `Type de fichier non autorisé. Formats acceptés: jpg, jpeg, png, webp, gif, svg`,
+        ),
+        false,
+      );
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    cb(null, true);
+  },
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+  },
+};
