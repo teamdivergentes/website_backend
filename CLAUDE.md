@@ -107,7 +107,15 @@ SWAGGER_ENABLED=true  # Set to false in production
 
 ## CI/CD
 
-- PR: Build + Lint + Tests + Semgrep + Docker
-- Push to main: Auto-deploy to PREPROD
-- Tag `v*.*.*`: Auto-deploy to PROD
+Unified workflow (`.github/workflows/cicd.yml`). Docker images pushed to `ghcr.io/teamdivergentes/website_backend/dvg_web_backend`.
+
+- PR: Build + Lint + Tests + Semgrep + Docker image build (tag `unstable-{branch}`)
+- Push to main: All checks + Docker push (tag `PREPROD`) + Auto-deploy to PREPROD via Ansible workflow dispatch
+- Tag `v*.*.*`: All checks + Docker push (tag `RELEASE`) + Auto-deploy to PROD via Ansible workflow dispatch
 - Add `[DEPLOY]` in PR title for manual PREPROD deployment
+
+Deployment triggers the VPS Ansible `deploy.yml` workflow with `--tags website`. Ansible pulls the latest GHCR images and redeploys the Docker Compose stack.
+
+Configuration in `devsecops.yml`. CI scripts in `.github/scripts/` (determine-tags.sh, deploy.sh, get-config-value.sh).
+
+Required GitHub secrets: `SEMGREP_APP_TOKEN`, `DEPLOY_REPO` (e.g. `teamdivergentes/vps_ansible`), `DEPLOY_TOKEN` (PAT with `actions:write` scope).

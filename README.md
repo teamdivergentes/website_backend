@@ -125,9 +125,9 @@ Le projet utilise GitHub Actions pour l'intégration et le déploiement continus
 
 ### Pipeline automatique
 
-- **Pull Request** : Build + Lint + Tests + Semgrep + Docker
-- **Push sur main** : Déploiement automatique en PREPROD
-- **Tag `v*.*.*`** : Déploiement automatique en PROD
+- **Pull Request** : Build + Lint + Tests + Semgrep + Docker + Rapport PR
+- **Push sur main** : Pipeline complet + Déploiement automatique en PREPROD
+- **Tag `v*.*.*`** : Pipeline complet + Déploiement automatique en PROD
 
 ### Déploiement manuel PREPROD
 
@@ -135,6 +135,30 @@ Ajouter `[DEPLOY]` dans le titre de la PR :
 ```
 [DEPLOY] Feature: nouvelle fonctionnalité
 ```
+
+### Secrets GitHub à configurer
+
+Les secrets suivants doivent être configurés dans `Settings > Secrets and variables > Actions` du repository :
+
+| Secret | Description |
+|--------|-------------|
+| `SEMGREP_APP_TOKEN` | Token d'authentification Semgrep AppSec Platform |
+| `DEPLOY_REPO` | Repository cible pour le déploiement |
+| `DEPLOY_TOKEN` | Token d'authentification pour le déploiement |
+
+> `GITHUB_TOKEN` est fourni automatiquement par GitHub Actions (login GHCR, commentaires PR).
+
+### Variables d'environnement CI
+
+Les variables suivantes sont utilisées dans le pipeline (hardcodées, pas de configuration requise) :
+
+| Variable | Valeur | Usage |
+|----------|--------|-------|
+| `NODE_VERSION` | `20` | Version Node.js utilisée dans tous les jobs |
+| `DATABASE_URL` | `postgresql://testuser:testpass@localhost:5432/testdb` | Base PostgreSQL pour les tests (service CI) |
+| `JWT_SECRET` | `test-secret-key-for-ci` | Clé JWT pour les tests |
+| `JWT_EXPIRES_IN` | `1h` | Expiration JWT pour les tests |
+| `NODE_ENV` | `test` | Mode d'exécution pour les tests |
 
 ### Configuration requise
 

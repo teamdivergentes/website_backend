@@ -165,9 +165,7 @@ Cette PR contient \`[DEPLOY]\` dans le titre, le déploiement PREPROD a été au
 - **Image :** \`${WORKFLOW_TAG}\`
 
 **Accès API :** [https://${PREPROD_URL}](https://${PREPROD_URL})
-
-**⚠️ Configuration Base de Données :**
-Assurez-vous que la base de données PostgreSQL est correctement configurée dans Coolify avec la variable \`DATABASE_URL\`.
+**Methode :** Ansible workflow dispatch (tag: website)
 EOF
   else
     cat << EOF >> pr_report.md
@@ -183,14 +181,11 @@ EOF
   fi
 else
   cat << EOF >> pr_report.md
-ℹ️ **Déploiement automatique**
+ℹ️ **Déploiement automatique via Ansible**
 
-Le déploiement se fait automatiquement selon le type de build :
-- **Push sur main** → Déploiement PREPROD
-- **Tag v\*.** → Déploiement PROD
-
-**⚠️ Configuration Base de Données :**
-Assurez-vous que la base de données PostgreSQL est correctement configurée dans Coolify avec la variable \`DATABASE_URL\`.
+Le déploiement se fait automatiquement via Ansible workflow dispatch :
+- **Push sur main** → Deploiement PREPROD (Ansible tag: website)
+- **Tag v\*.** → Deploiement PROD (Ansible tag: website)
 EOF
 fi
 
@@ -203,7 +198,7 @@ cat << EOF >> pr_report.md
 
 **Configuration requise :**
 
-La base de données PostgreSQL doit être externe et configurée dans Coolify.
+La base de données PostgreSQL est geree par Ansible (role postgresql).
 
 **Variables d'environnement nécessaires :**
 \`\`\`bash
@@ -221,7 +216,7 @@ npx prisma migrate deploy
 \`\`\`
 
 **Connexion à la base de données :**
-Créez une image PostgreSQL séparée dans Coolify et utilisez l'URL de connexion fournie.
+La base de données est configuree via les variables Ansible Vault et deployee automatiquement.
 
 </details>
 

@@ -84,18 +84,13 @@ environments:
     description: "Environnement de production"
 
 # =============================================================================
-# CONFIGURATION DÉPLOIEMENT
+# CONFIGURATION DEPLOIEMENT (via Ansible workflow dispatch)
 # =============================================================================
 deployment:
+  method: "ansible"
+  ansible_tag: "website"
   timeout_minutes: 10
-  check_interval_seconds: 15
-  max_retries: 40
-  curl:
-    connect_timeout: 30
-    max_time: 60
-    retry_count: 3
-    retry_delay: 2
-    retry_max_time: 120
+  poll_interval_seconds: 15
 
 # =============================================================================
 # CONFIGURATION QUALITÉ
