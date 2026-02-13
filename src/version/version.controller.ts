@@ -13,9 +13,13 @@ export class VersionController {
   private readonly packageJson: PackageJson;
 
   constructor() {
-    const packagePath = join(process.cwd(), 'package.json');
-    const packageContent = readFileSync(packagePath, 'utf-8');
-    this.packageJson = JSON.parse(packageContent);
+    try {
+      const packagePath = join(process.cwd(), 'package.json');
+      const packageContent = readFileSync(packagePath, 'utf-8');
+      this.packageJson = JSON.parse(packageContent);
+    } catch {
+      this.packageJson = { name: 'unknown', version: '0.0.0' };
+    }
   }
 
   @Get()
