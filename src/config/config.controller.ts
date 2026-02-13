@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ConfigService } from './config.service';
 import { UpdateConfigDto, CreateConfigDto } from './dto/update-config.dto';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -11,12 +12,14 @@ export class ConfigController {
 
   @Get()
   @Public()
+  @SkipThrottle()
   findAll() {
     return this.configService.findAll();
   }
 
   @Get(':key')
   @Public()
+  @SkipThrottle()
   findOne(@Param('key') key: string) {
     return this.configService.findOne(key);
   }

@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { StaffService } from './staff.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
@@ -24,12 +25,14 @@ export class StaffController {
 
   @Get()
   @Public()
+  @SkipThrottle()
   findAll() {
     return this.staffService.findAll();
   }
 
   @Get(':id')
   @Public()
+  @SkipThrottle()
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.staffService.findOne(id);
   }
