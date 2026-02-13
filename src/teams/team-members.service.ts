@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { ReorderDto } from './dto/reorder.dto';
@@ -7,7 +8,33 @@ import { Prisma } from '../../generated/prisma';
 
 @Injectable()
 export class TeamMembersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService,
+  ) {}
+
+  /**
+   * Extract filename from URL path
+   */
+  private extractFilename(url: string | null): string | null {
+    if (!url) return null;
+    const parts = url.split('/');
+    return parts[parts.length - 1];
+  }
+
+  /**
+   * Delete image file silently (don't fail if deletion fails)
+   */
+  private async deleteImageSilently(url: string | null): Promise<void> {
+    const filename = this.extractFilename(url);
+    if (!filename) return;
+
+    try {
+      await this.uploadService.deleteImage(filename);
+    } catch {
+      // Silently ignore deletion errors
+    }
+  }
 
   /**
    * Get all members of a team
@@ -78,6 +105,15 @@ export class TeamMembersService {
         throw new NotFoundException(`Membre #${id} n'appartient pas à l'équipe #${teamId}`);
       }
 
+      // Delete old image if a new one is provided and different
+      if (
+        updateMemberDto.image !== undefined &&
+        member.image &&
+        updateMemberDto.image !== member.image
+      ) {
+        await this.deleteImageSilently(member.image);
+      }
+
       const updateData: Prisma.TeamMemberUpdateInput = {};
 
       if (updateMemberDto.name !== undefined) updateData.name = updateMemberDto.name;
@@ -121,9 +157,15 @@ export class TeamMembersService {
         throw new NotFoundException(`Membre #${id} n'appartient pas à l'équipe #${teamId}`);
       }
 
+      // Delete from database
       await this.prisma.teamMember.delete({
         where: { id },
       });
+
+      // Delete image file if exists
+      if (member.image) {
+        await this.deleteImageSilently(member.image);
+      }
 
       return { message: 'Membre supprimé avec succès' };
     } catch (error) {

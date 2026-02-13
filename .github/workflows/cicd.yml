@@ -271,7 +271,6 @@ jobs:
             "website" \
             "${{ secrets.DEPLOY_REPO }}" \
             "${{ secrets.DEPLOY_TOKEN }}"
-        continue-on-error: true
 
       - name: Set deployment status
         id: set-status
@@ -304,7 +303,6 @@ jobs:
             "website" \
             "${{ secrets.DEPLOY_REPO }}" \
             "${{ secrets.DEPLOY_TOKEN }}"
-        continue-on-error: true
 
       - name: Set deployment status
         id: set-status

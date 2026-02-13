@@ -4,8 +4,10 @@ import { TeamMembersController } from './team-members.controller';
 import { TeamsService } from './teams.service';
 import { TeamMembersService } from './team-members.service';
 import { PrismaService } from '../prisma.service';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
+  imports: [UploadModule],
   controllers: [TeamsController, TeamMembersController],
   providers: [TeamsService, TeamMembersService, PrismaService],
   exports: [TeamsService, TeamMembersService],

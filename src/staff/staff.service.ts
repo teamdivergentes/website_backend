@@ -1,12 +1,39 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
 import { ReorderStaffDto } from './dto/reorder-staff.dto';
 
 @Injectable()
 export class StaffService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService,
+  ) {}
+
+  /**
+   * Extract filename from URL path
+   */
+  private extractFilename(url: string | null): string | null {
+    if (!url) return null;
+    const parts = url.split('/');
+    return parts[parts.length - 1];
+  }
+
+  /**
+   * Delete image file silently (don't fail if deletion fails)
+   */
+  private async deleteImageSilently(url: string | null): Promise<void> {
+    const filename = this.extractFilename(url);
+    if (!filename) return;
+
+    try {
+      await this.uploadService.deleteImage(filename);
+    } catch {
+      // Silently ignore deletion errors
+    }
+  }
 
   async findAll() {
     return this.prisma.staffMember.findMany({
@@ -47,6 +74,24 @@ export class StaffService {
 
   async update(id: number, updateStaffDto: UpdateStaffDto) {
     try {
+      // Fetch existing entity to get old image
+      const existing = await this.prisma.staffMember.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Membre du staff #${id} non trouvé`);
+      }
+
+      // If image is being updated and is different from existing, delete old image
+      if (
+        updateStaffDto.image !== undefined &&
+        existing.image &&
+        updateStaffDto.image !== existing.image
+      ) {
+        await this.deleteImageSilently(existing.image);
+      }
+
       const updateData: any = {};
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (updateStaffDto.name !== undefined) updateData.name = updateStaffDto.name;
@@ -77,9 +122,24 @@ export class StaffService {
 
   async delete(id: number) {
     try {
+      // Fetch entity to get image before deletion
+      const existing = await this.prisma.staffMember.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Membre du staff #${id} non trouvé`);
+      }
+
+      // Delete from database
       await this.prisma.staffMember.delete({
         where: { id },
       });
+
+      // Delete image file if exists
+      if (existing.image) {
+        await this.deleteImageSilently(existing.image);
+      }
     } catch (error: any) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (error.code === 'P2025') {
