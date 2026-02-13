@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { ReorderDto } from './dto/reorder.dto';
@@ -7,7 +8,33 @@ import { Prisma } from '../../generated/prisma';
 
 @Injectable()
 export class TeamsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService,
+  ) {}
+
+  /**
+   * Extract filename from URL path
+   */
+  private extractFilename(url: string | null): string | null {
+    if (!url) return null;
+    const parts = url.split('/');
+    return parts[parts.length - 1];
+  }
+
+  /**
+   * Delete image file silently (don't fail if deletion fails)
+   */
+  private async deleteImageSilently(url: string | null): Promise<void> {
+    const filename = this.extractFilename(url);
+    if (!filename) return;
+
+    try {
+      await this.uploadService.deleteImage(filename);
+    } catch {
+      // Silently ignore deletion errors
+    }
+  }
 
   /**
    * Generate a URL-friendly slug from team name
@@ -107,6 +134,33 @@ export class TeamsService {
    */
   async update(id: number, updateTeamDto: UpdateTeamDto) {
     try {
+      // Fetch existing entity to get old images
+      const existing = await this.prisma.team.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Équipe #${id} non trouvée`);
+      }
+
+      // Delete old image if a new one is provided and different
+      if (
+        updateTeamDto.image !== undefined &&
+        existing.image &&
+        updateTeamDto.image !== existing.image
+      ) {
+        await this.deleteImageSilently(existing.image);
+      }
+
+      // Delete old banner if a new one is provided and different
+      if (
+        updateTeamDto.banner !== undefined &&
+        existing.banner &&
+        updateTeamDto.banner !== existing.banner
+      ) {
+        await this.deleteImageSilently(existing.banner);
+      }
+
       const updateData: Prisma.TeamUpdateInput = {};
 
       if (updateTeamDto.name !== undefined) {
@@ -114,11 +168,11 @@ export class TeamsService {
         updateData.slug = this.generateSlug(updateTeamDto.name);
 
         // Check if new slug conflicts with existing team
-        const existing = await this.prisma.team.findUnique({
+        const slugConflict = await this.prisma.team.findUnique({
           where: { slug: updateData.slug },
         });
 
-        if (existing && existing.id !== id) {
+        if (slugConflict && slugConflict.id !== id) {
           throw new BadRequestException(
             `Une équipe avec le nom "${updateTeamDto.name}" existe déjà`,
           );
@@ -163,9 +217,37 @@ export class TeamsService {
    */
   async delete(id: number) {
     try {
+      // Fetch entity to get images before deletion
+      const existing = await this.prisma.team.findUnique({
+        where: { id },
+        include: {
+          members: true,
+        },
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Équipe #${id} non trouvée`);
+      }
+
+      // Delete from database (cascade deletes members)
       await this.prisma.team.delete({
         where: { id },
       });
+
+      // Delete team images if they exist
+      if (existing.image) {
+        await this.deleteImageSilently(existing.image);
+      }
+      if (existing.banner) {
+        await this.deleteImageSilently(existing.banner);
+      }
+
+      // Delete member images
+      for (const member of existing.members) {
+        if (member.image) {
+          await this.deleteImageSilently(member.image);
+        }
+      }
 
       return { message: 'Équipe supprimée avec succès' };
     } catch (error) {

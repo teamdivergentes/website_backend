@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateSponsorDto } from './dto/create-sponsor.dto';
 import { UpdateSponsorDto } from './dto/update-sponsor.dto';
 import { AddImageDto } from './dto/add-image.dto';
@@ -10,7 +11,33 @@ import { Prisma } from '../../generated/prisma';
 
 @Injectable()
 export class SponsorsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService,
+  ) {}
+
+  /**
+   * Extract filename from URL path
+   */
+  private extractFilename(url: string | null): string | null {
+    if (!url) return null;
+    const parts = url.split('/');
+    return parts[parts.length - 1];
+  }
+
+  /**
+   * Delete image file silently (don't fail if deletion fails)
+   */
+  private async deleteImageSilently(url: string | null): Promise<void> {
+    const filename = this.extractFilename(url);
+    if (!filename) return;
+
+    try {
+      await this.uploadService.deleteImage(filename);
+    } catch {
+      // Silently ignore deletion errors
+    }
+  }
 
   /**
    * Generate slug from name
@@ -187,9 +214,27 @@ export class SponsorsService {
    */
   async delete(id: number) {
     try {
+      // Fetch sponsor with images before deletion
+      const sponsor = await this.prisma.sponsor.findUnique({
+        where: { id },
+        include: {
+          images: true,
+        },
+      });
+
+      if (!sponsor) {
+        throw new NotFoundException(`Sponsor #${id} non trouvé`);
+      }
+
+      // Delete from database (cascade deletes images and links)
       await this.prisma.sponsor.delete({
         where: { id },
       });
+
+      // Delete all associated image files
+      for (const image of sponsor.images) {
+        await this.deleteImageSilently(image.url);
+      }
 
       return { message: 'Sponsor supprimé avec succès' };
     } catch (error: unknown) {
@@ -274,9 +319,22 @@ export class SponsorsService {
     await this.findById(sponsorId);
 
     try {
+      // Fetch image to get URL before deletion
+      const image = await this.prisma.sponsorImage.findFirst({
+        where: { id: imageId, sponsorId },
+      });
+
+      if (!image) {
+        throw new NotFoundException(`Image #${imageId} non trouvée`);
+      }
+
+      // Delete from database
       await this.prisma.sponsorImage.delete({
         where: { id: imageId, sponsorId },
       });
+
+      // Delete image file from filesystem
+      await this.deleteImageSilently(image.url);
 
       return { message: 'Image supprimée avec succès' };
     } catch (error: unknown) {

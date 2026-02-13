@@ -1,12 +1,39 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateGameDto } from './dto/create-game.dto';
 import { UpdateGameDto } from './dto/update-game.dto';
 import { ReorderGamesDto } from './dto/reorder-games.dto';
 
 @Injectable()
 export class GamesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService,
+  ) {}
+
+  /**
+   * Extract filename from URL path
+   */
+  private extractFilename(url: string | null): string | null {
+    if (!url) return null;
+    const parts = url.split('/');
+    return parts[parts.length - 1];
+  }
+
+  /**
+   * Delete image file silently (don't fail if deletion fails)
+   */
+  private async deleteImageSilently(url: string | null): Promise<void> {
+    const filename = this.extractFilename(url);
+    if (!filename) return;
+
+    try {
+      await this.uploadService.deleteImage(filename);
+    } catch {
+      // Silently ignore deletion errors
+    }
+  }
 
   /**
    * Get all games ordered by position
@@ -94,13 +121,31 @@ export class GamesService {
    * Update game
    */
   async update(id: number, updateGameDto: UpdateGameDto) {
+    // Fetch existing entity to get old image
+    const existing = await this.prisma.game.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(`Jeu #${id} non trouvé`);
+    }
+
+    // Delete old image if a new one is provided and different
+    if (
+      updateGameDto.image !== undefined &&
+      existing.image &&
+      updateGameDto.image !== existing.image
+    ) {
+      await this.deleteImageSilently(existing.image);
+    }
+
     // If key is being changed, check for conflicts
     if (updateGameDto.key) {
-      const existing = await this.prisma.game.findUnique({
+      const keyConflict = await this.prisma.game.findUnique({
         where: { key: updateGameDto.key },
       });
 
-      if (existing && existing.id !== id) {
+      if (keyConflict && keyConflict.id !== id) {
         throw new BadRequestException(`Un jeu avec la clé "${updateGameDto.key}" existe déjà`);
       }
     }
@@ -128,9 +173,24 @@ export class GamesService {
    */
   async delete(id: number) {
     try {
+      // Fetch entity to get image before deletion
+      const existing = await this.prisma.game.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Jeu #${id} non trouvé`);
+      }
+
+      // Delete from database
       await this.prisma.game.delete({
         where: { id },
       });
+
+      // Delete image file if exists
+      if (existing.image) {
+        await this.deleteImageSilently(existing.image);
+      }
 
       return { message: 'Jeu supprimé avec succès' };
     } catch (error) {

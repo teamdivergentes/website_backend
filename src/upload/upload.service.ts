@@ -45,8 +45,13 @@ export class UploadService {
     } else if (ext === 'svg') {
       // Keep original SVG (vector format, no optimization needed)
       return filename;
+    } else if (ext === 'webp') {
+      await sharpInstance
+        .webp({ quality: 85 })
+        .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+        .toFile(filePath + '.optimized');
     } else {
-      // JPEG, WEBP
+      // JPEG
       await sharpInstance
         .jpeg({ quality: 85, progressive: true })
         .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
