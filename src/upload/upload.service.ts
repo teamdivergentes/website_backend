@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
-import { unlink } from 'fs/promises';
+import { rename, unlink } from 'fs/promises';
 import { join } from 'path';
 import sharp from 'sharp';
 
@@ -55,8 +55,7 @@ export class UploadService {
 
     // Replace original with optimized
     await unlink(filePath);
-    await sharp(filePath + '.optimized').toFile(filePath);
-    await unlink(filePath + '.optimized');
+    await rename(filePath + '.optimized', filePath);
 
     return filename;
   }
