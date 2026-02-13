@@ -26,4 +26,7 @@ export class CreateTeamDto {
   @IsOptional()
   @Type(() => Boolean)
   active?: boolean;
+
+  @IsOptional()
+  memberFieldsConfig?: any;
 }

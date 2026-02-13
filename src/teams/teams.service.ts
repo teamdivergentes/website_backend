@@ -122,6 +122,7 @@ export class TeamsService {
         description: createTeamDto.description,
         position: (maxPosition._max.position ?? -1) + 1,
         active: createTeamDto.active ?? true,
+        memberFieldsConfig: createTeamDto.memberFieldsConfig || {},
       },
       include: {
         members: true,
@@ -184,6 +185,8 @@ export class TeamsService {
       if (updateTeamDto.banner !== undefined) updateData.banner = updateTeamDto.banner;
       if (updateTeamDto.description !== undefined)
         updateData.description = updateTeamDto.description;
+      if (updateTeamDto.memberFieldsConfig !== undefined)
+        updateData.memberFieldsConfig = updateTeamDto.memberFieldsConfig;
 
       const result = await this.prisma.team.update({
         where: { id },

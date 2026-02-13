@@ -30,6 +30,12 @@ export class TeamMembersController {
     return this.teamMembersService.findByTeam(teamId);
   }
 
+  @Get(':id')
+  @Public()
+  findOne(@Param('teamId', ParseIntPipe) teamId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.teamMembersService.findOne(teamId, id);
+  }
+
   @Post()
   @UseGuards(RolesGuard)
   @Roles('admin')
