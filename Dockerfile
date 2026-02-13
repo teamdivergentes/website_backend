@@ -49,6 +49,9 @@ RUN npm ci --only=production --no-audit --no-fund && npm cache clean --force
 # ================================
 FROM node:20-alpine AS production
 
+ARG BUILD_DATE
+ENV BUILD_DATE=$BUILD_DATE
+
 WORKDIR /app
 
 # Install dumb-init for proper signal handling
