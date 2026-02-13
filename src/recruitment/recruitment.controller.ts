@@ -28,15 +28,17 @@ export class RecruitmentController {
     return this.recruitmentService.findAllActive();
   }
 
+  @Get('admin/all')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  findAll() {
+    return this.recruitmentService.findAll();
+  }
+
   @Public()
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.recruitmentService.findOne(id);
-  }
-
-  @Get('admin/all')
-  findAll() {
-    return this.recruitmentService.findAll();
   }
 
   @Post()
