@@ -1,0 +1,114 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
+import { CreateRecruitmentDto } from './dto/create-recruitment.dto';
+import { UpdateRecruitmentDto } from './dto/update-recruitment.dto';
+import { ReorderDto } from './dto/reorder.dto';
+import { Prisma } from '../../generated/prisma';
+
+@Injectable()
+export class RecruitmentService {
+  constructor(private prisma: PrismaService) {}
+
+  async findAllActive() {
+    return this.prisma.recruitmentPost.findMany({
+      where: { active: true },
+      orderBy: { position: 'asc' },
+    });
+  }
+
+  async findAll() {
+    return this.prisma.recruitmentPost.findMany({
+      orderBy: { position: 'asc' },
+    });
+  }
+
+  async findOne(id: number) {
+    const post = await this.prisma.recruitmentPost.findUnique({
+      where: { id },
+    });
+
+    if (!post) {
+      throw new NotFoundException(`Poste de recrutement #${id} non trouvé`);
+    }
+
+    return post;
+  }
+
+  async create(dto: CreateRecruitmentDto) {
+    const maxPosition = await this.prisma.recruitmentPost.aggregate({
+      _max: { position: true },
+    });
+
+    const position = (maxPosition._max.position ?? -1) + 1;
+
+    return this.prisma.recruitmentPost.create({
+      data: {
+        title: dto.title,
+        type: dto.type,
+        description: dto.description,
+        image: dto.image,
+        active: dto.active ?? true,
+        position,
+      },
+    });
+  }
+
+  async update(id: number, dto: UpdateRecruitmentDto) {
+    await this.findOne(id);
+
+    try {
+      return await this.prisma.recruitmentPost.update({
+        where: { id },
+        data: {
+          title: dto.title,
+          type: dto.type,
+          description: dto.description,
+          image: dto.image,
+          active: dto.active,
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException(`Poste de recrutement #${id} non trouvé`);
+      }
+      throw error;
+    }
+  }
+
+  async delete(id: number) {
+    try {
+      await this.prisma.recruitmentPost.delete({
+        where: { id },
+      });
+
+      return { message: 'Poste de recrutement supprimé avec succès' };
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException(`Poste de recrutement #${id} non trouvé`);
+      }
+      throw error;
+    }
+  }
+
+  async toggleActive(id: number) {
+    const post = await this.findOne(id);
+
+    return this.prisma.recruitmentPost.update({
+      where: { id },
+      data: { active: !post.active },
+    });
+  }
+
+  async reorder(dto: ReorderDto) {
+    await this.prisma.$transaction(
+      dto.items.map((item) =>
+        this.prisma.recruitmentPost.update({
+          where: { id: item.id },
+          data: { position: item.position },
+        }),
+      ),
+    );
+
+    return { message: 'Ordre des postes mis à jour avec succès' };
+  }
+}

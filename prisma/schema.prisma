@@ -178,3 +178,17 @@ enum ImageLayout {
 
   @@map("image_layout")
 }
+
+model RecruitmentPost {
+  id          Int      @id @default(autoincrement())
+  title       String
+  type        String
+  description String   @db.Text
+  image       String?
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("recruitment_posts")
+}
