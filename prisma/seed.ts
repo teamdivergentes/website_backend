@@ -34,6 +34,9 @@ async function main() {
     'articles:read',
     'articles:write',
     'articles:delete',
+    'recrutement:read',
+    'recrutement:write',
+    'recrutement:delete',
   ];
 
   const cmPermissions = [
@@ -64,6 +67,9 @@ async function main() {
     'articles:read',
     'articles:write',
     'articles:delete',
+    'recrutement:read',
+    'recrutement:write',
+    'recrutement:delete',
   ];
 
   const adminRole = await prisma.role.upsert({
@@ -196,8 +202,53 @@ async function main() {
       position: 0,
     },
     {
-      name: 'Ianis',
-      role: 'Directeur General',
+      name: 'Ficello',
+      role: 'Vice-Président',
+      category: 'ADMIN' as const,
+      position: 0,
+    },
+    {
+      name: 'Julien',
+      role: 'Trésorier',
+      category: 'ADMIN' as const,
+      position: 0,
+    },
+    {
+      name: 'Tano',
+      role: 'Membre',
+      category: 'ADMIN' as const,
+      position: 0,
+    },
+    {
+      name: 'Maxime',
+      role: 'Membre',
+      category: 'ADMIN' as const,
+      position: 0,
+    },
+    {
+      name: 'Hugo',
+      role: 'Membre',
+      category: 'ADMIN' as const,
+      position: 0,
+    },
+    {
+      name: 'Maxime',
+      role: 'Responsable Developpement',
+      category: 'HEADSTAFF' as const,
+      position: 0,
+    },{
+      name: 'Gé0tank',
+      role: 'Responsable Esportif',
+      category: 'HEADSTAFF' as const,
+      position: 0,
+    },{
+      name: 'Emerode',
+      role: 'Responsable Communication',
+      category: 'HEADSTAFF' as const,
+      position: 0,
+    },{
+      name: 'Alice',
+      role: 'Responsable Ressources Humaines',
       category: 'HEADSTAFF' as const,
       position: 0,
     },

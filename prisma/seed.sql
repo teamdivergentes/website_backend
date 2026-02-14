@@ -24,7 +24,8 @@ INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALU
     'staff:read','staff:write','staff:delete',
     'config:read','config:write',
     'annonces:read','annonces:write','annonces:delete',
-    'articles:read','articles:write','articles:delete'
+    'articles:read','articles:write','articles:delete',
+    'recrutement:read','recrutement:write','recrutement:delete'
   ], true, NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
   permissions = EXCLUDED.permissions,
@@ -42,7 +43,7 @@ ON CONFLICT (name) DO UPDATE SET
   "isSystem" = EXCLUDED."isSystem",
   "updatedAt" = NOW();
 
--- Role Gestionnaire (equipes, jeux, sponsors, staff + droits CM)
+-- Role Gestionnaire (equipes, jeux, sponsors, staff + droits CM + recrutement)
 INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALUES
   ('Gestionnaire', ARRAY[
     'teams:read','teams:write','teams:delete',
@@ -50,7 +51,8 @@ INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALU
     'sponsors:read','sponsors:write','sponsors:delete',
     'staff:read','staff:write','staff:delete',
     'annonces:read','annonces:write','annonces:delete',
-    'articles:read','articles:write','articles:delete'
+    'articles:read','articles:write','articles:delete',
+    'recrutement:read','recrutement:write','recrutement:delete'
   ], true, NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
   permissions = EXCLUDED.permissions,
@@ -86,7 +88,15 @@ ON CONFLICT (key) DO NOTHING;
 -- 4. Creation des membres du staff initiaux
 INSERT INTO staff_members (name, role, category, position, "createdAt", "updatedAt") VALUES
   ('Vilvi', 'President', 'ADMIN', 0, NOW(), NOW()),
-  ('Ianis', 'Directeur General', 'HEADSTAFF', 0, NOW(), NOW())
+  ('Ficello', 'Vice-President', 'ADMIN', 0, NOW(), NOW()),
+  ('Julien', 'Tresorier', 'ADMIN', 0, NOW(), NOW()),
+  ('Tano', 'Membre', 'ADMIN', 0, NOW(), NOW()),
+  ('Maxime', 'Membre', 'ADMIN', 0, NOW(), NOW()),
+  ('Hugo', 'Membre', 'ADMIN', 0, NOW(), NOW()),
+  ('Maxime', 'Responsable Developpement', 'HEADSTAFF', 0, NOW(), NOW()),
+  ('Ge0tank', 'Responsable Esportif', 'HEADSTAFF', 0, NOW(), NOW()),
+  ('Emerode', 'Responsable Communication', 'HEADSTAFF', 0, NOW(), NOW()),
+  ('Alice', 'Responsable Ressources Humaines', 'HEADSTAFF', 0, NOW(), NOW())
 ON CONFLICT DO NOTHING;
 
 -- 5. Creation des jeux initiaux

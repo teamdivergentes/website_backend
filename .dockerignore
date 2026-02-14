@@ -63,3 +63,4 @@ frontendCI
 
 # Prisma
 # Note: migrations are required for prisma migrate deploy
+generated
