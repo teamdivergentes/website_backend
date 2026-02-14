@@ -332,6 +332,60 @@ async function main() {
 
   console.log('Sponsors created:', sponsors.length);
 
+  // Create initial recruitment posts
+  const recruitmentPosts = [
+    {
+      title: 'Développeur',
+      type: 'Bénévole',
+      description: "Participaer dans le développement d'une application Mobile",
+      active: true,
+      position: 0,
+      slug: 'developpeur',
+      location: 'Télétravail',
+      duration: 'Long terme',
+      missions: [
+        "Développer et maintenir les sites et applications web de l'association",
+        'Gérer l\'infrastructure technique : déploiement, serveurs, sauvegardes, sécurité',
+        'Optimiser les performances : rapidité, accessibilité, SEO technique',
+        'Collaborer avec l\'équipe pour traduire les besoins en solutions techniques',
+      ].join('\n'),
+      skills: [
+        'Frontend: Angular',
+        'Backend: TypeScript / NestJS',
+        'PostgreSQL : conception, gestion et optimisation',
+      ].join('\n'),
+      requirements: [
+        'Formation ou expérience significative en développement web',
+        'Autonomie et capacité à travailler en équipe à distance',
+        "Sens de l'organisation et respect des délais",
+        'Intérêt pour le secteur associatif et/ou le gaming/esport',
+        "Curiosité, proactivité et envie d'apprendre",
+        "Esprit d'équipe et adaptabilité",
+      ].join('\n'),
+      benefits: [
+        "Une expérience enrichissante au sein d'une équipe passionnée",
+        "Flexibilité totale dans l'organisation du temps de travail",
+        'Possibilité de développer vos compétences sur des projets concrets',
+        'Attestation de bénévolat sur demande',
+        'Intégration dans une communauté gaming/esport dynamique',
+      ].join('\n'),
+    },
+  ];
+
+  for (const post of recruitmentPosts) {
+    const existing = await prisma.recruitmentPost.findFirst({
+      where: { slug: post.slug },
+    });
+
+    if (!existing) {
+      await prisma.recruitmentPost.create({
+        data: post,
+      });
+    }
+  }
+
+  console.log('Recruitment posts created:', recruitmentPosts.length);
+
   console.log('Seed completed successfully!');
 }
 

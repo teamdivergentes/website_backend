@@ -22,4 +22,32 @@ export class CreateRecruitmentDto {
   @IsOptional()
   @Type(() => Boolean)
   active?: boolean;
+
+  @IsString()
+  @IsOptional()
+  slug?: string;
+
+  @IsString()
+  @IsOptional()
+  location?: string;
+
+  @IsString()
+  @IsOptional()
+  duration?: string;
+
+  @IsString()
+  @IsOptional()
+  missions?: string;
+
+  @IsString()
+  @IsOptional()
+  skills?: string;
+
+  @IsString()
+  @IsOptional()
+  requirements?: string;
+
+  @IsString()
+  @IsOptional()
+  benefits?: string;
 }
