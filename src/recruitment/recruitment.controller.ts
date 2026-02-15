@@ -10,10 +10,10 @@ import {
   ParseIntPipe,
   UseGuards,
   UseInterceptors,
-  UploadedFile,
+  UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { RecruitmentService } from './recruitment.service';
 import { CreateRecruitmentDto } from './dto/create-recruitment.dto';
@@ -48,24 +48,35 @@ export class RecruitmentController {
   @Public()
   @Post('apply')
   @UseInterceptors(
-    FileInterceptor('cv', {
-      storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-      fileFilter: (req, file, cb) => {
-        const allowedMimeTypes = [
-          'application/pdf',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        ];
-        cb(null, allowedMimeTypes.includes(file.mimetype));
+    FileFieldsInterceptor(
+      [
+        { name: 'cv', maxCount: 1 },
+        { name: 'coverLetter', maxCount: 1 },
+      ],
+      {
+        storage: memoryStorage(),
+        limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+        fileFilter: (req, file, cb) => {
+          const allowedMimeTypes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          ];
+          cb(null, allowedMimeTypes.includes(file.mimetype));
+        },
       },
-    }),
+    ),
   )
-  apply(@Body() dto: ApplyRecruitmentDto, @UploadedFile() cv?: Express.Multer.File) {
+  apply(
+    @Body() dto: ApplyRecruitmentDto,
+    @UploadedFiles() files: { cv?: Express.Multer.File[]; coverLetter?: Express.Multer.File[] },
+  ) {
+    const cv = files?.cv?.[0];
+    const coverLetter = files?.coverLetter?.[0];
     if (!cv) {
       throw new BadRequestException('Le CV est requis');
     }
-    return this.applicationService.sendApplication(dto, cv);
+    return this.applicationService.sendApplication(dto, cv, coverLetter);
   }
 
   @Public()

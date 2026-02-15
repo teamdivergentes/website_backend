@@ -11,7 +11,8 @@ export class RecruitmentApplicationService {
 
   async sendApplication(
     dto: ApplyRecruitmentDto,
-    file?: Express.Multer.File,
+    cv?: Express.Multer.File,
+    coverLetter?: Express.Multer.File,
   ): Promise<{ success: boolean; message: string }> {
     const results = {
       email: false,
@@ -20,7 +21,7 @@ export class RecruitmentApplicationService {
 
     // Envoi email
     try {
-      await this.sendEmail(dto, file);
+      await this.sendEmail(dto, cv, coverLetter);
       results.email = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -29,7 +30,7 @@ export class RecruitmentApplicationService {
 
     // Envoi Discord webhook
     try {
-      await this.sendDiscordWebhook(dto, file);
+      await this.sendDiscordWebhook(dto, cv, coverLetter);
       results.discord = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -43,6 +44,12 @@ export class RecruitmentApplicationService {
       };
     }
 
+    // Partial failure - at least one channel worked
+    if (!results.email || !results.discord) {
+      const failedChannel = !results.email ? 'email' : 'Discord';
+      this.logger.warn(`Application sent but ${failedChannel} notification failed`);
+    }
+
     return {
       success: true,
       message:
@@ -50,7 +57,11 @@ export class RecruitmentApplicationService {
     };
   }
 
-  private async sendEmail(dto: ApplyRecruitmentDto, file?: Express.Multer.File): Promise<void> {
+  private async sendEmail(
+    dto: ApplyRecruitmentDto,
+    cv?: Express.Multer.File,
+    coverLetter?: Express.Multer.File,
+  ): Promise<void> {
     // Récupérer les configs SMTP depuis la base de données
     const [smtpHost, smtpPort, smtpUser, smtpPass, contactEmail] = await Promise.all([
       this.configService.getValue('contact_smtp_host'),
@@ -61,8 +72,7 @@ export class RecruitmentApplicationService {
     ]);
 
     if (!smtpHost || !smtpUser || !smtpPass) {
-      this.logger.warn('SMTP configuration missing in database - skipping email');
-      return;
+      throw new Error('SMTP configuration missing in database');
     }
 
     const transporter = nodemailer.createTransport({
@@ -77,28 +87,33 @@ export class RecruitmentApplicationService {
 
     const recipientEmail = contactEmail || smtpUser;
 
+    const attachments = [];
+    if (cv) {
+      attachments.push({ filename: cv.originalname, content: cv.buffer });
+    }
+    if (coverLetter) {
+      attachments.push({ filename: coverLetter.originalname, content: coverLetter.buffer });
+    }
+
     const mailOptions = {
       from: `"DVG Recrutement" <${smtpUser}>`,
       to: recipientEmail,
       replyTo: dto.email,
       subject: `[DVG Candidature] ${dto.postTitle} - ${dto.name}`,
-      html: this.buildEmailHtml(dto, file),
-      text: this.buildEmailText(dto, file),
-      ...(file && {
-        attachments: [
-          {
-            filename: file.originalname,
-            content: file.buffer,
-          },
-        ],
-      }),
+      html: this.buildEmailHtml(dto, cv, coverLetter),
+      text: this.buildEmailText(dto, cv, coverLetter),
+      ...(attachments.length > 0 && { attachments }),
     };
 
     await transporter.sendMail(mailOptions);
     this.logger.log(`Application email sent successfully to ${recipientEmail}`);
   }
 
-  private buildEmailHtml(dto: ApplyRecruitmentDto, file?: Express.Multer.File): string {
+  private buildEmailHtml(
+    dto: ApplyRecruitmentDto,
+    cv?: Express.Multer.File,
+    coverLetter?: Express.Multer.File,
+  ): string {
     return `
       <!DOCTYPE html>
       <html>
@@ -143,8 +158,16 @@ export class RecruitmentApplicationService {
             <div class="field">
               <div class="label">CV :</div>
               <div class="value">
-                <span class="${file ? 'cv-badge cv-yes' : 'cv-badge cv-no'}">
-                  ${file ? `Fichier joint : ${file.originalname}` : 'Non fourni'}
+                <span class="${cv ? 'cv-badge cv-yes' : 'cv-badge cv-no'}">
+                  ${cv ? `Fichier joint : ${cv.originalname}` : 'Non fourni'}
+                </span>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label">Lettre de motivation :</div>
+              <div class="value">
+                <span class="${coverLetter ? 'cv-badge cv-yes' : 'cv-badge cv-no'}">
+                  ${coverLetter ? `Fichier joint : ${coverLetter.originalname}` : 'Non fournie'}
                 </span>
               </div>
             </div>
@@ -162,7 +185,11 @@ export class RecruitmentApplicationService {
     `;
   }
 
-  private buildEmailText(dto: ApplyRecruitmentDto, file?: Express.Multer.File): string {
+  private buildEmailText(
+    dto: ApplyRecruitmentDto,
+    cv?: Express.Multer.File,
+    coverLetter?: Express.Multer.File,
+  ): string {
     return `
 Nouvelle candidature DVG
 ========================
@@ -171,7 +198,8 @@ Poste: ${dto.postTitle}
 Type de contrat: ${dto.postType}
 Nom: ${dto.name}
 Email: ${dto.email}
-CV: ${file ? `Fichier joint : ${file.originalname}` : 'Non fourni'}
+CV: ${cv ? `Fichier joint : ${cv.originalname}` : 'Non fourni'}
+Lettre de motivation: ${coverLetter ? `Fichier joint : ${coverLetter.originalname}` : 'Non fournie'}
 ${dto.message ? `\nMessage:\n${dto.message}` : ''}
 
 ---
@@ -181,76 +209,113 @@ Ce message a été envoyé via le formulaire de candidature DVG
 
   private async sendDiscordWebhook(
     dto: ApplyRecruitmentDto,
-    file?: Express.Multer.File,
+    cv?: Express.Multer.File,
+    coverLetter?: Express.Multer.File,
   ): Promise<void> {
     const webhookUrl =
       (await this.configService.getValue('recruitment_discord_webhook')) ||
       (await this.configService.getValue('contact_discord_webhook'));
 
     if (!webhookUrl) {
-      this.logger.warn(
-        'Discord webhook URL not configured in database - skipping Discord notification',
-      );
-      return;
+      throw new Error('Discord webhook URL not configured in database');
     }
 
+    // Construire la section documents
+    const docs: string[] = [];
+    if (cv) docs.push(`📄 **CV** — \`${cv.originalname}\``);
+    else docs.push('📄 **CV** — *Non fourni*');
+    if (coverLetter) docs.push(`📝 **Lettre de motivation** — \`${coverLetter.originalname}\``);
+    else docs.push('📝 **Lettre de motivation** — *Non fournie*');
+
     const embed = {
-      title: 'Nouvelle candidature',
-      color: 0x32d299, // Vert DVG
+      author: {
+        name: 'NOUVELLE CANDIDATURE',
+      },
+      title: dto.postTitle,
+      description: `> **${dto.postType}**\n\n`,
+      color: 0x32d299,
       fields: [
         {
-          name: 'Poste',
-          value: dto.postTitle,
+          name: '👤 Candidat',
+          value: `**${dto.name}**`,
           inline: true,
         },
         {
-          name: 'Type',
-          value: dto.postType,
-          inline: true,
-        },
-        {
-          name: 'Nom',
-          value: dto.name,
-          inline: true,
-        },
-        {
-          name: 'Email',
+          name: '📧 Contact',
           value: dto.email,
           inline: true,
         },
         {
-          name: 'CV',
-          value: file ? `✅ ${file.originalname}` : '❌ Non fourni',
-          inline: true,
-        },
-        ...(dto.message ? [{
-          name: 'Message',
-          value: dto.message.length > 1024 ? dto.message.substring(0, 1021) + '...' : dto.message,
+          name: '\u200b',
+          value: '\u200b',
           inline: false,
-        }] : []),
+        },
+        {
+          name: '📎 Documents joints',
+          value: docs.join('\n'),
+          inline: false,
+        },
+        ...(dto.message
+          ? [
+              {
+                name: '💬 Pourquoi moi ?',
+                value:
+                  dto.message.length > 1000
+                    ? `>>> ${dto.message.substring(0, 997)}...`
+                    : `>>> ${dto.message}`,
+                inline: false,
+              },
+            ]
+          : []),
       ],
-      timestamp: new Date().toISOString(),
       footer: {
-        text: 'DVG Recrutement',
+        text: 'DVG Recrutement • teamdivergentes.fr',
       },
+      timestamp: new Date().toISOString(),
     };
+
+    // Construire les descriptions d'attachments pour Discord
+    const attachments = [];
+    const filesToUpload = [];
+    let fileIndex = 0;
+    if (cv) {
+      filesToUpload.push(cv);
+      attachments.push({
+        id: fileIndex,
+        filename: cv.originalname,
+        description: `CV de ${dto.name} — ${dto.postTitle}`,
+      });
+      fileIndex++;
+    }
+    if (coverLetter) {
+      filesToUpload.push(coverLetter);
+      attachments.push({
+        id: fileIndex,
+        filename: coverLetter.originalname,
+        description: `Lettre de motivation de ${dto.name} — ${dto.postTitle}`,
+      });
+      fileIndex++;
+    }
 
     const payload = {
       username: 'DVG Recrutement',
+      avatar_url: 'https://teamdivergentes.fr/assets/images/dvg_logo.webp',
       embeds: [embed],
+      ...(attachments.length > 0 && { attachments }),
     };
 
     let response: Response;
 
-    if (file) {
-      // Multipart/form-data pour envoyer le fichier CV sur Discord
+    if (filesToUpload.length > 0) {
       const formData = new FormData();
       formData.append('payload_json', JSON.stringify(payload));
-      formData.append(
-        'files[0]',
-        new Blob([new Uint8Array(file.buffer)]),
-        file.originalname,
-      );
+      filesToUpload.forEach((f, i) => {
+        formData.append(
+          `files[${i}]`,
+          new Blob([new Uint8Array(f.buffer)]),
+          f.originalname,
+        );
+      });
       response = await fetch(webhookUrl, { method: 'POST', body: formData });
     } else {
       response = await fetch(webhookUrl, {
