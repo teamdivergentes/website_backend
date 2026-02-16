@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateTeamDto {
@@ -27,6 +27,7 @@ export class CreateTeamDto {
   @Type(() => Boolean)
   active?: boolean;
 
+  @IsObject()
   @IsOptional()
-  memberFieldsConfig?: Record<string, unknown>;
+  memberFieldsConfig?: Record<string, any>;
 }
