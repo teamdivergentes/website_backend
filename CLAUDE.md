@@ -142,6 +142,19 @@ Dual notification: Email (Nodemailer) + Discord webhook.
 - HTML + text email templates with DVG branding
 - Discord embeds with color `#32D299`
 
+### Prisma Migrations (CRITICAL)
+
+Les fichiers de migration Prisma (`prisma/migrations/*/migration.sql`) sont **immuables**. Une fois creee, une migration ne doit **jamais** etre modifiee.
+
+**Regles strictes** :
+- **Ne jamais modifier** un fichier `migration.sql` existant, meme pour reordonner des colonnes ou reformater le SQL
+- **Ne jamais regenerer** une migration existante avec `prisma migrate dev` si elle a deja ete committee
+- Pour tout changement de schema, **toujours creer une nouvelle migration** via `npx prisma migrate dev --name descriptive_name`
+- Si une migration existante pose probleme (erreur, oubli), creer une migration corrective qui ALTER/DROP les elements concernes
+- Lors d'un rebase ou merge, si un conflit touche un fichier de migration, **garder la version deja presente sur la branche cible** (celle deja appliquee en base) et creer une nouvelle migration pour les ajouts manquants
+
+**Pourquoi** : Les migrations sont appliquees sequentiellement et tracees dans la table `_prisma_migrations`. Modifier une migration deja appliquee cree une divergence entre le schema en base et l'historique des migrations, ce qui casse `prisma migrate deploy` en production.
+
 ### Static Files
 
 Uploads served from `/uploads/` directory via Express static assets middleware in `main.ts`.
