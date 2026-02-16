@@ -59,36 +59,42 @@ model StaffMember {
 }
 
 model Team {
-  id          Int          @id @default(autoincrement())
-  name        String
-  slug        String       @unique
-  game        String
-  image       String?
-  banner      String?
-  description String?
-  active      Boolean      @default(true)
-  position    Int          @default(0)
-  socials     Json?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  members     TeamMember[]
+  id                 Int          @id @default(autoincrement())
+  name               String
+  slug               String       @unique
+  game               String
+  image              String?
+  banner             String?
+  description        String?
+  active             Boolean      @default(true)
+  position           Int          @default(0)
+  socials            Json?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  memberFieldsConfig Json?
+  members            TeamMember[]
 
   @@map("teams")
 }
 
 model TeamMember {
-  id        Int      @id @default(autoincrement())
-  name      String
-  realName  String?
-  role      String
-  image     String?
-  teamId    Int
-  position  Int      @default(0)
-  socials   Json?
-  joinedAt  DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  id           Int       @id @default(autoincrement())
+  name         String
+  realName     String?
+  role         String
+  image        String?
+  teamId       Int
+  position     Int       @default(0)
+  socials      Json?
+  joinedAt     DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  nationality  String?
+  birthDate    DateTime?
+  biography    String?
+  customFields Json?
+  slug         String?   @unique
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@map("team_members")
 }
@@ -177,4 +183,25 @@ enum ImageLayout {
   LAYOUT_3
 
   @@map("image_layout")
+}
+
+model RecruitmentPost {
+  id          Int      @id @default(autoincrement())
+  title       String
+  type        String
+  description String   @db.Text
+  image       String?
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+  slug          String?  @unique
+  location      String?
+  duration      String?
+  missions      String?  @db.Text
+  skills        String?  @db.Text
+  requirements  String?  @db.Text
+  benefits      String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("recruitment_posts")
 }

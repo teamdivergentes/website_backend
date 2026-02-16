@@ -13,6 +13,7 @@ import { GamesModule } from './games/games.module';
 import { ProfileModule } from './profile/profile.module';
 import { SponsorsModule } from './sponsors/sponsors.module';
 import { ContactModule } from './contact/contact.module';
+import { RecruitmentModule } from './recruitment/recruitment.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -28,6 +29,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     ProfileModule,
     SponsorsModule,
     ContactModule,
+    RecruitmentModule,
   ],
   controllers: [AppController],
   providers: [
