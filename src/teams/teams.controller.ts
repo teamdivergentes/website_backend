@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { TeamsService } from './teams.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
@@ -24,12 +25,14 @@ export class TeamsController {
 
   @Get()
   @Public()
+  @SkipThrottle()
   findAll() {
     return this.teamsService.findAll();
   }
 
   @Get(':slug')
   @Public()
+  @SkipThrottle()
   findBySlug(@Param('slug') slug: string) {
     return this.teamsService.findBySlug(slug);
   }

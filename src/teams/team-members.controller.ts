@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { TeamMembersService } from './team-members.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
@@ -24,6 +25,7 @@ export class TeamMembersController {
 
   @Get()
   @Public()
+  @SkipThrottle()
   findByTeam(@Param('teamId', ParseIntPipe) teamId: number) {
     return this.teamMembersService.findByTeam(teamId);
   }

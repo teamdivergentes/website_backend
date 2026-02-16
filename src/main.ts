@@ -3,9 +3,13 @@ import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { join } from 'path';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Security: Helmet middleware for HTTP headers
+  app.use(helmet());
 
   // Serve static files from uploads directory
   // Using process.cwd() because multer saves to ./uploads (relative to cwd)
@@ -15,14 +19,18 @@ async function bootstrap() {
   });
 
   // Configuration CORS pour permettre les requêtes du frontend
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',')
+    : [
+        'http://localhost:4200', // Angular dev server
+        'http://localhost:8080', // Frontend Docker
+        'http://127.0.0.1:4200',
+        'http://127.0.0.1:8080',
+      ];
+
   app.enableCors({
-    origin: [
-      'http://localhost:4200', // Angular dev server
-      'http://localhost:8080', // Frontend Docker
-      'http://127.0.0.1:4200',
-      'http://127.0.0.1:8080',
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'],
   });

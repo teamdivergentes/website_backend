@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { SponsorsService } from './sponsors.service';
 import { CreateSponsorDto } from './dto/create-sponsor.dto';
 import { UpdateSponsorDto } from './dto/update-sponsor.dto';
@@ -30,26 +31,30 @@ export class SponsorsController {
    * GET /api/sponsors - Liste tous les sponsors actifs (public)
    */
   @Public()
+  @SkipThrottle()
   @Get()
   findAllActive() {
     return this.sponsorsService.findAllActive();
   }
 
   /**
-   * GET /api/sponsors/:slug - Récupère un sponsor par son slug (public)
-   */
-  @Public()
-  @Get(':slug')
-  findBySlug(@Param('slug') slug: string) {
-    return this.sponsorsService.findBySlug(slug);
-  }
-
-  /**
    * GET /api/sponsors/admin/all - Liste tous les sponsors pour l'admin (admin)
    */
   @Get('admin/all')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   findAll() {
     return this.sponsorsService.findAll();
+  }
+
+  /**
+   * GET /api/sponsors/:slug - Récupère un sponsor par son slug (public)
+   */
+  @Public()
+  @SkipThrottle()
+  @Get(':slug')
+  findBySlug(@Param('slug') slug: string) {
+    return this.sponsorsService.findBySlug(slug);
   }
 
   /**
