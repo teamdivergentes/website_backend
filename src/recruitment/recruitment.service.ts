@@ -14,8 +14,8 @@ export class RecruitmentService {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // strip accents
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')     // non-alphanumeric → dash
-      .replace(/^-+|-+$/g, '');        // trim leading/trailing dashes
+      .replace(/[^a-z0-9]+/g, '-') // non-alphanumeric → dash
+      .replace(/^-+|-+$/g, ''); // trim leading/trailing dashes
   }
 
   private async generateUniqueSlug(title: string, excludeId?: number): Promise<string> {
@@ -78,7 +78,7 @@ export class RecruitmentService {
     });
 
     const position = (maxPosition._max.position ?? -1) + 1;
-    const slug = dto.slug || await this.generateUniqueSlug(dto.title);
+    const slug = dto.slug || (await this.generateUniqueSlug(dto.title));
 
     return this.prisma.recruitmentPost.create({
       data: {

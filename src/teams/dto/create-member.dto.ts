@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsObject, IsDateString } from 'class-validator';
 
 export class CreateMemberDto {
   @IsString()
@@ -26,4 +26,24 @@ export class CreateMemberDto {
     twitch?: string;
     instagram?: string;
   };
+
+  @IsString()
+  @IsOptional()
+  nationality?: string;
+
+  @IsDateString()
+  @IsOptional()
+  birthDate?: string;
+
+  @IsString()
+  @IsOptional()
+  biography?: string;
+
+  @IsObject()
+  @IsOptional()
+  customFields?: Record<string, any>;
+
+  @IsString()
+  @IsOptional()
+  slug?: string;
 }

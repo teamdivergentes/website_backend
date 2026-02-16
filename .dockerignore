@@ -63,4 +63,5 @@ frontendCI
 
 # Prisma
 # Note: migrations are required for prisma migrate deploy
+# Exclude generated client so Docker uses freshly generated one
 generated
