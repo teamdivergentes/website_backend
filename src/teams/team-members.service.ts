@@ -147,12 +147,16 @@ export class TeamMembersService {
       if (updateMemberDto.role !== undefined) updateData.role = updateMemberDto.role;
       if (updateMemberDto.image !== undefined) updateData.image = updateMemberDto.image;
       if (updateMemberDto.socials !== undefined) updateData.socials = updateMemberDto.socials;
-      if (updateMemberDto.nationality !== undefined) updateData.nationality = updateMemberDto.nationality;
+      if (updateMemberDto.nationality !== undefined)
+        updateData.nationality = updateMemberDto.nationality;
       if (updateMemberDto.birthDate !== undefined) {
-        updateData.birthDate = updateMemberDto.birthDate ? new Date(updateMemberDto.birthDate) : null;
+        updateData.birthDate = updateMemberDto.birthDate
+          ? new Date(updateMemberDto.birthDate)
+          : null;
       }
       if (updateMemberDto.biography !== undefined) updateData.biography = updateMemberDto.biography;
-      if (updateMemberDto.customFields !== undefined) updateData.customFields = updateMemberDto.customFields;
+      if (updateMemberDto.customFields !== undefined)
+        updateData.customFields = updateMemberDto.customFields;
       if (updateMemberDto.slug !== undefined) updateData.slug = updateMemberDto.slug;
 
       return this.prisma.teamMember.update({

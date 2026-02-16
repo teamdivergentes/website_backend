@@ -28,5 +28,5 @@ export class CreateTeamDto {
   active?: boolean;
 
   @IsOptional()
-  memberFieldsConfig?: any;
+  memberFieldsConfig?: Record<string, unknown>;
 }

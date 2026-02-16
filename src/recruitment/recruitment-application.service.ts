@@ -171,10 +171,14 @@ export class RecruitmentApplicationService {
                 </span>
               </div>
             </div>
-            ${dto.message ? `<div class="field">
+            ${
+              dto.message
+                ? `<div class="field">
               <div class="label">Message :</div>
               <div class="message">${dto.message.replace(/\n/g, '<br>')}</div>
-            </div>` : ''}
+            </div>`
+                : ''
+            }
           </div>
           <div class="footer">
             Ce message a été envoyé via le formulaire de candidature DVG
@@ -310,11 +314,7 @@ Ce message a été envoyé via le formulaire de candidature DVG
       const formData = new FormData();
       formData.append('payload_json', JSON.stringify(payload));
       filesToUpload.forEach((f, i) => {
-        formData.append(
-          `files[${i}]`,
-          new Blob([new Uint8Array(f.buffer)]),
-          f.originalname,
-        );
+        formData.append(`files[${i}]`, new Blob([new Uint8Array(f.buffer)]), f.originalname);
       });
       response = await fetch(webhookUrl, { method: 'POST', body: formData });
     } else {
