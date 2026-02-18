@@ -155,6 +155,21 @@ async function main() {
       value: 'https://discord.com/invite/mF67YZKnU3',
       description: 'Lien Discord',
     },
+    {
+      key: 'og_title',
+      value: 'Team Divergentes | Organisation Esportive',
+      description: 'Titre Open Graph pour les aperçus Discord/réseaux sociaux',
+    },
+    {
+      key: 'og_description',
+      value: 'Team Divergentes, organisation e-sportive créée en 2017. Découvrez nos joueurs, nos équipes et rejoignez l\'aventure !',
+      description: 'Description Open Graph pour les aperçus Discord/réseaux sociaux',
+    },
+    {
+      key: 'og_image',
+      value: '',
+      description: 'Image Open Graph pour les aperçus Discord/réseaux sociaux (URL absolue ou chemin /uploads/...)',
+    },
     // Pages visibility
     {
       key: 'page_shop_visible',
