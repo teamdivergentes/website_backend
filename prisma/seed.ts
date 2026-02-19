@@ -156,6 +156,16 @@ async function main() {
       description: 'Lien Discord',
     },
     {
+      key: 'youtube_url',
+      value: 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g',
+      description: 'Lien de la chaine YouTube',
+    },
+    {
+      key: 'twitch_url',
+      value: 'https://www.twitch.tv/teamdivergentes',
+      description: 'Lien Twitch',
+    },
+    {
       key: 'og_title',
       value: 'Team Divergentes | Organisation Esportive',
       description: 'Titre Open Graph pour les aperçus Discord/réseaux sociaux',
