@@ -156,14 +156,9 @@ async function main() {
       description: 'Lien Discord',
     },
     {
-      key: 'youtube_url',
-      value: 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g',
-      description: 'Lien de la chaine YouTube',
-    },
-    {
-      key: 'twitch_url',
-      value: 'https://www.twitch.tv/teamdivergentes',
-      description: 'Lien Twitch',
+      key: 'social_urls',
+      value: 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
+      description: 'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
     },
     {
       key: 'og_title',
