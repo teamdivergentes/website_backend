@@ -156,6 +156,11 @@ async function main() {
       description: 'Lien Discord',
     },
     {
+      key: 'social_urls',
+      value: 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
+      description: 'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
+    },
+    {
       key: 'og_title',
       value: 'Team Divergentes | Organisation Esportive',
       description: 'Titre Open Graph pour les aperçus Discord/réseaux sociaux',
