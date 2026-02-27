@@ -37,6 +37,7 @@ async function main() {
     'recrutement:read',
     'recrutement:write',
     'recrutement:delete',
+    'analytics:read',
   ];
 
   const cmPermissions = [
