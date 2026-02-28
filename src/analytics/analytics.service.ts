@@ -78,7 +78,9 @@ export class AnalyticsService {
         this.isConfigured = true;
         this.logger.log('Google Analytics client configuré');
       } catch {
-        this.logger.error("Erreur lors de l'initialisation du client Google Analytics");
+        this.logger.error(
+          "Erreur lors de l'initialisation du client Google Analytics. Vérifiez GA_PROPERTY_ID, GA_CLIENT_EMAIL et GA_PRIVATE_KEY.",
+        );
         // isConfigured reste false, ensureConfigured() protègera les appels
       }
     } else {
@@ -179,14 +181,24 @@ export class AnalyticsService {
       // GA retourne une row par dateRange quand aucune dimension n'est demandée.
       const extractMetrics = (dateRangeIndex: number) => {
         const allRows = response.rows ?? [];
-        const rangeRow = allRows[dateRangeIndex] ?? allRows[0];
+        const rangeRow = allRows[dateRangeIndex] ?? null;
+        if (!rangeRow) {
+          return {
+            totalUsers: 0,
+            newUsers: 0,
+            sessions: 0,
+            pageViews: 0,
+            avgSessionDuration: 0,
+            bounceRate: 0,
+          };
+        }
         return {
-          totalUsers: this.parseInt(rangeRow?.metricValues?.[0]?.value),
-          newUsers: this.parseInt(rangeRow?.metricValues?.[1]?.value),
-          sessions: this.parseInt(rangeRow?.metricValues?.[2]?.value),
-          pageViews: this.parseInt(rangeRow?.metricValues?.[3]?.value),
-          avgSessionDuration: this.parseFloat(rangeRow?.metricValues?.[4]?.value),
-          bounceRate: this.parseFloat(rangeRow?.metricValues?.[5]?.value),
+          totalUsers: this.parseInt(rangeRow.metricValues?.[0]?.value ?? undefined),
+          newUsers: this.parseInt(rangeRow.metricValues?.[1]?.value ?? undefined),
+          sessions: this.parseInt(rangeRow.metricValues?.[2]?.value ?? undefined),
+          pageViews: this.parseInt(rangeRow.metricValues?.[3]?.value ?? undefined),
+          avgSessionDuration: this.parseFloat(rangeRow.metricValues?.[4]?.value ?? undefined),
+          bounceRate: this.parseFloat(rangeRow.metricValues?.[5]?.value ?? undefined),
         };
       };
 
@@ -480,6 +492,7 @@ export class AnalyticsService {
             dimensions: [{ name: 'deviceCategory' }],
             metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
             orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+            limit: 10,
           }),
           this.analyticsClient.runReport({
             property: `properties/${this.propertyId}`,
