@@ -1,6 +1,14 @@
-import { Injectable, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  Logger,
+  ServiceUnavailableException,
+  GatewayTimeoutException,
+} from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
+// FIX [BETA-004] Import statique du module GA à la place du require() dynamique
+import { BetaAnalyticsDataClient } from '@google-analytics/data';
 import type {
   OverviewResponse,
   VisitorsResponse,
@@ -12,9 +20,28 @@ import type {
   MetricWithComparison,
 } from './dto/analytics-response.dto';
 
+// FIX [ALPHA-007] Timeout en ms pour tous les appels vers l'API Google Analytics
+const GA_API_TIMEOUT_MS = 10000;
+
+/** Représente une valeur de dimension GA4 (string ou null selon l'API) */
+interface GaDimensionValue {
+  value?: string | null;
+}
+
+/** Représente une valeur de métrique GA4 */
+interface GaMetricValue {
+  value?: string | null;
+}
+
+/** Représente une ligne de résultat GA4 */
+interface GaRow {
+  dimensionValues?: GaDimensionValue[];
+  metricValues?: GaMetricValue[];
+}
+
 @Injectable()
 export class AnalyticsService {
-  private analyticsClient: any;
+  private analyticsClient: BetaAnalyticsDataClient;
   private propertyId: string;
   private isConfigured: boolean = false;
   private readonly logger = new Logger(AnalyticsService.name);
@@ -25,8 +52,7 @@ export class AnalyticsService {
     const privateKey = process.env.GA_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
     if (propertyId && clientEmail && privateKey) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { BetaAnalyticsDataClient } = require('@google-analytics/data');
+      // FIX [BETA-004] Utilisation de l'import statique BetaAnalyticsDataClient
       this.analyticsClient = new BetaAnalyticsDataClient({
         credentials: { client_email: clientEmail, private_key: privateKey },
       });
@@ -46,6 +72,21 @@ export class AnalyticsService {
         'Google Analytics non configuré. Veuillez définir les variables GA_PROPERTY_ID, GA_CLIENT_EMAIL et GA_PRIVATE_KEY.',
       );
     }
+  }
+
+  // FIX [ALPHA-007] Wrapper qui ajoute un timeout sur tout appel à l'API GA
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number = GA_API_TIMEOUT_MS): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const id = setTimeout(() => {
+        clearTimeout(id);
+        reject(
+          new GatewayTimeoutException(
+            `L'API Google Analytics n'a pas répondu dans les ${timeoutMs}ms impartis.`,
+          ),
+        );
+      }, timeoutMs);
+    });
+    return Promise.race([promise, timeoutPromise]);
   }
 
   private parseFloat(value: string | undefined): number {
@@ -91,30 +132,28 @@ export class AnalyticsService {
 
     const { prevStart, prevEnd } = this.computePreviousPeriod(startDate, endDate);
 
-    const [response] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [
-        { startDate, endDate },
-        { startDate: prevStart, endDate: prevEnd },
-      ],
-      metrics: [
-        { name: 'totalUsers' },
-        { name: 'newUsers' },
-        { name: 'sessions' },
-        { name: 'screenPageViews' },
-        { name: 'averageSessionDuration' },
-        { name: 'bounceRate' },
-      ],
-    });
+    // FIX [ALPHA-007] Ajout du timeout sur l'appel runReport
+    const [response] = await this.withTimeout(
+      this.analyticsClient.runReport({
+        property: `properties/${this.propertyId}`,
+        dateRanges: [
+          { startDate, endDate },
+          { startDate: prevStart, endDate: prevEnd },
+        ],
+        metrics: [
+          { name: 'totalUsers' },
+          { name: 'newUsers' },
+          { name: 'sessions' },
+          { name: 'screenPageViews' },
+          { name: 'averageSessionDuration' },
+          { name: 'bounceRate' },
+        ],
+      }),
+    );
 
+    // FIX [ALPHA-001, ALPHA-013] Suppression de la variable mv inutilisée.
+    // GA retourne une row par dateRange quand aucune dimension n'est demandée.
     const extractMetrics = (dateRangeIndex: number) => {
-      const row = response.rows?.find(
-        (r: any) => r.dimensionValues?.[0]?.value === `date_range_${dateRangeIndex}`,
-      );
-      const mv = (i: number) =>
-        this.parseFloat(row?.metricValues?.[i]?.value ?? response.rows?.[0]?.metricValues?.[i]?.value);
-
-      // When no dimensions, GA returns one row per date range
       const allRows = response.rows ?? [];
       const rangeRow = allRows[dateRangeIndex] ?? allRows[0];
       return {
@@ -138,7 +177,10 @@ export class AnalyticsService {
         newUsers: this.buildComparison(current.newUsers, previous.newUsers),
         sessions: this.buildComparison(current.sessions, previous.sessions),
         pageViews: this.buildComparison(current.pageViews, previous.pageViews),
-        avgSessionDuration: this.buildComparison(current.avgSessionDuration, previous.avgSessionDuration),
+        avgSessionDuration: this.buildComparison(
+          current.avgSessionDuration,
+          previous.avgSessionDuration,
+        ),
         bounceRate: this.buildComparison(current.bounceRate, previous.bounceRate),
       },
     };
@@ -153,25 +195,28 @@ export class AnalyticsService {
     const cached = await this.cacheManager.get<VisitorsResponse>(cacheKey);
     if (cached) return cached;
 
-    const [response] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: 'date' }],
-      metrics: [
-        { name: 'totalUsers' },
-        { name: 'newUsers' },
-        { name: 'sessions' },
-        { name: 'screenPageViews' },
-      ],
-      orderBys: [{ dimension: { dimensionName: 'date' } }],
-    });
+    // FIX [ALPHA-007] Ajout du timeout sur l'appel runReport
+    const [response] = await this.withTimeout(
+      this.analyticsClient.runReport({
+        property: `properties/${this.propertyId}`,
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: 'date' }],
+        metrics: [
+          { name: 'totalUsers' },
+          { name: 'newUsers' },
+          { name: 'sessions' },
+          { name: 'screenPageViews' },
+        ],
+        orderBys: [{ dimension: { dimensionName: 'date' } }],
+      }),
+    );
 
-    const data = (response.rows ?? []).map((row: any) => ({
-      date: row.dimensionValues[0].value as string,
-      totalUsers: this.parseInt(row.metricValues[0]?.value),
-      newUsers: this.parseInt(row.metricValues[1]?.value),
-      sessions: this.parseInt(row.metricValues[2]?.value),
-      pageViews: this.parseInt(row.metricValues[3]?.value),
+    const data = (response.rows ?? []).map((row: GaRow) => ({
+      date: row.dimensionValues?.[0]?.value ?? '',
+      totalUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      newUsers: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
+      sessions: this.parseInt(row.metricValues?.[2]?.value ?? undefined),
+      pageViews: this.parseInt(row.metricValues?.[3]?.value ?? undefined),
     }));
 
     const result: VisitorsResponse = { period: { startDate, endDate }, data };
@@ -179,33 +224,40 @@ export class AnalyticsService {
     return result;
   }
 
-  async getTopPages(startDate: string, endDate: string, limit: number = 10): Promise<TopPagesResponse> {
+  async getTopPages(
+    startDate: string,
+    endDate: string,
+    limit: number = 10,
+  ): Promise<TopPagesResponse> {
     this.ensureConfigured();
     const cacheKey = `analytics:top-pages:${startDate}:${endDate}:${limit}`;
     const cached = await this.cacheManager.get<TopPagesResponse>(cacheKey);
     if (cached) return cached;
 
-    const [response] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: 'pagePath' }, { name: 'pageTitle' }],
-      metrics: [
-        { name: 'screenPageViews' },
-        { name: 'totalUsers' },
-        { name: 'averageSessionDuration' },
-        { name: 'bounceRate' },
-      ],
-      orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-      limit,
-    });
+    // FIX [ALPHA-007] Ajout du timeout sur l'appel runReport
+    const [response] = await this.withTimeout(
+      this.analyticsClient.runReport({
+        property: `properties/${this.propertyId}`,
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: 'pagePath' }, { name: 'pageTitle' }],
+        metrics: [
+          { name: 'screenPageViews' },
+          { name: 'totalUsers' },
+          { name: 'averageSessionDuration' },
+          { name: 'bounceRate' },
+        ],
+        orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+        limit,
+      }),
+    );
 
-    const data = (response.rows ?? []).map((row: any) => ({
-      path: row.dimensionValues[0].value as string,
-      title: row.dimensionValues[1].value as string,
-      pageViews: this.parseInt(row.metricValues[0]?.value),
-      totalUsers: this.parseInt(row.metricValues[1]?.value),
-      avgSessionDuration: this.parseFloat(row.metricValues[2]?.value),
-      bounceRate: this.parseFloat(row.metricValues[3]?.value),
+    const data = (response.rows ?? []).map((row: GaRow) => ({
+      path: row.dimensionValues?.[0]?.value ?? '',
+      title: row.dimensionValues?.[1]?.value ?? '',
+      pageViews: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      totalUsers: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
+      avgSessionDuration: this.parseFloat(row.metricValues?.[2]?.value ?? undefined),
+      bounceRate: this.parseFloat(row.metricValues?.[3]?.value ?? undefined),
     }));
 
     const result: TopPagesResponse = { period: { startDate, endDate }, data };
@@ -219,32 +271,43 @@ export class AnalyticsService {
     const cached = await this.cacheManager.get<TrafficSourcesResponse>(cacheKey);
     if (cached) return cached;
 
-    const [response] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [
-        { name: 'sessionSource' },
-        { name: 'sessionMedium' },
-        { name: 'sessionDefaultChannelGroup' },
-      ],
-      metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'bounceRate' }],
-      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-    });
+    // FIX [ALPHA-007] Ajout du timeout sur l'appel runReport
+    const [response] = await this.withTimeout(
+      this.analyticsClient.runReport({
+        property: `properties/${this.propertyId}`,
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [
+          { name: 'sessionSource' },
+          { name: 'sessionMedium' },
+          { name: 'sessionDefaultChannelGroup' },
+        ],
+        metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'bounceRate' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      }),
+    );
 
-    const data = (response.rows ?? []).map((row: any) => ({
-      source: row.dimensionValues[0].value as string,
-      medium: row.dimensionValues[1].value as string,
-      channel: row.dimensionValues[2].value as string,
-      sessions: this.parseInt(row.metricValues[0]?.value),
-      totalUsers: this.parseInt(row.metricValues[1]?.value),
-      bounceRate: this.parseFloat(row.metricValues[2]?.value),
+    const data = (response.rows ?? []).map((row: GaRow) => ({
+      source: row.dimensionValues?.[0]?.value ?? '',
+      medium: row.dimensionValues?.[1]?.value ?? '',
+      channel: row.dimensionValues?.[2]?.value ?? '',
+      sessions: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      totalUsers: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
+      bounceRate: this.parseFloat(row.metricValues?.[2]?.value ?? undefined),
     }));
 
     // Aggregate by channel
-    const channelMap = new Map<string, { sessions: number; totalUsers: number; bounceRateSum: number; count: number }>();
+    const channelMap = new Map<
+      string,
+      { sessions: number; totalUsers: number; bounceRateSum: number; count: number }
+    >();
     for (const row of data) {
       const key = row.channel;
-      const existing = channelMap.get(key) ?? { sessions: 0, totalUsers: 0, bounceRateSum: 0, count: 0 };
+      const existing = channelMap.get(key) ?? {
+        sessions: 0,
+        totalUsers: 0,
+        bounceRateSum: 0,
+        count: 0,
+      };
       channelMap.set(key, {
         sessions: existing.sessions + row.sessions,
         totalUsers: existing.totalUsers + row.totalUsers,
@@ -264,7 +327,19 @@ export class AnalyticsService {
 
     const result: TrafficSourcesResponse = {
       period: { startDate, endDate },
-      data: data.map(({ channel: _channel, ...rest }: { channel: string; source: string; medium: string; sessions: number; totalUsers: number; bounceRate: number }) => rest),
+      data: data.map(
+        ({
+          channel: _channel,
+          ...rest
+        }: {
+          channel: string;
+          source: string;
+          medium: string;
+          sessions: number;
+          totalUsers: number;
+          bounceRate: number;
+        }) => rest,
+      ),
       byChannel,
     };
 
@@ -278,35 +353,40 @@ export class AnalyticsService {
     const cached = await this.cacheManager.get<GeoResponse>(cacheKey);
     if (cached) return cached;
 
-    const [countryResponse] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: 'country' }, { name: 'countryId' }],
-      metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
-      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
-      limit: 50,
-    });
+    // FIX [ALPHA-005] Parallélisation des 2 appels runReport (pays + villes)
+    // FIX [ALPHA-007] Ajout du timeout sur les 2 appels runReport
+    const [[countryResponse], [cityResponse]] = await this.withTimeout(
+      Promise.all([
+        this.analyticsClient.runReport({
+          property: `properties/${this.propertyId}`,
+          dateRanges: [{ startDate, endDate }],
+          dimensions: [{ name: 'country' }, { name: 'countryId' }],
+          metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
+          orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+          limit: 50,
+        }),
+        this.analyticsClient.runReport({
+          property: `properties/${this.propertyId}`,
+          dateRanges: [{ startDate, endDate }],
+          dimensions: [{ name: 'city' }],
+          metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
+          orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+          limit: 20,
+        }),
+      ]),
+    );
 
-    const [cityResponse] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: 'city' }],
-      metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
-      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
-      limit: 20,
-    });
-
-    const byCountry = (countryResponse.rows ?? []).map((row: any) => ({
-      country: row.dimensionValues[0].value as string,
-      countryId: row.dimensionValues[1].value as string,
-      totalUsers: this.parseInt(row.metricValues[0]?.value),
-      sessions: this.parseInt(row.metricValues[1]?.value),
+    const byCountry = (countryResponse.rows ?? []).map((row: GaRow) => ({
+      country: row.dimensionValues?.[0]?.value ?? '',
+      countryId: row.dimensionValues?.[1]?.value ?? '',
+      totalUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      sessions: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
     }));
 
-    const byCity = (cityResponse.rows ?? []).map((row: any) => ({
-      city: row.dimensionValues[0].value as string,
-      totalUsers: this.parseInt(row.metricValues[0]?.value),
-      sessions: this.parseInt(row.metricValues[1]?.value),
+    const byCity = (cityResponse.rows ?? []).map((row: GaRow) => ({
+      city: row.dimensionValues?.[0]?.value ?? '',
+      totalUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      sessions: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
     }));
 
     const result: GeoResponse = { period: { startDate, endDate }, byCountry, byCity };
@@ -320,45 +400,73 @@ export class AnalyticsService {
     const cached = await this.cacheManager.get<DevicesResponse>(cacheKey);
     if (cached) return cached;
 
-    const [categoryResponse] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: 'deviceCategory' }],
-      metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
-      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
-    });
+    // FIX [ALPHA-005 bis] Parallélisation des 2 appels runReport (catégories + navigateurs)
+    // FIX [ALPHA-007] Ajout du timeout sur les 2 appels runReport
+    const [[categoryResponse], [browserResponse]] = await this.withTimeout(
+      Promise.all([
+        this.analyticsClient.runReport({
+          property: `properties/${this.propertyId}`,
+          dateRanges: [{ startDate, endDate }],
+          dimensions: [{ name: 'deviceCategory' }],
+          metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
+          orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+        }),
+        this.analyticsClient.runReport({
+          property: `properties/${this.propertyId}`,
+          dateRanges: [{ startDate, endDate }],
+          dimensions: [{ name: 'browser' }],
+          metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
+          orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+          limit: 10,
+        }),
+      ]),
+    );
 
-    const [browserResponse] = await this.analyticsClient.runReport({
-      property: `properties/${this.propertyId}`,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: 'browser' }],
-      metrics: [{ name: 'totalUsers' }, { name: 'sessions' }],
-      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
-      limit: 10,
-    });
+    interface DeviceRow {
+      category: string;
+      totalUsers: number;
+      sessions: number;
+    }
+    interface BrowserRow {
+      browser: string;
+      totalUsers: number;
+      sessions: number;
+    }
 
-    const categoryRows = (categoryResponse.rows ?? []).map((row: any) => ({
-      category: row.dimensionValues[0].value as string,
-      totalUsers: this.parseInt(row.metricValues[0]?.value),
-      sessions: this.parseInt(row.metricValues[1]?.value),
+    const categoryRows: DeviceRow[] = (categoryResponse.rows ?? []).map((row: GaRow) => ({
+      category: row.dimensionValues?.[0]?.value ?? '',
+      totalUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      sessions: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
     }));
 
-    const totalCategoryUsers = categoryRows.reduce((sum: number, r: any) => sum + r.totalUsers, 0);
-    const byCategory = categoryRows.map((r: any) => ({
+    const totalCategoryUsers = categoryRows.reduce(
+      (sum: number, r: DeviceRow) => sum + r.totalUsers,
+      0,
+    );
+    const byCategory = categoryRows.map((r: DeviceRow) => ({
       ...r,
-      percentage: totalCategoryUsers > 0 ? parseFloat(((r.totalUsers / totalCategoryUsers) * 100).toFixed(2)) : 0,
+      percentage:
+        totalCategoryUsers > 0
+          ? parseFloat(((r.totalUsers / totalCategoryUsers) * 100).toFixed(2))
+          : 0,
     }));
 
-    const browserRows = (browserResponse.rows ?? []).map((row: any) => ({
-      browser: row.dimensionValues[0].value as string,
-      totalUsers: this.parseInt(row.metricValues[0]?.value),
-      sessions: this.parseInt(row.metricValues[1]?.value),
+    const browserRows: BrowserRow[] = (browserResponse.rows ?? []).map((row: GaRow) => ({
+      browser: row.dimensionValues?.[0]?.value ?? '',
+      totalUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+      sessions: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
     }));
 
-    const totalBrowserUsers = browserRows.reduce((sum: number, r: any) => sum + r.totalUsers, 0);
-    const byBrowser = browserRows.map((r: any) => ({
+    const totalBrowserUsers = browserRows.reduce(
+      (sum: number, r: BrowserRow) => sum + r.totalUsers,
+      0,
+    );
+    const byBrowser = browserRows.map((r: BrowserRow) => ({
       ...r,
-      percentage: totalBrowserUsers > 0 ? parseFloat(((r.totalUsers / totalBrowserUsers) * 100).toFixed(2)) : 0,
+      percentage:
+        totalBrowserUsers > 0
+          ? parseFloat(((r.totalUsers / totalBrowserUsers) * 100).toFixed(2))
+          : 0,
     }));
 
     const result: DevicesResponse = { period: { startDate, endDate }, byCategory, byBrowser };
@@ -372,40 +480,47 @@ export class AnalyticsService {
     const cached = await this.cacheManager.get<RealtimeResponse>(cacheKey);
     if (cached) return cached;
 
-    const [pageResponse] = await this.analyticsClient.runRealtimeReport({
-      property: `properties/${this.propertyId}`,
-      dimensions: [{ name: 'unifiedScreenName' }],
-      metrics: [{ name: 'activeUsers' }],
-    });
+    // FIX [ALPHA-006] Parallélisation des 3 appels runRealtimeReport
+    // FIX [ALPHA-007] Ajout du timeout sur les 3 appels runRealtimeReport
+    const [[pageResponse], [countryResponse], [deviceResponse]] = await this.withTimeout(
+      Promise.all([
+        this.analyticsClient.runRealtimeReport({
+          property: `properties/${this.propertyId}`,
+          dimensions: [{ name: 'unifiedScreenName' }],
+          metrics: [{ name: 'activeUsers' }],
+        }),
+        this.analyticsClient.runRealtimeReport({
+          property: `properties/${this.propertyId}`,
+          dimensions: [{ name: 'country' }],
+          metrics: [{ name: 'activeUsers' }],
+        }),
+        this.analyticsClient.runRealtimeReport({
+          property: `properties/${this.propertyId}`,
+          dimensions: [{ name: 'deviceCategory' }],
+          metrics: [{ name: 'activeUsers' }],
+        }),
+      ]),
+    );
 
-    const [countryResponse] = await this.analyticsClient.runRealtimeReport({
-      property: `properties/${this.propertyId}`,
-      dimensions: [{ name: 'country' }],
-      metrics: [{ name: 'activeUsers' }],
-    });
-
-    const [deviceResponse] = await this.analyticsClient.runRealtimeReport({
-      property: `properties/${this.propertyId}`,
-      dimensions: [{ name: 'deviceCategory' }],
-      metrics: [{ name: 'activeUsers' }],
-    });
-
-    const byPage = (pageResponse.rows ?? []).map((row: any) => ({
-      page: row.dimensionValues[0].value as string,
-      activeUsers: this.parseInt(row.metricValues[0]?.value),
+    const byPage = (pageResponse.rows ?? []).map((row: GaRow) => ({
+      page: row.dimensionValues?.[0]?.value ?? '',
+      activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
     }));
 
-    const byCountry = (countryResponse.rows ?? []).map((row: any) => ({
-      country: row.dimensionValues[0].value as string,
-      activeUsers: this.parseInt(row.metricValues[0]?.value),
+    const byCountry = (countryResponse.rows ?? []).map((row: GaRow) => ({
+      country: row.dimensionValues?.[0]?.value ?? '',
+      activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
     }));
 
-    const byDevice = (deviceResponse.rows ?? []).map((row: any) => ({
-      device: row.dimensionValues[0].value as string,
-      activeUsers: this.parseInt(row.metricValues[0]?.value),
+    const byDevice = (deviceResponse.rows ?? []).map((row: GaRow) => ({
+      device: row.dimensionValues?.[0]?.value ?? '',
+      activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
     }));
 
-    const activeUsers = byPage.reduce((sum: number, r: any) => sum + r.activeUsers, 0);
+    const activeUsers = byPage.reduce(
+      (sum: number, r: { page: string; activeUsers: number }) => sum + r.activeUsers,
+      0,
+    );
 
     const result: RealtimeResponse = {
       activeUsers,

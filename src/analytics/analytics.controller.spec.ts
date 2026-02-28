@@ -19,10 +19,7 @@ describe('AnalyticsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AnalyticsController],
-      providers: [
-        { provide: AnalyticsService, useValue: mockAnalyticsService },
-        Reflector,
-      ],
+      providers: [{ provide: AnalyticsService, useValue: mockAnalyticsService }, Reflector],
     }).compile();
 
     controller = module.get<AnalyticsController>(AnalyticsController);
@@ -38,7 +35,10 @@ describe('AnalyticsController', () => {
       const expected = { period: {}, metrics: {} };
       mockAnalyticsService.getOverview.mockResolvedValue(expected);
 
-      const result = await controller.getOverview({ startDate: '2024-01-01', endDate: '2024-01-31' });
+      const result = await controller.getOverview({
+        startDate: '2024-01-01',
+        endDate: '2024-01-31',
+      });
 
       expect(mockAnalyticsService.getOverview).toHaveBeenCalledWith('2024-01-01', '2024-01-31');
       expect(result).toBe(expected);
@@ -50,9 +50,15 @@ describe('AnalyticsController', () => {
       const expected = { period: {}, data: [] };
       mockAnalyticsService.getVisitorsByDay.mockResolvedValue(expected);
 
-      const result = await controller.getVisitors({ startDate: '2024-01-01', endDate: '2024-01-31' });
+      const result = await controller.getVisitors({
+        startDate: '2024-01-01',
+        endDate: '2024-01-31',
+      });
 
-      expect(mockAnalyticsService.getVisitorsByDay).toHaveBeenCalledWith('2024-01-01', '2024-01-31');
+      expect(mockAnalyticsService.getVisitorsByDay).toHaveBeenCalledWith(
+        '2024-01-01',
+        '2024-01-31',
+      );
       expect(result).toBe(expected);
     });
   });
@@ -72,7 +78,10 @@ describe('AnalyticsController', () => {
       expect(result).toBe(expected);
     });
 
-    it('devrait utiliser la limite par défaut si non fournie', async () => {
+    // FIX [ALPHA-014] Le controller transmet query.limit tel quel au service.
+    // Quand limit est absent du DTO, sa valeur est undefined (le service applique alors
+    // sa propre valeur par défaut de 10). On vérifie donc que undefined est bien passé.
+    it("devrait transmettre undefined au service quand aucune limite n'est fournie", async () => {
       mockAnalyticsService.getTopPages.mockResolvedValue({ period: {}, data: [] });
 
       await controller.getTopPages({ startDate: '2024-01-01', endDate: '2024-01-31' });
@@ -90,9 +99,15 @@ describe('AnalyticsController', () => {
       const expected = { period: {}, data: [], byChannel: [] };
       mockAnalyticsService.getTrafficSources.mockResolvedValue(expected);
 
-      const result = await controller.getTrafficSources({ startDate: '2024-01-01', endDate: '2024-01-31' });
+      const result = await controller.getTrafficSources({
+        startDate: '2024-01-01',
+        endDate: '2024-01-31',
+      });
 
-      expect(mockAnalyticsService.getTrafficSources).toHaveBeenCalledWith('2024-01-01', '2024-01-31');
+      expect(mockAnalyticsService.getTrafficSources).toHaveBeenCalledWith(
+        '2024-01-01',
+        '2024-01-31',
+      );
       expect(result).toBe(expected);
     });
   });
@@ -102,7 +117,10 @@ describe('AnalyticsController', () => {
       const expected = { period: {}, byCountry: [], byCity: [] };
       mockAnalyticsService.getGeography.mockResolvedValue(expected);
 
-      const result = await controller.getGeography({ startDate: '2024-01-01', endDate: '2024-01-31' });
+      const result = await controller.getGeography({
+        startDate: '2024-01-01',
+        endDate: '2024-01-31',
+      });
 
       expect(mockAnalyticsService.getGeography).toHaveBeenCalledWith('2024-01-01', '2024-01-31');
       expect(result).toBe(expected);
@@ -114,7 +132,10 @@ describe('AnalyticsController', () => {
       const expected = { period: {}, byCategory: [], byBrowser: [] };
       mockAnalyticsService.getDevices.mockResolvedValue(expected);
 
-      const result = await controller.getDevices({ startDate: '2024-01-01', endDate: '2024-01-31' });
+      const result = await controller.getDevices({
+        startDate: '2024-01-01',
+        endDate: '2024-01-31',
+      });
 
       expect(mockAnalyticsService.getDevices).toHaveBeenCalledWith('2024-01-01', '2024-01-31');
       expect(result).toBe(expected);
