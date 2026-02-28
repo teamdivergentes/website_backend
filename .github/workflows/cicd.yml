@@ -1,0 +1,417 @@
+name: CICD
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]  # Format: vXX.YY.ZZ
+  pull_request:
+
+env:
+  NODE_VERSION: 20
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      build-status: ${{ steps.build.outcome }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build NestJS
+        id: build
+        run: npm run build
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: build
+    if: needs.build.result == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    if: needs.build.result == 'success'
+    
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run Prisma migrations
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        run: npx prisma migrate deploy
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          JWT_SECRET: test-secret-key-for-ci
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: test
+        run: npm run test
+
+      - name: Run e2e tests
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          JWT_SECRET: test-secret-key-for-ci
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: test
+        run: npm run test:e2e
+
+  semgrep:
+    runs-on: ubuntu-latest
+    needs: build
+    # Skip any PR created by dependabot to avoid permission issues:
+    if: (github.actor != 'dependabot[bot]') && needs.build.result == 'success'
+
+    container:
+      image: semgrep/semgrep
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Run Semgrep
+        run: semgrep ci
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [build, lint, test, semgrep]
+    if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test.result == 'success' && needs.semgrep.result == 'success'
+    outputs:
+      image-tag: ${{ steps.tags.outputs.image-tag }}
+      workflow-tag: ${{ steps.tags.outputs.workflow-tag }}
+      version-tag: ${{ steps.tags.outputs.version-tag }}
+      tag-suffix: ${{ steps.tags.outputs.tag-suffix }}
+      image-name: ${{ steps.tags.outputs.image-name }}
+      deploy-tag: ${{ steps.tags.outputs.deploy-tag }}
+      image-digest: ${{ steps.build-image.outputs.digest }}
+      docker-status: ${{ job.status }}
+    env:
+      BUILD_STATUS: ${{ needs.build.result }}
+      LINT_STATUS: ${{ needs.lint.result }}
+      TEST_STATUS: ${{ needs.test.result }}
+      SEMGREP_STATUS: ${{ needs.semgrep.result }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_HEAD_REF: ${{ github.head_ref || github.ref_name }}
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Determine image tags
+        id: tags
+        run: |
+          chmod +x ./.github/scripts/determine-tags.sh
+          ./.github/scripts/determine-tags.sh
+      
+      - name: Update Dockerfile with build labels
+        id: labels
+        run: |
+          chmod +x ./.github/scripts/update-dockerfile-labels.sh
+          ./.github/scripts/update-dockerfile-labels.sh \
+            "${{ steps.tags.outputs.image-tag }}" \
+            "${{ steps.tags.outputs.workflow-tag }}" \
+            "${{ steps.tags.outputs.tag-suffix }}" \
+            "${{ env.BUILD_STATUS }}" \
+            "${{ env.LINT_STATUS }}" \
+            "${{ env.TEST_STATUS }}" \
+            "${{ env.SEMGREP_STATUS }}" \
+            "${{ env.GITHUB_SHA }}" \
+            "${{ env.GITHUB_HEAD_REF }}" \
+            "${{ env.GITHUB_ACTOR }}" \
+            "${{ env.BUILD_TIME }}" \
+            "${{ env.GITHUB_REPOSITORY }}"
+          
+          # Extraire les labels du Dockerfile pour les passer à docker/build-push-action
+          if [[ -f "Dockerfile" ]]; then
+            grep "^LABEL " Dockerfile | sed 's/^LABEL //' > labels_temp.txt
+            
+            if [[ -s "labels_temp.txt" ]]; then
+              while IFS= read -r line; do
+                if [[ "$line" =~ [\;\|\&\`\$\(\)] ]]; then
+                  echo "⚠️ Label dangereux détecté et ignoré: $line"
+                  continue
+                fi
+                echo "$line" >> labels_output.txt
+              done < labels_temp.txt
+              
+              if [[ -f "labels_output.txt" && -s "labels_output.txt" ]]; then
+                echo "labels<<EOF" >> $GITHUB_OUTPUT
+                cat labels_output.txt >> $GITHUB_OUTPUT
+                echo "EOF" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️ Aucun label valide trouvé dans le Dockerfile"
+              fi
+            else
+              echo "⚠️ Aucun label trouvé dans le Dockerfile"
+            fi
+            
+            rm -f labels_temp.txt labels_output.txt
+          else
+            echo "❌ Dockerfile non trouvé"
+            exit 1
+          fi
+        env:
+          BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.repository.pushed_at || github.event.repository.updated_at }}
+
+      - name: Build and Push Docker image
+        id: build-image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # platforms: linux/amd64,linux/arm64  # Multi-arch désactivé : serveur cible amd64 uniquement
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.tags.outputs.image-tag }}
+            ${{ steps.tags.outputs.workflow-tag }}
+            ${{ steps.tags.outputs.version-tag }}
+          labels: ${{ steps.labels.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Déploiement PREPROD (push sur main ou PR avec [DEPLOY])
+  deploy-preprod:
+    runs-on: ubuntu-latest
+    needs: [build, lint, test, semgrep, docker]
+    if: |
+      (github.ref == 'refs/heads/main' || 
+       (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[DEPLOY]'))) &&
+      needs.build.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.semgrep.result == 'success' &&
+      needs.docker.result == 'success'
+    outputs:
+      deploy-status: ${{ steps.set-status.outputs.deploy-status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to PREPROD
+        id: deploy
+        run: |
+          chmod +x ./.github/scripts/deploy.sh
+          ./.github/scripts/deploy.sh \
+            "PREPROD" \
+            "website" \
+            "${{ secrets.DEPLOY_REPO }}" \
+            "${{ secrets.DEPLOY_TOKEN }}"
+
+      - name: Set deployment status
+        id: set-status
+        if: always()
+        run: echo "deploy-status=${{ steps.deploy.outcome }}" >> $GITHUB_OUTPUT
+
+  # Déploiement PROD (tag vX.Y.Z)
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: [build, lint, test, semgrep, docker]
+    if: |
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.build.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.semgrep.result == 'success' &&
+      needs.docker.result == 'success'
+    outputs:
+      deploy-status: ${{ steps.set-status.outputs.deploy-status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to PROD
+        id: deploy-prod
+        run: |
+          chmod +x ./.github/scripts/deploy.sh
+          ./.github/scripts/deploy.sh \
+            "PROD" \
+            "website" \
+            "${{ secrets.DEPLOY_REPO }}" \
+            "${{ secrets.DEPLOY_TOKEN }}"
+
+      - name: Set deployment status
+        id: set-status
+        if: always()
+        run: echo "deploy-status=${{ steps.deploy-prod.outcome }}" >> $GITHUB_OUTPUT
+
+  pr-report:
+    runs-on: ubuntu-latest
+    needs: [build, lint, test, semgrep, docker, deploy-preprod, deploy-prod]
+    if: github.event_name == 'pull_request' && always()
+    continue-on-error: true
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      BUILD_STATUS: ${{ needs.build.result }}
+      LINT_STATUS: ${{ needs.lint.result }}
+      TEST_STATUS: ${{ needs.test.result }}
+      SEMGREP_STATUS: ${{ needs.semgrep.result }}
+      DOCKER_STATUS: ${{ needs.docker.result }}
+      DEPLOY_PREPROD_STATUS: ${{ needs.deploy-preprod.result || 'skipped' }}
+      DEPLOY_PROD_STATUS: ${{ needs.deploy-prod.result || 'skipped' }}
+      IMAGE_TAG: ${{ needs.docker.outputs.image-tag || 'N/A' }}
+      WORKFLOW_TAG: ${{ needs.docker.outputs.workflow-tag || 'N/A' }}
+      VERSION_TAG: ${{ needs.docker.outputs.version-tag || 'N/A' }}
+      TAG_SUFFIX: ${{ needs.docker.outputs.tag-suffix || 'N/A' }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_HEAD_REF: ${{ github.head_ref || github.ref_name }}
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_EVENT_NUMBER: ${{ github.event.number }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Générer le rapport de PR
+        id: report
+        run: |
+          chmod +x ./.github/scripts/generate-pr-report.sh
+          ./.github/scripts/generate-pr-report.sh
+          echo "report-generated=true" >> $GITHUB_OUTPUT
+
+      - name: Comment PR
+        run: |
+          chmod +x ./.github/scripts/publish-pr-comment.cjs
+          node ./.github/scripts/publish-pr-comment.cjs
+
+  # Job final pour déterminer le statut global du workflow
+  workflow-status:
+    runs-on: ubuntu-latest
+    needs: [build, lint, test, semgrep, docker, deploy-preprod, deploy-prod, pr-report]
+    if: always()
+    steps:
+      - name: Check workflow status
+        run: |
+          echo "Build status: ${{ needs.build.result }}"
+          echo "Lint status: ${{ needs.lint.result }}"
+          echo "Test status: ${{ needs.test.result }}"
+          echo "Semgrep status: ${{ needs.semgrep.result }}"
+          echo "Docker status: ${{ needs.docker.result }}"
+          echo "Deploy PREPROD status: ${{ needs.deploy-preprod.result }}"
+          echo "Deploy PROD status: ${{ needs.deploy-prod.result }}"
+          
+          # Le workflow échoue si un job critique échoue
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "❌ Workflow failed: Build job failed"
+            exit 1
+          fi
+          
+          if [[ "${{ needs.lint.result }}" != "success" ]]; then
+            echo "❌ Workflow failed: Lint job failed"
+            exit 1
+          fi
+          
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "❌ Workflow failed: Test job failed"
+            exit 1
+          fi
+          
+          if [[ "${{ needs.semgrep.result }}" != "success" ]]; then
+            echo "❌ Workflow failed: Semgrep job failed"
+            exit 1
+          fi
+          
+          if [[ "${{ needs.docker.result }}" != "success" ]]; then
+            echo "❌ Workflow failed: Docker job failed"
+            exit 1
+          fi
+          
+          # Verifier les deploiements si ils ont ete executes
+          if [[ "${{ needs.deploy-preprod.result }}" == "success" ]]; then
+            echo "Deploy PREPROD succeeded"
+          elif [[ "${{ needs.deploy-preprod.result }}" == "failure" ]]; then
+            echo "Workflow failed: Deploy PREPROD failed"
+            exit 1
+          elif [[ "${{ needs.deploy-preprod.result }}" == "skipped" ]]; then
+            echo "Deploy PREPROD skipped"
+          fi
+
+          if [[ "${{ needs.deploy-prod.result }}" == "success" ]]; then
+            echo "Deploy PROD succeeded"
+          elif [[ "${{ needs.deploy-prod.result }}" == "failure" ]]; then
+            echo "Workflow failed: Deploy PROD failed"
+            exit 1
+          elif [[ "${{ needs.deploy-prod.result }}" == "skipped" ]]; then
+            echo "Deploy PROD skipped"
+          fi
+          
+          echo "✅ All critical jobs succeeded"
+

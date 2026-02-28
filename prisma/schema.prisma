@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -12,4 +6,202 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  permissions String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isSystem    Boolean  @default(false)
+  users       User[]
+
+  @@map("roles")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  roleId    Int
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  role      Role     @relation(fields: [roleId], references: [id])
+
+  @@map("users")
+}
+
+model Config {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  description String?
+
+  @@map("configs")
+}
+
+model StaffMember {
+  id        Int           @id @default(autoincrement())
+  name      String
+  role      String
+  image     String?
+  category  StaffCategory
+  position  Int           @default(0)
+  socials   Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("staff_members")
+}
+
+model Team {
+  id                 Int          @id @default(autoincrement())
+  name               String
+  slug               String       @unique
+  game               String
+  image              String?
+  banner             String?
+  description        String?
+  active             Boolean      @default(true)
+  position           Int          @default(0)
+  socials            Json?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  memberFieldsConfig Json?
+  members            TeamMember[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id           Int       @id @default(autoincrement())
+  name         String
+  realName     String?
+  role         String
+  image        String?
+  teamId       Int
+  position     Int       @default(0)
+  socials      Json?
+  joinedAt     DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  nationality  String?
+  birthDate    DateTime?
+  biography    String?
+  customFields Json?
+  slug         String?   @unique
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_members")
+}
+
+model Game {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  name      String
+  image     String?
+  position  Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("games")
+}
+
+model Sponsor {
+  id          Int            @id @default(autoincrement())
+  name        String
+  slug        String         @unique
+  description String?
+  position    Int            @default(0)
+  active      Boolean        @default(true)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  imageLayout ImageLayout    @default(LAYOUT_1)
+  images      SponsorImage[]
+  links       SponsorLink[]
+
+  @@map("sponsors")
+}
+
+model SponsorImage {
+  id        Int      @id @default(autoincrement())
+  url       String
+  alt       String?
+  isPrimary Boolean  @default(false)
+  position  Int      @default(0)
+  sponsorId Int
+  createdAt DateTime @default(now())
+  sponsor   Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+
+  @@index([sponsorId])
+  @@map("sponsor_images")
+}
+
+model SponsorLink {
+  id        Int      @id @default(autoincrement())
+  url       String
+  label     String
+  type      LinkType @default(WEBSITE)
+  isPrimary Boolean  @default(false)
+  sponsorId Int
+  createdAt DateTime @default(now())
+  sponsor   Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+
+  @@index([sponsorId])
+  @@map("sponsor_links")
+}
+
+enum StaffCategory {
+  ADMIN
+  HEADSTAFF
+  AMBASSADOR
+
+  @@map("staff_category")
+}
+
+enum LinkType {
+  WEBSITE
+  TWITTER
+  INSTAGRAM
+  DISCORD
+  PROMO_CODE
+  OTHER
+
+  @@map("link_type")
+}
+
+enum ImageLayout {
+  LAYOUT_1
+  LAYOUT_2
+  LAYOUT_3
+
+  @@map("image_layout")
+}
+
+model RecruitmentPost {
+  id          Int      @id @default(autoincrement())
+  title       String
+  type        String
+  description String   @db.Text
+  image       String?
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+  slug          String?  @unique
+  location      String?
+  duration      String?
+  missions      String?  @db.Text
+  skills        String?  @db.Text
+  requirements  String?  @db.Text
+  benefits      String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("recruitment_posts")
 }
