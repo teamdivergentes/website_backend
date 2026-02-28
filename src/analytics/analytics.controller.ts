@@ -47,6 +47,7 @@ export class AnalyticsController {
   }
 
   @Get('realtime')
+  @Throttle({ default: { limit: 10, ttl: 30000 } })
   getRealtime() {
     return this.analyticsService.getRealtime();
   }

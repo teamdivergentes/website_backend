@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsInt,
   IsOptional,
+  Matches,
   Max,
   Min,
   registerDecorator,
@@ -41,10 +42,12 @@ function IsAfterOrEqual(startDateProperty: string, validationOptions?: Validatio
 
 export class AnalyticsQueryDto {
   @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Format de date invalide, utilisez YYYY-MM-DD' })
   startDate: string;
 
   // FIX [ALPHA-008] Validation que endDate >= startDate
   @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Format de date invalide, utilisez YYYY-MM-DD' })
   @IsAfterOrEqual('startDate')
   endDate: string;
 }

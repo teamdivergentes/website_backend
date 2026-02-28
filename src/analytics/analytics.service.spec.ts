@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 // FIX [BETA-009] Import statique de GatewayTimeoutException pour le test timeout
-import { ServiceUnavailableException, GatewayTimeoutException } from '@nestjs/common';
+import {
+  ServiceUnavailableException,
+  GatewayTimeoutException,
+  BadGatewayException,
+} from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { AnalyticsService } from './analytics.service';
 
@@ -368,6 +372,16 @@ describe('AnalyticsService', () => {
         const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
         expect(result.data[0]).not.toHaveProperty('channel');
       });
+
+      // ALPHA-RES-005 : Test getTrafficSources avec rows null
+      it('devrait retourner data: [], byChannel: [] quand rows est null', async () => {
+        mockRunReport.mockResolvedValue([{ rows: null }]);
+        service = await createService();
+
+        const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
+        expect(result.data).toEqual([]);
+        expect(result.byChannel).toEqual([]);
+      });
     });
 
     describe('getGeography', () => {
@@ -414,6 +428,19 @@ describe('AnalyticsService', () => {
           expect.stringContaining('analytics:geography'),
           expect.any(Object),
           900000,
+        );
+      });
+
+      // ALPHA-RES-005 : Test getGeography avec échec partiel (2ème appel cities rejette)
+      it('devrait lever BadGatewayException si le 2ème appel (cities) échoue', async () => {
+        const networkError = new Error('Network error');
+        mockRunReport
+          .mockResolvedValueOnce([{ rows: [] }]) // countries OK
+          .mockRejectedValueOnce(networkError); // cities KO
+        service = await createService();
+
+        await expect(service.getGeography('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
         );
       });
     });
@@ -530,7 +557,7 @@ describe('AnalyticsService', () => {
         await service.getRealtime();
 
         expect(mockCacheManager.set).toHaveBeenCalledWith(
-          'analytics:realtime',
+          'analytics:realtime:123456789',
           expect.any(Object),
           30000,
         );
@@ -550,44 +577,44 @@ describe('AnalyticsService', () => {
     // FIX [BETA-009] Tests des cas d'erreur de l'API GA
     describe('Gestion des erreurs API Google Analytics', () => {
       describe('Erreur 403 - Accès refusé', () => {
-        it("devrait propager l'erreur 403 de GA sur getOverview", async () => {
+        it("devrait lever BadGatewayException sur getOverview en cas d'erreur gRPC 403", async () => {
           const error403 = Object.assign(new Error('Permission denied'), { code: 403 });
           mockRunReport.mockRejectedValue(error403);
           service = await createService();
 
           await expect(service.getOverview('2024-01-01', '2024-01-31')).rejects.toThrow(
-            'Permission denied',
+            BadGatewayException,
           );
         });
 
-        it("devrait propager l'erreur 403 de GA sur getVisitorsByDay", async () => {
+        it("devrait lever BadGatewayException sur getVisitorsByDay en cas d'erreur gRPC 403", async () => {
           const error403 = Object.assign(new Error('Permission denied'), { code: 403 });
           mockRunReport.mockRejectedValue(error403);
           service = await createService();
 
           await expect(service.getVisitorsByDay('2024-01-01', '2024-01-31')).rejects.toThrow(
-            'Permission denied',
+            BadGatewayException,
           );
         });
       });
 
       describe('Erreur 429 - Quota dépassé', () => {
-        it("devrait propager l'erreur 429 de GA sur getTopPages", async () => {
+        it("devrait lever BadGatewayException sur getTopPages en cas d'erreur gRPC 429", async () => {
           const error429 = Object.assign(new Error('Quota exceeded'), { code: 429 });
           mockRunReport.mockRejectedValue(error429);
           service = await createService();
 
           await expect(service.getTopPages('2024-01-01', '2024-01-31')).rejects.toThrow(
-            'Quota exceeded',
+            BadGatewayException,
           );
         });
 
-        it("devrait propager l'erreur 429 de GA sur getRealtime", async () => {
+        it("devrait lever BadGatewayException sur getRealtime en cas d'erreur gRPC 429", async () => {
           const error429 = Object.assign(new Error('Quota exceeded'), { code: 429 });
           mockRunRealtimeReport.mockRejectedValue(error429);
           service = await createService();
 
-          await expect(service.getRealtime()).rejects.toThrow('Quota exceeded');
+          await expect(service.getRealtime()).rejects.toThrow(BadGatewayException);
         });
       });
 
