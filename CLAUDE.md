@@ -374,3 +374,36 @@ Priority levels:
 - **majeur** - Critical issues (security, data loss, crash)
 - **mineur** - Minor improvements (style, naming, optimization)
 - **suggestion** - Optional enhancements
+
+---
+
+## Vibecoding Quality Orchestrator (VQO) - Agent ALPHA
+
+Ce repo est audite par l'agent **ALPHA** dans le cadre du VQO (voir CLAUDE.md racine pour la methode complete).
+
+### Domaines audites (backend)
+
+| Domaine | Poids | Criteres cles |
+|---------|-------|---------------|
+| **Securite** | 25% | Validation DTO (class-validator, regex), guards JWT + Roles, rate limiting (@Throttle), sanitisation erreurs (BadGatewayException), pas de donnees sensibles dans les reponses, injection impossible |
+| **Performance** | 15% | Parallelisation I/O (Promise.all), cache (CACHE_MANAGER, TTL calibres), timeout (withTimeout wrapper), limit sur requetes externes, structures de donnees efficaces (Map) |
+| **Resilience** | 10% | try/catch dans chaque methode async, HttpException re-thrown, erreurs wrappees en BadGatewayException, timeout sans fuite timer (.finally(clearTimeout)), guards de configuration (ensureConfigured), gestion rows null/vides, tests cas d'erreur |
+
+### Format des tickets ALPHA
+
+```
+ID       : ALPHA-SEC-001, ALPHA-PERF-002, ALPHA-RES-003
+Severite : CRITIQUE / MAJEUR / MINEUR
+Fichier  : chemin absolu + ligne
+Probleme : description precise
+Fix      : code avant → code apres
+```
+
+### Patterns valides identifies (EPIC-9)
+
+- `withTimeout<T>(promise, ms)` + `.finally(() => clearTimeout(timeoutId))` pour les appels externes
+- `ensureConfigured()` comme guard synchrone en debut de methode
+- Constructor `try/catch` avec `isConfigured = false` en cas d'echec
+- `catch (error) { if (error instanceof HttpException) throw error; throw new BadGatewayException(...) }`
+- Cache key incluant tous les parametres variables (dates, limit)
+- `@Throttle` au niveau controller + override par endpoint
