@@ -61,6 +61,11 @@ describe('AnalyticsService', () => {
       expect(service).toBeDefined();
     });
 
+    it('devrait retourner configured: false via getStatus', async () => {
+      service = await createService();
+      expect(service.getStatus()).toEqual({ configured: false });
+    });
+
     it('devrait lever ServiceUnavailableException sur getOverview', async () => {
       service = await createService();
       await expect(service.getOverview('2024-01-01', '2024-01-31')).rejects.toThrow(
@@ -78,6 +83,18 @@ describe('AnalyticsService', () => {
     it('devrait lever ServiceUnavailableException sur getRealtime', async () => {
       service = await createService();
       await expect(service.getRealtime()).rejects.toThrow(ServiceUnavailableException);
+    });
+  });
+
+  describe('Validation GA_PROPERTY_ID', () => {
+    it('devrait rester non configuré si GA_PROPERTY_ID contient des caractères non numériques', async () => {
+      process.env.GA_PROPERTY_ID = 'invalid-id';
+      process.env.GA_CLIENT_EMAIL = 'sa@project.iam.gserviceaccount.com';
+      process.env.GA_PRIVATE_KEY =
+        '-----BEGIN RSA PRIVATE KEY-----\\ntest\\n-----END RSA PRIVATE KEY-----';
+
+      service = await createService();
+      expect(service.getStatus()).toEqual({ configured: false });
     });
   });
 
@@ -373,7 +390,65 @@ describe('AnalyticsService', () => {
         expect(result.data[0]).not.toHaveProperty('channel');
       });
 
-      // ALPHA-RES-005 : Test getTrafficSources avec rows null
+      it('devrait calculer le bounceRate pondéré par sessions dans byChannel', async () => {
+        mockRunReport.mockResolvedValue([
+          {
+            rows: [
+              {
+                dimensionValues: [
+                  { value: 'google' },
+                  { value: 'organic' },
+                  { value: 'Organic Search' },
+                ],
+                metricValues: [{ value: '100' }, { value: '80' }, { value: '0.20' }],
+              },
+              {
+                dimensionValues: [
+                  { value: 'bing' },
+                  { value: 'organic' },
+                  { value: 'Organic Search' },
+                ],
+                metricValues: [{ value: '400' }, { value: '300' }, { value: '0.60' }],
+              },
+            ],
+          },
+        ]);
+        service = await createService();
+
+        const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
+        const channel = result.byChannel.find((c) => c.channel === 'Organic Search');
+        expect(channel).toBeDefined();
+        // Moyenne pondérée : (0.20 * 100 + 0.60 * 400) / (100 + 400) = (20 + 240) / 500 = 0.52
+        expect(channel!.bounceRate).toBeCloseTo(0.52, 4);
+      });
+
+      it('devrait retourner bounceRate 0 pour un canal sans sessions', async () => {
+        mockRunReport.mockResolvedValue([
+          {
+            rows: [
+              {
+                dimensionValues: [
+                  { value: '(direct)' },
+                  { value: '(none)' },
+                  { value: 'Direct' },
+                ],
+                metricValues: [{ value: '0' }, { value: '0' }, { value: '0.50' }],
+              },
+            ],
+          },
+        ]);
+        service = await createService();
+
+        const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
+        const channel = result.byChannel.find((c) => c.channel === 'Direct');
+        expect(channel!.bounceRate).toBe(0);
+      });
+
+      it('devrait retourner configured: true via getStatus', async () => {
+        service = await createService();
+        expect(service.getStatus()).toEqual({ configured: true });
+      });
+
       it('devrait retourner data: [], byChannel: [] quand rows est null', async () => {
         mockRunReport.mockResolvedValue([{ rows: null }]);
         service = await createService();
@@ -381,6 +456,12 @@ describe('AnalyticsService', () => {
         const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
         expect(result.data).toEqual([]);
         expect(result.byChannel).toEqual([]);
+      });
+
+      it('devrait lever BadGatewayException sur erreur réseau', async () => {
+        mockRunReport.mockRejectedValue(new Error('Connection refused'));
+        service = await createService();
+        await expect(service.getTrafficSources('2024-01-01', '2024-01-31')).rejects.toThrow(BadGatewayException);
       });
     });
 
@@ -443,6 +524,12 @@ describe('AnalyticsService', () => {
           BadGatewayException,
         );
       });
+
+      it('devrait lever BadGatewayException si le 1er appel (countries) échoue', async () => {
+        mockRunReport.mockRejectedValue(new Error('Network error'));
+        service = await createService();
+        await expect(service.getGeography('2024-01-01', '2024-01-31')).rejects.toThrow(BadGatewayException);
+      });
     });
 
     describe('getDevices', () => {
@@ -492,6 +579,29 @@ describe('AnalyticsService', () => {
         // Somme des pourcentages doit être ~100%
         const totalPercent = result.byCategory.reduce((s, c) => s + c.percentage, 0);
         expect(totalPercent).toBeCloseTo(100, 0);
+      });
+
+      it('devrait retourner des listes vides si rows est null', async () => {
+        mockRunReport.mockResolvedValue([{ rows: null }]);
+        service = await createService();
+        const result = await service.getDevices('2024-01-01', '2024-01-31');
+        expect(result.byCategory).toHaveLength(0);
+        expect(result.byBrowser).toHaveLength(0);
+      });
+
+      it('devrait retourner percentage 0 si totalUsers est 0', async () => {
+        mockRunReport.mockResolvedValue([{
+          rows: [{ dimensionValues: [{ value: 'desktop' }], metricValues: [{ value: '0' }, { value: '0' }] }]
+        }]);
+        service = await createService();
+        const result = await service.getDevices('2024-01-01', '2024-01-31');
+        expect(result.byCategory[0].percentage).toBe(0);
+      });
+
+      it('devrait lever BadGatewayException sur erreur réseau', async () => {
+        mockRunReport.mockRejectedValue(new Error('Network error'));
+        service = await createService();
+        await expect(service.getDevices('2024-01-01', '2024-01-31')).rejects.toThrow(BadGatewayException);
       });
     });
 

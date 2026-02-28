@@ -1,20 +1,25 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermission } from '../auth/decorators/permissions.decorator';
+import { PERMISSIONS } from '../common/constants/permissions';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsQueryDto, TopPagesQueryDto } from './dto/analytics-query.dto';
 
-// FIX [ALPHA-004] JwtAuthGuard est global (AppModule), RolesGuard est ajouté ici pour
-// le contrôle d'accès par rôle. Le pattern @UseGuards(RolesGuard) + @Roles('admin')
-// est le pattern établi dans ce projet pour les endpoints admin.
-// FIX [ALPHA-011] Rate limiting spécifique analytics : 20 req/60s pour protéger les quotas GA
+// JwtAuthGuard est global (AppModule), PermissionsGuard est ajouté ici pour
+// le contrôle d'accès par permission granulaire.
+// Rate limiting spécifique analytics : 20 req/60s pour protéger les quotas GA
 @Controller('api/admin/analytics')
-@UseGuards(RolesGuard)
-@Roles('admin')
+@UseGuards(PermissionsGuard)
+@RequirePermission(PERMISSIONS.ANALYTICS_READ)
 @Throttle({ default: { limit: 20, ttl: 60000 } })
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
+
+  @Get('status')
+  getStatus() {
+    return this.analyticsService.getStatus();
+  }
 
   @Get('overview')
   getOverview(@Query() query: AnalyticsQueryDto) {

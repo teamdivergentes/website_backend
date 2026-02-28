@@ -4,6 +4,7 @@ import { AnalyticsService } from './analytics.service';
 import { Reflector } from '@nestjs/core';
 
 const mockAnalyticsService = {
+  getStatus: jest.fn(),
   getOverview: jest.fn(),
   getVisitorsByDay: jest.fn(),
   getTopPages: jest.fn(),
@@ -154,11 +155,31 @@ describe('AnalyticsController', () => {
     });
   });
 
+  describe('getStatus', () => {
+    it('devrait retourner le statut de configuration', () => {
+      const expected = { configured: true };
+      mockAnalyticsService.getStatus.mockReturnValue(expected);
+
+      const result = controller.getStatus();
+
+      expect(mockAnalyticsService.getStatus).toHaveBeenCalledWith();
+      expect(result).toBe(expected);
+    });
+
+    it('devrait retourner configured: false quand non configuré', () => {
+      mockAnalyticsService.getStatus.mockReturnValue({ configured: false });
+
+      const result = controller.getStatus();
+
+      expect(result).toEqual({ configured: false });
+    });
+  });
+
   describe('Métadonnées de sécurité', () => {
-    it('devrait avoir le décorateur @Roles(admin) sur la classe', () => {
+    it('devrait avoir le décorateur @RequirePermission(analytics:read) sur la classe', () => {
       const reflector = new Reflector();
-      const roles = reflector.get<string[]>('roles', AnalyticsController);
-      expect(roles).toContain('admin');
+      const permissions = reflector.get<string[]>('permissions', AnalyticsController);
+      expect(permissions).toContain('analytics:read');
     });
   });
 });
