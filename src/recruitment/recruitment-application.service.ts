@@ -109,6 +109,15 @@ export class RecruitmentApplicationService {
     this.logger.log(`Application email sent successfully to ${recipientEmail}`);
   }
 
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   private buildEmailHtml(
     dto: ApplyRecruitmentDto,
     cv?: Express.Multer.File,
@@ -141,25 +150,25 @@ export class RecruitmentApplicationService {
           <div class="content">
             <div class="field">
               <div class="label">Poste :</div>
-              <div class="value">${dto.postTitle}</div>
+              <div class="value">${this.escapeHtml(dto.postTitle)}</div>
             </div>
             <div class="field">
               <div class="label">Type de contrat :</div>
-              <div class="value">${dto.postType}</div>
+              <div class="value">${this.escapeHtml(dto.postType)}</div>
             </div>
             <div class="field">
               <div class="label">Nom :</div>
-              <div class="value">${dto.name}</div>
+              <div class="value">${this.escapeHtml(dto.name)}</div>
             </div>
             <div class="field">
               <div class="label">Email :</div>
-              <div class="value"><a href="mailto:${dto.email}">${dto.email}</a></div>
+              <div class="value"><a href="mailto:${this.escapeHtml(dto.email)}">${this.escapeHtml(dto.email)}</a></div>
             </div>
             <div class="field">
               <div class="label">CV :</div>
               <div class="value">
                 <span class="${cv ? 'cv-badge cv-yes' : 'cv-badge cv-no'}">
-                  ${cv ? `Fichier joint : ${cv.originalname}` : 'Non fourni'}
+                  ${cv ? `Fichier joint : ${this.escapeHtml(cv.originalname)}` : 'Non fourni'}
                 </span>
               </div>
             </div>
@@ -167,7 +176,7 @@ export class RecruitmentApplicationService {
               <div class="label">Lettre de motivation :</div>
               <div class="value">
                 <span class="${coverLetter ? 'cv-badge cv-yes' : 'cv-badge cv-no'}">
-                  ${coverLetter ? `Fichier joint : ${coverLetter.originalname}` : 'Non fournie'}
+                  ${coverLetter ? `Fichier joint : ${this.escapeHtml(coverLetter.originalname)}` : 'Non fournie'}
                 </span>
               </div>
             </div>
@@ -175,7 +184,7 @@ export class RecruitmentApplicationService {
               dto.message
                 ? `<div class="field">
               <div class="label">Message :</div>
-              <div class="message">${dto.message.replace(/\n/g, '<br>')}</div>
+              <div class="message">${this.escapeHtml(dto.message).replace(/\n/g, '<br>')}</div>
             </div>`
                 : ''
             }
@@ -308,27 +317,35 @@ Ce message a été envoyé via le formulaire de candidature DVG
       ...(attachments.length > 0 && { attachments }),
     };
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     let response: Response;
 
-    if (filesToUpload.length > 0) {
-      const formData = new FormData();
-      formData.append('payload_json', JSON.stringify(payload));
-      filesToUpload.forEach((f, i) => {
-        formData.append(`files[${i}]`, new Blob([new Uint8Array(f.buffer)]), f.originalname);
-      });
-      response = await fetch(webhookUrl, { method: 'POST', body: formData });
-    } else {
-      response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    }
+    try {
+      if (filesToUpload.length > 0) {
+        const formData = new FormData();
+        formData.append('payload_json', JSON.stringify(payload));
+        filesToUpload.forEach((f, i) => {
+          formData.append(`files[${i}]`, new Blob([new Uint8Array(f.buffer)]), f.originalname);
+        });
+        response = await fetch(webhookUrl, { method: 'POST', body: formData, signal: controller.signal });
+      } else {
+        response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      }
 
-    if (!response.ok) {
-      throw new Error(`Discord webhook returned ${response.status}`);
-    }
+      if (!response.ok) {
+        throw new Error(`Discord webhook returned ${response.status}`);
+      }
 
-    this.logger.log('Discord webhook sent successfully');
+      this.logger.log('Discord webhook sent successfully');
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }

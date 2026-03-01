@@ -142,6 +142,12 @@ async function main() {
       description: 'Email de contact',
     },
     {
+      key: 'contact_phone',
+      value: '',
+      description:
+        'Numéro de téléphone de contact (optionnel, affiché sur la page contact si renseigné)',
+    },
+    {
       key: 'twitter_url',
       value: 'https://x.com/teamdivergentes',
       description: 'Lien Twitter/X',
@@ -411,8 +417,8 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
-    console.error('Error during seed:', e);
+  .catch((e: unknown) => {
+    console.error('Error during seed:', e instanceof Error ? e.message : e);
     process.exit(1);
   })
   .finally(async () => {
