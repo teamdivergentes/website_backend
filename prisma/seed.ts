@@ -163,9 +163,26 @@ async function main() {
       description: 'Lien Discord',
     },
     {
+      key: 'youtube_url',
+      value: 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g',
+      description: 'Lien YouTube (chaine, affiche dans le footer)',
+    },
+    {
+      key: 'twitch_url',
+      value: 'https://www.twitch.tv/teamdivergentes',
+      description: 'Lien Twitch',
+    },
+    {
+      key: 'mail_url',
+      value: 'mailto:contact@teamdivergentes.fr',
+      description: 'Lien email (affiche dans le footer)',
+    },
+    {
       key: 'social_urls',
-      value: 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
-      description: 'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
+      value:
+        'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
+      description:
+        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
     },
     {
       key: 'og_title',
@@ -174,13 +191,15 @@ async function main() {
     },
     {
       key: 'og_description',
-      value: 'Team Divergentes, organisation e-sportive créée en 2017. Découvrez nos joueurs, nos équipes et rejoignez l\'aventure !',
+      value:
+        "Team Divergentes, organisation e-sportive créée en 2017. Découvrez nos joueurs, nos équipes et rejoignez l'aventure !",
       description: 'Description Open Graph pour les aperçus Discord/réseaux sociaux',
     },
     {
       key: 'og_image',
       value: '',
-      description: 'Image Open Graph pour les aperçus Discord/réseaux sociaux (URL absolue ou chemin /uploads/...)',
+      description:
+        'Image Open Graph pour les aperçus Discord/réseaux sociaux (URL absolue ou chemin /uploads/...)',
     },
     // Pages visibility
     {
@@ -263,17 +282,20 @@ async function main() {
       role: 'Responsable Developpement',
       category: 'HEADSTAFF' as const,
       position: 0,
-    },{
+    },
+    {
       name: 'Gé0tank',
       role: 'Responsable Esportif',
       category: 'HEADSTAFF' as const,
       position: 0,
-    },{
+    },
+    {
       name: 'Emerode',
       role: 'Responsable Communication',
       category: 'HEADSTAFF' as const,
       position: 0,
-    },{
+    },
+    {
       name: 'Alice',
       role: 'Responsable Ressources Humaines',
       category: 'HEADSTAFF' as const,
@@ -372,9 +394,9 @@ async function main() {
       duration: 'Long terme',
       missions: [
         "Développer et maintenir les sites et applications web de l'association",
-        'Gérer l\'infrastructure technique : déploiement, serveurs, sauvegardes, sécurité',
+        "Gérer l'infrastructure technique : déploiement, serveurs, sauvegardes, sécurité",
         'Optimiser les performances : rapidité, accessibilité, SEO technique',
-        'Collaborer avec l\'équipe pour traduire les besoins en solutions techniques',
+        "Collaborer avec l'équipe pour traduire les besoins en solutions techniques",
       ].join('\n'),
       skills: [
         'Frontend: Angular',
