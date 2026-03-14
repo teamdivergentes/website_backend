@@ -2,7 +2,7 @@ import {
   Controller,
   Get,
   Post,
-  Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -45,7 +45,7 @@ export class RolesController {
     return this.rolesService.create(createRoleDto);
   }
 
-  @Put(':id')
+  @Patch(':id')
   @Roles('admin')
   async update(@Param('id', ParseIntPipe) id: number, @Body() updateRoleDto: UpdateRoleDto) {
     return this.rolesService.update(id, updateRoleDto);

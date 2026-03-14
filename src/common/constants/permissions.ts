@@ -27,6 +27,9 @@ export const PERMISSIONS = {
   // Config
   CONFIG_READ: 'config:read',
   CONFIG_WRITE: 'config:write',
+
+  // Analytics
+  ANALYTICS_READ: 'analytics:read',
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);

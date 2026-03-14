@@ -25,7 +25,8 @@ INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALU
     'config:read','config:write',
     'annonces:read','annonces:write','annonces:delete',
     'articles:read','articles:write','articles:delete',
-    'recrutement:read','recrutement:write','recrutement:delete'
+    'recrutement:read','recrutement:write','recrutement:delete',
+    'analytics:read'
   ], true, NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
   permissions = EXCLUDED.permissions,
@@ -77,6 +78,9 @@ INSERT INTO configs (key, value, description, "createdAt", "updatedAt") VALUES
   ('twitter_url', 'https://x.com/teamdivergentes', 'Lien Twitter/X', NOW(), NOW()),
   ('instagram_url', 'https://www.instagram.com/teamdivergentes/', 'Lien Instagram', NOW(), NOW()),
   ('discord_url', 'https://discord.com/invite/mF67YZKnU3', 'Lien Discord', NOW(), NOW()),
+  ('youtube_url', 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g', 'Lien YouTube (chaine, affiche dans le footer)', NOW(), NOW()),
+  ('twitch_url', 'https://www.twitch.tv/teamdivergentes', 'Lien Twitch', NOW(), NOW()),
+  ('mail_url', 'mailto:contact@teamdivergentes.fr', 'Lien email (affiche dans le footer)', NOW(), NOW()),
   ('social_urls', E'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes', 'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)', NOW(), NOW()),
   ('og_title', 'Team Divergentes | Organisation Esportive', 'Titre Open Graph pour les apercus Discord/reseaux sociaux', NOW(), NOW()),
   ('og_description', E'Team Divergentes, organisation e-sportive creee en 2017. Decouvrez nos joueurs, nos equipes et rejoignez l''aventure !', 'Description Open Graph pour les apercus Discord/reseaux sociaux', NOW(), NOW()),

@@ -86,6 +86,15 @@ export class ContactService {
     this.logger.log(`Email sent successfully to ${recipientEmail}`);
   }
 
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   private buildEmailHtml(contactDto: ContactDto): string {
     return `
       <!DOCTYPE html>
@@ -111,19 +120,19 @@ export class ContactService {
           <div class="content">
             <div class="field">
               <div class="label">Sujet :</div>
-              <div class="value">${contactDto.subject}</div>
+              <div class="value">${this.escapeHtml(contactDto.subject)}</div>
             </div>
             <div class="field">
               <div class="label">Nom :</div>
-              <div class="value">${contactDto.name}</div>
+              <div class="value">${this.escapeHtml(contactDto.name)}</div>
             </div>
             <div class="field">
               <div class="label">Email :</div>
-              <div class="value"><a href="mailto:${contactDto.email}">${contactDto.email}</a></div>
+              <div class="value"><a href="mailto:${this.escapeHtml(contactDto.email)}">${this.escapeHtml(contactDto.email)}</a></div>
             </div>
             <div class="field">
               <div class="label">Message :</div>
-              <div class="message">${contactDto.message.replace(/\n/g, '<br>')}</div>
+              <div class="message">${this.escapeHtml(contactDto.message).replace(/\n/g, '<br>')}</div>
             </div>
           </div>
           <div class="footer">
@@ -196,21 +205,29 @@ Ce message a été envoyé via le formulaire de contact DVG
       },
     };
 
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        username: 'DVG Contact',
-        embeds: [embed],
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    if (!response.ok) {
-      throw new Error(`Discord webhook returned ${response.status}`);
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: 'DVG Contact',
+          embeds: [embed],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Discord webhook returned ${response.status}`);
+      }
+
+      this.logger.log('Discord webhook sent successfully');
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    this.logger.log('Discord webhook sent successfully');
   }
 }
