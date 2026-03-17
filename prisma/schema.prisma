@@ -21,14 +21,15 @@ model Role {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
   password  String
   roleId    Int
-  actif     Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  role      Role     @relation(fields: [roleId], references: [id])
+  actif     Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  role      Role      @relation(fields: [roleId], references: [id])
+  articles  Article[]
 
   @@map("users")
 }
@@ -183,6 +184,40 @@ enum ImageLayout {
   LAYOUT_3
 
   @@map("image_layout")
+}
+
+model ArticleType {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  articles  Article[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("article_types")
+}
+
+model Article {
+  id             Int         @id @default(autoincrement())
+  title          String
+  slug           String      @unique
+  content        String      @db.Text
+  excerpt        String?     @db.Text
+  imageUrl       String?     @map("image_url")
+  mobileImageUrl String?     @map("mobile_image_url")
+  tabletImageUrl String?     @map("tablet_image_url")
+  published      Boolean     @default(false)
+  featured       Boolean     @default(false)
+  typeId         Int         @map("type_id")
+  userId         Int         @map("user_id")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  type           ArticleType @relation(fields: [typeId], references: [id])
+  user           User        @relation(fields: [userId], references: [id])
+
+  @@index([typeId])
+  @@index([published, featured])
+  @@map("articles")
 }
 
 model RecruitmentPost {

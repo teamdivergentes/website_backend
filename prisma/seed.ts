@@ -46,7 +46,6 @@ async function main() {
     'annonces:delete',
     'articles:read',
     'articles:write',
-    'articles:delete',
   ];
 
   const gestionnairePermissions = [
@@ -66,8 +65,6 @@ async function main() {
     'annonces:write',
     'annonces:delete',
     'articles:read',
-    'articles:write',
-    'articles:delete',
     'recrutement:read',
     'recrutement:write',
     'recrutement:delete',
