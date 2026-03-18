@@ -40,6 +40,13 @@ export class ArticlesController {
     return this.articlesService.findHomepage();
   }
 
+  @Get('by-id/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'cm')
+  findOneById(@Param('id', ParseIntPipe) id: number) {
+    return this.articlesService.findOne(id);
+  }
+
   @Public()
   @Get(':slug')
   findBySlug(@Param('slug') slug: string) {
@@ -73,6 +80,7 @@ export class ArticlesController {
   @Patch(':id/toggle')
   @UseGuards(RolesGuard)
   @Roles('admin', 'cm')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   togglePublished(@Param('id', ParseIntPipe) id: number) {
     return this.articlesService.togglePublished(id);
   }
@@ -80,6 +88,7 @@ export class ArticlesController {
   @Patch(':id/featured')
   @UseGuards(RolesGuard)
   @Roles('admin', 'cm')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   toggleFeatured(@Param('id', ParseIntPipe) id: number) {
     return this.articlesService.toggleFeatured(id);
   }

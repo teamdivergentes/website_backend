@@ -144,7 +144,7 @@ export class ArticlesService {
         where: { slug },
         include: {
           type: true,
-          user: { select: { id: true, email: true } },
+          user: { select: { id: true } },
         },
       });
 
@@ -155,7 +155,7 @@ export class ArticlesService {
       return article;
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la récupération de l\'article');
+      throw new BadGatewayException("Erreur lors de la récupération de l'article");
     }
   }
 
@@ -176,7 +176,7 @@ export class ArticlesService {
       return article;
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la récupération de l\'article');
+      throw new BadGatewayException("Erreur lors de la récupération de l'article");
     }
   }
 
@@ -206,9 +206,9 @@ export class ArticlesService {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new NotFoundException('Type d\'article non trouvé');
+        throw new NotFoundException("Type d'article non trouvé");
       }
-      throw new BadGatewayException('Erreur lors de la création de l\'article');
+      throw new BadGatewayException("Erreur lors de la création de l'article");
     }
   }
 
@@ -251,10 +251,10 @@ export class ArticlesService {
           throw new NotFoundException('Article non trouvé');
         }
         if (error.code === 'P2003') {
-          throw new NotFoundException('Type d\'article non trouvé');
+          throw new NotFoundException("Type d'article non trouvé");
         }
       }
-      throw new BadGatewayException('Erreur lors de la mise à jour de l\'article');
+      throw new BadGatewayException("Erreur lors de la mise à jour de l'article");
     }
   }
 
@@ -267,7 +267,7 @@ export class ArticlesService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Article non trouvé');
       }
-      throw new BadGatewayException('Erreur lors de la suppression de l\'article');
+      throw new BadGatewayException("Erreur lors de la suppression de l'article");
     }
   }
 
