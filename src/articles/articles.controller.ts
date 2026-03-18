@@ -11,6 +11,7 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ArticlesService } from './articles.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
@@ -48,6 +49,7 @@ export class ArticlesController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('admin', 'cm')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   create(@Body() dto: CreateArticleDto, @Request() req: RequestWithUser) {
     return this.articlesService.create(dto, req.user.id);
   }
@@ -55,6 +57,7 @@ export class ArticlesController {
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles('admin', 'cm')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateArticleDto) {
     return this.articlesService.update(id, dto);
   }
@@ -62,6 +65,7 @@ export class ArticlesController {
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   delete(@Param('id', ParseIntPipe) id: number) {
     return this.articlesService.delete(id);
   }

@@ -1,4 +1,4 @@
-import { IsOptional, IsBoolean, IsInt, IsString, Min, Max } from 'class-validator';
+import { IsOptional, IsBoolean, IsInt, IsString, Min, Max, MaxLength } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class ArticlesQueryDto {
@@ -41,5 +41,6 @@ export class ArticlesQueryDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   search?: string;
 }
