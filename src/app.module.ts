@@ -16,6 +16,7 @@ import { SponsorsModule } from './sponsors/sponsors.module';
 import { ContactModule } from './contact/contact.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { SitemapModule } from './sitemap/sitemap.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -40,6 +41,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     ContactModule,
     RecruitmentModule,
     AnalyticsModule,
+    SitemapModule,
   ],
   controllers: [AppController],
   providers: [

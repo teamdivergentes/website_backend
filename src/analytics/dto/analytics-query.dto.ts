@@ -64,22 +64,30 @@ function IsNotInFuture(validationOptions?: ValidationOptions) {
       target: (object as { constructor: new (...args: unknown[]) => unknown }).constructor,
       propertyName,
       options: {
-        message: "La date de fin ne peut pas être dans le futur.",
+        message: 'La date de fin ne peut pas être dans le futur.',
         ...validationOptions,
       },
       validator: {
         validate(value: unknown) {
           if (typeof value !== 'string') return false;
-          const today = new Date();
-          today.setHours(23, 59, 59, 999);
-          return new Date(value) <= today;
+          // Comparaison en chaînes YYYY-MM-DD pour éviter les décalages de timezone.
+          // Le serveur tourne en UTC (Docker) mais le client peut être en avance (CET/CEST).
+          // On accorde +1 jour de marge pour couvrir les fuseaux en avance sur UTC.
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const tomorrowStr = tomorrow.toISOString().split('T')[0];
+          return value <= tomorrowStr;
         },
       },
     });
   };
 }
 
-function IsRangeAtMost(startDateProperty: string, maxDays: number, validationOptions?: ValidationOptions) {
+function IsRangeAtMost(
+  startDateProperty: string,
+  maxDays: number,
+  validationOptions?: ValidationOptions,
+) {
   return function (object: object, propertyName: string) {
     registerDecorator({
       name: 'isRangeAtMost',

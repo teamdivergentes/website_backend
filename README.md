@@ -5,7 +5,7 @@ Backend NestJS pour l'application web de Team Divergentes.
 ## Technologies
 
 - **Framework**: NestJS 11
-- **Runtime**: Node.js 20
+- **Runtime**: Node.js 25
 - **Base de données**: PostgreSQL 17
 - **ORM**: Prisma 6
 - **Langage**: TypeScript
@@ -13,7 +13,7 @@ Backend NestJS pour l'application web de Team Divergentes.
 
 ## Prérequis
 
-- Node.js 20+
+- Node.js 25+
 - PostgreSQL 17+ (version 17.x recommandée pour compatibilité Prisma)
 - npm ou yarn
 
