@@ -22,6 +22,7 @@ const STATIC_PAGES: StaticPage[] = [
   { path: '/structure/equipes', changefreq: 'weekly', priority: '0.8' },
   { path: '/structure/sponsors', changefreq: 'monthly', priority: '0.6' },
   { path: '/structure/recrutement', changefreq: 'weekly', priority: '0.7' },
+  { path: '/articles', changefreq: 'weekly', priority: '0.9' },
   { path: '/mentions-legales', changefreq: 'yearly', priority: '0.3' },
   { path: '/politique-de-confidentialite', changefreq: 'yearly', priority: '0.3' },
 ];
@@ -73,7 +74,7 @@ export class SitemapService {
 
   async generateSitemapXml(baseUrl: string): Promise<string> {
     try {
-      const [teams, members, recruitmentPosts] = await Promise.all([
+      const [teams, members, recruitmentPosts, articles] = await Promise.all([
         this.prisma.team.findMany({
           where: { active: true },
           select: {
@@ -96,6 +97,15 @@ export class SitemapService {
           where: {
             active: true,
             slug: { not: null },
+          },
+          select: {
+            slug: true,
+            updatedAt: true,
+          },
+        }),
+        this.prisma.article.findMany({
+          where: {
+            published: true,
           },
           select: {
             slug: true,
@@ -156,6 +166,20 @@ export class SitemapService {
         }));
 
       for (const entry of recruitmentEntries) {
+        urlEntries.push(
+          this.buildUrlEntry(entry.loc, entry.changefreq, entry.priority, entry.lastmod),
+        );
+      }
+
+      // Dynamic article pages
+      const articleEntries: DynamicEntry[] = articles.map((article) => ({
+        loc: `${normalizedBase}/articles/${article.slug}`,
+        changefreq: 'weekly',
+        priority: '0.8',
+        lastmod: this.formatDate(article.updatedAt),
+      }));
+
+      for (const entry of articleEntries) {
         urlEntries.push(
           this.buildUrlEntry(entry.loc, entry.changefreq, entry.priority, entry.lastmod),
         );
