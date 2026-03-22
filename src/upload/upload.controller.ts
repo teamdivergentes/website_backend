@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { UploadService } from './upload.service';
 import { multerConfig } from './multer.config';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -20,9 +21,34 @@ export class UploadController {
 
   @Post('image')
   @Roles('admin')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file', multerConfig))
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
     return this.uploadService.uploadImage(file);
+  }
+
+  /**
+   * Endpoint dédié à l'outil image d'Editor.js.
+   * Retourne le format attendu par le plugin @editorjs/image :
+   * { success: 1, file: { url: "..." } }
+   */
+  @Post('image-editor')
+  @Roles('admin')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadImageForEditor(@UploadedFile() file: Express.Multer.File) {
+    try {
+      const result = await this.uploadService.uploadImage(file);
+      return {
+        success: 1,
+        file: { url: result.url },
+      };
+    } catch {
+      return {
+        success: 0,
+        file: { url: '' },
+      };
+    }
   }
 
   @Delete(':filename')
