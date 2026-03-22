@@ -224,6 +224,11 @@ async function main() {
       value: 'true',
       description: 'Afficher la page Recrutement',
     },
+    {
+      key: 'page_articles_visible',
+      value: 'true',
+      description: 'Afficher la page Articles',
+    },
   ];
 
   for (const config of configs) {

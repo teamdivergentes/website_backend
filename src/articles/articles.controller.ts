@@ -13,9 +13,11 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ArticlesService } from './articles.service';
+import { LinkMetaService, LinkMetaResponse } from './link-meta.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { ArticlesQueryDto } from './dto/articles-query.dto';
+import { LinkMetaQueryDto } from './dto/link-meta-query.dto';
 import { Public } from '../auth/decorators/public.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -26,7 +28,18 @@ interface RequestWithUser extends Request {
 
 @Controller('api/articles')
 export class ArticlesController {
-  constructor(private readonly articlesService: ArticlesService) {}
+  constructor(
+    private readonly articlesService: ArticlesService,
+    private readonly linkMetaService: LinkMetaService,
+  ) {}
+
+  @Get('link-meta')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'cm')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  getLinkMeta(@Query() query: LinkMetaQueryDto): Promise<LinkMetaResponse> {
+    return this.linkMetaService.fetchLinkMeta(query.url);
+  }
 
   @Public()
   @Get()
