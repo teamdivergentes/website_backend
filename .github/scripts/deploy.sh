@@ -57,6 +57,8 @@ echo "Repo: $DEPLOY_REPO"
 
 # Etape 1: Enregistrer le timestamp avant le declenchement
 BEFORE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+CORRELATION_ID="${GITHUB_RUN_ID:-local}-${ENVIRONMENT}-$(date +%s)"
+echo "Correlation ID: $CORRELATION_ID"
 
 # Etape 2: Declencher le workflow Ansible
 echo -e "${YELLOW}Declenchement du workflow Ansible...${NC}"
@@ -65,7 +67,7 @@ trigger_response=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" \
     "$GITHUB_API/repos/$DEPLOY_REPO/actions/workflows/deploy.yml/dispatches" \
     -H "$AUTH_HEADER" \
     -H "$ACCEPT_HEADER" \
-    -d "{\"ref\": \"main\", \"inputs\": {\"tags\": \"$ANSIBLE_TAG\"}}")
+    -d "{\"ref\": \"main\", \"inputs\": {\"tags\": \"$ANSIBLE_TAG\", \"correlation_id\": \"$CORRELATION_ID\"}}")
 
 http_status=$(echo "$trigger_response" | grep "HTTP_STATUS:" | cut -d: -f2)
 
