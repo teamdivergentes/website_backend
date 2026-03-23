@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # Script de deploiement via Ansible workflow dispatch
-# Usage: ./deploy.sh <environment> <ansible-tag> <deploy-repo> <deploy-token>
+# Usage: ./deploy.sh <environment> <ansible-tag>
+#
+# Variables d'environnement requises : DEPLOY_REPO, DEPLOY_TOKEN
 #
 # Declenche le workflow Ansible sur le repo VPS et suit son execution.
 
@@ -13,17 +15,18 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # reset
 
 # Verification des parametres
-if [ $# -ne 4 ]; then
-    echo -e "${RED}Usage: $0 <environment> <ansible-tag> <deploy-repo> <deploy-token>${NC}"
+if [ $# -ne 2 ]; then
+    echo -e "${RED}Usage: $0 <environment> <ansible-tag>${NC}"
+    echo "   Variables d'environnement requises : DEPLOY_REPO, DEPLOY_TOKEN"
     echo "   Exemple:"
-    echo "     $0 PREPROD website teamdivergentes/vps_ansible ghp_xxxx"
+    echo "     DEPLOY_REPO=teamdivergentes/vps_ansible DEPLOY_TOKEN=ghp_xxxx $0 PREPROD website"
     exit 1
 fi
 
 ENVIRONMENT="$1"
 ANSIBLE_TAG="$2"
-DEPLOY_REPO="$3"
-DEPLOY_TOKEN="$4"
+DEPLOY_REPO="${DEPLOY_REPO:?Variable DEPLOY_REPO non definie}"
+DEPLOY_TOKEN="${DEPLOY_TOKEN:?Variable DEPLOY_TOKEN non definie}"
 
 # Configuration
 TIMEOUT_MINUTES=10

@@ -3,7 +3,7 @@
 # Script pour générer le rapport de Pull Request
 # Usage: ./generate-pr-report.sh
 
-set -e
+set -euo pipefail
 
 # Vérifier les variables requises
 if [[ -z "$BUILD_STATUS" || -z "$LINT_STATUS" || -z "$TEST_STATUS" || -z "$SEMGREP_STATUS" || -z "$DOCKER_STATUS" ]]; then

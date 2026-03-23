@@ -3,7 +3,7 @@
 # Script pour déterminer les tags Docker basés sur le contexte du workflow
 # Usage: ./determine-tags.sh
 
-set -e
+set -euo pipefail
 
 # Configuration du registry
 REGISTRY="ghcr.io"
