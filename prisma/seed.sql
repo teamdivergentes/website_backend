@@ -141,7 +141,16 @@ INSERT INTO recruitment_posts (title, type, description, active, position, slug,
    NOW(), NOW())
 ON CONFLICT (slug) DO NOTHING;
 
--- 8. Verification
+-- 8. Creation des categories d'articles
+INSERT INTO article_types (name, created_at, updated_at) VALUES
+  ('Actualité', NOW(), NOW()),
+  ('Annonce', NOW(), NOW()),
+  ('Match Report', NOW(), NOW()),
+  ('eSport', NOW(), NOW()),
+  ('Interview', NOW(), NOW())
+ON CONFLICT (name) DO NOTHING;
+
+-- 9. Verification
 SELECT '=== SEED RESULTS ===' as info;
 SELECT 'Roles:' as entity, count(*) as count FROM roles
 UNION ALL
@@ -155,4 +164,6 @@ SELECT 'Games:', count(*) FROM games
 UNION ALL
 SELECT 'Sponsors:', count(*) FROM sponsors
 UNION ALL
-SELECT 'Recruitment:', count(*) FROM recruitment_posts;
+SELECT 'Recruitment:', count(*) FROM recruitment_posts
+UNION ALL
+SELECT 'Article Types:', count(*) FROM article_types;
