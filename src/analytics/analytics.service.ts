@@ -393,95 +393,88 @@ export class AnalyticsService {
 
   async getTrafficSources(startDate: string, endDate: string): Promise<TrafficSourcesResponse> {
     this.ensureConfigured();
-    return this.withCache(
-      `analytics:traffic-sources:${startDate}:${endDate}`,
-      600000,
-      async () => {
-        try {
-          const [response] = await this.withTimeout(
-            this.analyticsClient.runReport({
-              property: `properties/${this.propertyId}`,
-              dateRanges: [{ startDate, endDate }],
-              dimensions: [
-                { name: 'sessionSource' },
-                { name: 'sessionMedium' },
-                { name: 'sessionDefaultChannelGroup' },
-              ],
-              metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'bounceRate' }],
-              orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-              limit: 100,
-              ...this.getStreamFilter(),
-            }),
-          );
+    return this.withCache(`analytics:traffic-sources:${startDate}:${endDate}`, 600000, async () => {
+      try {
+        const [response] = await this.withTimeout(
+          this.analyticsClient.runReport({
+            property: `properties/${this.propertyId}`,
+            dateRanges: [{ startDate, endDate }],
+            dimensions: [
+              { name: 'sessionSource' },
+              { name: 'sessionMedium' },
+              { name: 'sessionDefaultChannelGroup' },
+            ],
+            metrics: [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'bounceRate' }],
+            orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+            limit: 100,
+            ...this.getStreamFilter(),
+          }),
+        );
 
-          const data = (response.rows ?? []).map((row: GaRow) => ({
-            source: row.dimensionValues?.[0]?.value ?? '',
-            medium: row.dimensionValues?.[1]?.value ?? '',
-            channel: row.dimensionValues?.[2]?.value ?? '',
-            sessions: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
-            totalUsers: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
-            bounceRate: this.parseFloat(row.metricValues?.[2]?.value ?? undefined),
-          }));
+        const data = (response.rows ?? []).map((row: GaRow) => ({
+          source: row.dimensionValues?.[0]?.value ?? '',
+          medium: row.dimensionValues?.[1]?.value ?? '',
+          channel: row.dimensionValues?.[2]?.value ?? '',
+          sessions: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+          totalUsers: this.parseInt(row.metricValues?.[1]?.value ?? undefined),
+          bounceRate: this.parseFloat(row.metricValues?.[2]?.value ?? undefined),
+        }));
 
-          // Aggregate by channel with weighted bounce rate
-          const channelMap = new Map<
-            string,
-            { sessions: number; totalUsers: number; bounceRateWeightedSum: number }
-          >();
-          for (const row of data) {
-            const key = row.channel;
-            const existing = channelMap.get(key) ?? {
-              sessions: 0,
-              totalUsers: 0,
-              bounceRateWeightedSum: 0,
-            };
-            channelMap.set(key, {
-              sessions: existing.sessions + row.sessions,
-              totalUsers: existing.totalUsers + row.totalUsers,
-              bounceRateWeightedSum:
-                existing.bounceRateWeightedSum + row.bounceRate * row.sessions,
-            });
-          }
-
-          const byChannel = Array.from(channelMap.entries())
-            .map(([channel, v]) => ({
-              channel,
-              sessions: v.sessions,
-              totalUsers: v.totalUsers,
-              bounceRate:
-                v.sessions > 0
-                  ? parseFloat((v.bounceRateWeightedSum / v.sessions).toFixed(4))
-                  : 0,
-            }))
-            .sort((a, b) => b.sessions - a.sessions);
-
-          return {
-            period: { startDate, endDate },
-            data: data.map(
-              ({
-                channel: _channel,
-                ...rest
-              }: {
-                channel: string;
-                source: string;
-                medium: string;
-                sessions: number;
-                totalUsers: number;
-                bounceRate: number;
-              }) => rest,
-            ),
-            byChannel,
+        // Aggregate by channel with weighted bounce rate
+        const channelMap = new Map<
+          string,
+          { sessions: number; totalUsers: number; bounceRateWeightedSum: number }
+        >();
+        for (const row of data) {
+          const key = row.channel;
+          const existing = channelMap.get(key) ?? {
+            sessions: 0,
+            totalUsers: 0,
+            bounceRateWeightedSum: 0,
           };
-        } catch (error) {
-          if (error instanceof HttpException) throw error;
-          this.logger.error(
-            'Erreur API GA [getTrafficSources]',
-            error instanceof Error ? error.message : String(error),
-          );
-          throw new BadGatewayException('Erreur de communication avec Google Analytics');
+          channelMap.set(key, {
+            sessions: existing.sessions + row.sessions,
+            totalUsers: existing.totalUsers + row.totalUsers,
+            bounceRateWeightedSum: existing.bounceRateWeightedSum + row.bounceRate * row.sessions,
+          });
         }
-      },
-    );
+
+        const byChannel = Array.from(channelMap.entries())
+          .map(([channel, v]) => ({
+            channel,
+            sessions: v.sessions,
+            totalUsers: v.totalUsers,
+            bounceRate:
+              v.sessions > 0 ? parseFloat((v.bounceRateWeightedSum / v.sessions).toFixed(4)) : 0,
+          }))
+          .sort((a, b) => b.sessions - a.sessions);
+
+        return {
+          period: { startDate, endDate },
+          data: data.map(
+            ({
+              channel: _channel,
+              ...rest
+            }: {
+              channel: string;
+              source: string;
+              medium: string;
+              sessions: number;
+              totalUsers: number;
+              bounceRate: number;
+            }) => rest,
+          ),
+          byChannel,
+        };
+      } catch (error) {
+        if (error instanceof HttpException) throw error;
+        this.logger.error(
+          'Erreur API GA [getTrafficSources]',
+          error instanceof Error ? error.message : String(error),
+        );
+        throw new BadGatewayException('Erreur de communication avec Google Analytics');
+      }
+    });
   }
 
   async getGeography(startDate: string, endDate: string): Promise<GeoResponse> {
@@ -614,68 +607,72 @@ export class AnalyticsService {
   async getRealtime(): Promise<RealtimeResponse> {
     this.ensureConfigured();
     const streamSuffix = this.streamId ? `:${this.streamId}` : '';
-    return this.withCache(`analytics:realtime:${this.propertyId}${streamSuffix}`, 30000, async () => {
-      try {
-        const [[pageResponse], [countryResponse], [deviceResponse]] = await this.withTimeout(
-          Promise.all([
-            this.analyticsClient.runRealtimeReport({
-              property: `properties/${this.propertyId}`,
-              dimensions: [{ name: 'unifiedScreenName' }],
-              metrics: [{ name: 'activeUsers' }],
-              limit: 20,
-              ...this.getStreamFilter(),
-            }),
-            this.analyticsClient.runRealtimeReport({
-              property: `properties/${this.propertyId}`,
-              dimensions: [{ name: 'country' }],
-              metrics: [{ name: 'activeUsers' }],
-              limit: 20,
-              ...this.getStreamFilter(),
-            }),
-            this.analyticsClient.runRealtimeReport({
-              property: `properties/${this.propertyId}`,
-              dimensions: [{ name: 'deviceCategory' }],
-              metrics: [{ name: 'activeUsers' }],
-              ...this.getStreamFilter(),
-            }),
-          ]),
-        );
+    return this.withCache(
+      `analytics:realtime:${this.propertyId}${streamSuffix}`,
+      30000,
+      async () => {
+        try {
+          const [[pageResponse], [countryResponse], [deviceResponse]] = await this.withTimeout(
+            Promise.all([
+              this.analyticsClient.runRealtimeReport({
+                property: `properties/${this.propertyId}`,
+                dimensions: [{ name: 'unifiedScreenName' }],
+                metrics: [{ name: 'activeUsers' }],
+                limit: 20,
+                ...this.getStreamFilter(),
+              }),
+              this.analyticsClient.runRealtimeReport({
+                property: `properties/${this.propertyId}`,
+                dimensions: [{ name: 'country' }],
+                metrics: [{ name: 'activeUsers' }],
+                limit: 20,
+                ...this.getStreamFilter(),
+              }),
+              this.analyticsClient.runRealtimeReport({
+                property: `properties/${this.propertyId}`,
+                dimensions: [{ name: 'deviceCategory' }],
+                metrics: [{ name: 'activeUsers' }],
+                ...this.getStreamFilter(),
+              }),
+            ]),
+          );
 
-        const byPage = (pageResponse.rows ?? []).map((row: GaRow) => ({
-          page: row.dimensionValues?.[0]?.value ?? '',
-          activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
-        }));
+          const byPage = (pageResponse.rows ?? []).map((row: GaRow) => ({
+            page: row.dimensionValues?.[0]?.value ?? '',
+            activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+          }));
 
-        const byCountry = (countryResponse.rows ?? []).map((row: GaRow) => ({
-          country: row.dimensionValues?.[0]?.value ?? '',
-          activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
-        }));
+          const byCountry = (countryResponse.rows ?? []).map((row: GaRow) => ({
+            country: row.dimensionValues?.[0]?.value ?? '',
+            activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+          }));
 
-        const byDevice = (deviceResponse.rows ?? []).map((row: GaRow) => ({
-          device: row.dimensionValues?.[0]?.value ?? '',
-          activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
-        }));
+          const byDevice = (deviceResponse.rows ?? []).map((row: GaRow) => ({
+            device: row.dimensionValues?.[0]?.value ?? '',
+            activeUsers: this.parseInt(row.metricValues?.[0]?.value ?? undefined),
+          }));
 
-        const activeUsers = byPage.reduce(
-          (sum: number, r: { page: string; activeUsers: number }) => sum + r.activeUsers,
-          0,
-        );
+          const activeUsers = byPage.reduce(
+            (sum: number, r: { page: string; activeUsers: number }) => sum + r.activeUsers,
+            0,
+          );
 
-        return {
-          activeUsers,
-          byPage,
-          byCountry,
-          byDevice,
-          updatedAt: new Date().toISOString(),
-        };
-      } catch (error) {
-        if (error instanceof HttpException) throw error;
-        this.logger.error(
-          'Erreur API GA [getRealtime]',
-          error instanceof Error ? error.message : String(error),
-        );
-        throw new BadGatewayException('Erreur de communication avec Google Analytics');
-      }
-    });
+          return {
+            activeUsers,
+            byPage,
+            byCountry,
+            byDevice,
+            updatedAt: new Date().toISOString(),
+          };
+        } catch (error) {
+          if (error instanceof HttpException) throw error;
+          this.logger.error(
+            'Erreur API GA [getRealtime]',
+            error instanceof Error ? error.message : String(error),
+          );
+          throw new BadGatewayException('Erreur de communication avec Google Analytics');
+        }
+      },
+    );
   }
 }

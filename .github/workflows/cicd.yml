@@ -78,6 +78,9 @@ jobs:
         if: steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
       - name: Run ESLint
         run: npm run lint
 

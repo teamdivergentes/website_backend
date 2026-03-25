@@ -111,7 +111,7 @@ describe('Authorization E2E - Role-Based Access Control', () => {
 
     const adminBody = adminLogin.body as { access_token?: string };
     if (!adminBody.access_token) {
-      throw new Error('Impossible d\'obtenir le token admin pour les tests d\'autorisation');
+      throw new Error("Impossible d'obtenir le token admin pour les tests d'autorisation");
     }
     adminToken = adminBody.access_token;
 
@@ -149,16 +149,14 @@ describe('Authorization E2E - Role-Based Access Control', () => {
     viewerUserId = viewerUser.id;
 
     // Login viewer
-    const viewerLogin = await request(server)
-      .post('/api/auth/login')
-      .send({
-        email: 'e2e_viewer_test@teamdivergentes.fr',
-        password: 'viewer_password_E2E',
-      });
+    const viewerLogin = await request(server).post('/api/auth/login').send({
+      email: 'e2e_viewer_test@teamdivergentes.fr',
+      password: 'viewer_password_E2E',
+    });
 
     const viewerBody = viewerLogin.body as { access_token?: string };
     if (!viewerBody.access_token) {
-      throw new Error('Impossible d\'obtenir le token viewer pour les tests d\'autorisation');
+      throw new Error("Impossible d'obtenir le token viewer pour les tests d'autorisation");
     }
     viewerToken = viewerBody.access_token;
   });
@@ -166,23 +164,17 @@ describe('Authorization E2E - Role-Based Access Control', () => {
   afterAll(async () => {
     // Nettoyage : supprimer les données créées pendant les tests
     if (createdGameId) {
-      await prisma.game
-        .delete({ where: { id: createdGameId } })
-        .catch(() => {
-          // Ignorer les erreurs si le jeu a déjà été supprimé
-        });
+      await prisma.game.delete({ where: { id: createdGameId } }).catch(() => {
+        // Ignorer les erreurs si le jeu a déjà été supprimé
+      });
     }
 
     if (viewerUserId) {
-      await prisma.user
-        .delete({ where: { id: viewerUserId } })
-        .catch(() => {});
+      await prisma.user.delete({ where: { id: viewerUserId } }).catch(() => {});
     }
 
     if (viewerRoleId) {
-      await prisma.role
-        .delete({ where: { id: viewerRoleId } })
-        .catch(() => {});
+      await prisma.role.delete({ where: { id: viewerRoleId } }).catch(() => {});
     }
 
     await app.close();
@@ -257,7 +249,7 @@ describe('Authorization E2E - Role-Based Access Control', () => {
   describe('3. Utilisateur Viewer — accès refusé aux endpoints @Roles("admin")', () => {
     const server = () => app.getHttpServer() as Parameters<typeof request>[0];
 
-    it('POST /api/games → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("POST /api/games → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .post('/api/games')
         .set('Authorization', `Bearer ${viewerToken}`)
@@ -265,14 +257,14 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('GET /api/users → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("GET /api/users → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .get('/api/users')
         .set('Authorization', `Bearer ${viewerToken}`)
         .expect(403);
     });
 
-    it('POST /api/users → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("POST /api/users → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .post('/api/users')
         .set('Authorization', `Bearer ${viewerToken}`)
@@ -284,7 +276,7 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('POST /api/roles → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("POST /api/roles → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .post('/api/roles')
         .set('Authorization', `Bearer ${viewerToken}`)
@@ -292,14 +284,14 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('DELETE /api/games/1 → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("DELETE /api/games/1 → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .delete('/api/games/1')
         .set('Authorization', `Bearer ${viewerToken}`)
         .expect(403);
     });
 
-    it('POST /api/config → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("POST /api/config → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .post('/api/config')
         .set('Authorization', `Bearer ${viewerToken}`)
@@ -307,7 +299,7 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('PUT /api/config/:key → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("PUT /api/config/:key → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .put('/api/config/some_config_key')
         .set('Authorization', `Bearer ${viewerToken}`)
@@ -315,14 +307,14 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('GET /api/sponsors/admin/all → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("GET /api/sponsors/admin/all → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .get('/api/sponsors/admin/all')
         .set('Authorization', `Bearer ${viewerToken}`)
         .expect(403);
     });
 
-    it('POST /api/staff → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("POST /api/staff → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .post('/api/staff')
         .set('Authorization', `Bearer ${viewerToken}`)
@@ -333,7 +325,7 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('POST /api/upload/image → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("POST /api/upload/image → 403 (viewer n'a pas le rôle admin)", async () => {
       const fakeImage = Buffer.from('fake image content');
       await request(server())
         .post('/api/upload/image')
@@ -345,14 +337,14 @@ describe('Authorization E2E - Role-Based Access Control', () => {
         .expect(403);
     });
 
-    it('GET /api/recruitment/admin/all → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("GET /api/recruitment/admin/all → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .get('/api/recruitment/admin/all')
         .set('Authorization', `Bearer ${viewerToken}`)
         .expect(403);
     });
 
-    it('GET /api/users/:id → 403 (viewer n\'a pas le rôle admin)', async () => {
+    it("GET /api/users/:id → 403 (viewer n'a pas le rôle admin)", async () => {
       await request(server())
         .get('/api/users/1')
         .set('Authorization', `Bearer ${viewerToken}`)

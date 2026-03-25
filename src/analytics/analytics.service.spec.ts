@@ -427,11 +427,7 @@ describe('AnalyticsService', () => {
           {
             rows: [
               {
-                dimensionValues: [
-                  { value: '(direct)' },
-                  { value: '(none)' },
-                  { value: 'Direct' },
-                ],
+                dimensionValues: [{ value: '(direct)' }, { value: '(none)' }, { value: 'Direct' }],
                 metricValues: [{ value: '0' }, { value: '0' }, { value: '0.50' }],
               },
             ],
@@ -461,7 +457,9 @@ describe('AnalyticsService', () => {
       it('devrait lever BadGatewayException sur erreur réseau', async () => {
         mockRunReport.mockRejectedValue(new Error('Connection refused'));
         service = await createService();
-        await expect(service.getTrafficSources('2024-01-01', '2024-01-31')).rejects.toThrow(BadGatewayException);
+        await expect(service.getTrafficSources('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
+        );
       });
     });
 
@@ -528,7 +526,9 @@ describe('AnalyticsService', () => {
       it('devrait lever BadGatewayException si le 1er appel (countries) échoue', async () => {
         mockRunReport.mockRejectedValue(new Error('Network error'));
         service = await createService();
-        await expect(service.getGeography('2024-01-01', '2024-01-31')).rejects.toThrow(BadGatewayException);
+        await expect(service.getGeography('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
+        );
       });
     });
 
@@ -590,9 +590,16 @@ describe('AnalyticsService', () => {
       });
 
       it('devrait retourner percentage 0 si totalUsers est 0', async () => {
-        mockRunReport.mockResolvedValue([{
-          rows: [{ dimensionValues: [{ value: 'desktop' }], metricValues: [{ value: '0' }, { value: '0' }] }]
-        }]);
+        mockRunReport.mockResolvedValue([
+          {
+            rows: [
+              {
+                dimensionValues: [{ value: 'desktop' }],
+                metricValues: [{ value: '0' }, { value: '0' }],
+              },
+            ],
+          },
+        ]);
         service = await createService();
         const result = await service.getDevices('2024-01-01', '2024-01-31');
         expect(result.byCategory[0].percentage).toBe(0);
@@ -601,7 +608,9 @@ describe('AnalyticsService', () => {
       it('devrait lever BadGatewayException sur erreur réseau', async () => {
         mockRunReport.mockRejectedValue(new Error('Network error'));
         service = await createService();
-        await expect(service.getDevices('2024-01-01', '2024-01-31')).rejects.toThrow(BadGatewayException);
+        await expect(service.getDevices('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
+        );
       });
     });
 
