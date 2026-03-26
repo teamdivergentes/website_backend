@@ -37,10 +37,7 @@ describe('UsersController (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideGuard(ThrottlerGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -50,6 +47,10 @@ describe('UsersController (e2e)', () => {
         transform: true,
       }),
     );
+
+    // Disable throttling for E2E tests (APP_GUARD cannot be overridden via overrideGuard)
+    const throttlerGuard = app.get(ThrottlerGuard);
+    jest.spyOn(throttlerGuard, 'canActivate').mockImplementation(() => Promise.resolve(true));
 
     await app.init();
 

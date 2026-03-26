@@ -70,90 +70,23 @@ describe('UploadController (e2e)', () => {
   }
 
   /**
-   * Génère un buffer PNG minimal valide (1x1 pixel transparent).
+   * Génère un buffer PNG minimal valide (1x1 pixel gris).
+   * Utilise un PNG encodé en base64 connu pour être valide et
+   * traitable par Sharp sans erreur.
    */
   function createMinimalPng(): Buffer {
-    // PNG 1x1 pixel (IHDR + IDAT + IEND)
-    return Buffer.from([
-      0x89,
-      0x50,
-      0x4e,
-      0x47,
-      0x0d,
-      0x0a,
-      0x1a,
-      0x0a, // PNG signature
-      0x00,
-      0x00,
-      0x00,
-      0x0d,
-      0x49,
-      0x48,
-      0x44,
-      0x52, // IHDR chunk
-      0x00,
-      0x00,
-      0x00,
-      0x01,
-      0x00,
-      0x00,
-      0x00,
-      0x01,
-      0x08,
-      0x02,
-      0x00,
-      0x00,
-      0x00,
-      0x90,
-      0x77,
-      0x53,
-      0xde,
-      0x00,
-      0x00,
-      0x00,
-      0x0c,
-      0x49,
-      0x44,
-      0x41, // IDAT chunk
-      0x54,
-      0x08,
-      0xd7,
-      0x63,
-      0xf8,
-      0xcf,
-      0xc0,
-      0x00,
-      0x00,
-      0x00,
-      0x02,
-      0x00,
-      0x01,
-      0xe2,
-      0x21,
-      0xbc,
-      0x33,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x49,
-      0x45,
-      0x4e, // IEND chunk
-      0x44,
-      0xae,
-      0x42,
-      0x60,
-      0x82,
-    ]);
+    // 1x1 pixel PNG (gris, RGB, valid CRC, valid zlib IDAT)
+    // Source : image PNG minimale générée et vérifiée avec Sharp
+    return Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADklEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
   }
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideGuard(ThrottlerGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -163,6 +96,10 @@ describe('UploadController (e2e)', () => {
         transform: true,
       }),
     );
+
+    // Disable throttling for E2E tests (APP_GUARD cannot be overridden via overrideGuard)
+    const throttlerGuard = app.get(ThrottlerGuard);
+    jest.spyOn(throttlerGuard, 'canActivate').mockImplementation(() => Promise.resolve(true));
 
     await app.init();
 
