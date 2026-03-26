@@ -31,12 +31,13 @@ describe('Security E2E - Negative Tests', () => {
     })
       .overrideProvider(ThrottlerStorage)
       .useValue({
-        increment: async () => ({
-          totalHits: 0,
-          timeToExpire: 0,
-          isBlocked: false,
-          timeToBlockExpire: 0,
-        }),
+        increment: () =>
+          Promise.resolve({
+            totalHits: 0,
+            timeToExpire: 0,
+            isBlocked: false,
+            timeToBlockExpire: 0,
+          }),
       })
       .compile();
 

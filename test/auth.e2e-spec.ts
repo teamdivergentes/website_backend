@@ -33,12 +33,13 @@ describe('AuthController (e2e)', () => {
     })
       .overrideProvider(ThrottlerStorage)
       .useValue({
-        increment: async () => ({
-          totalHits: 0,
-          timeToExpire: 0,
-          isBlocked: false,
-          timeToBlockExpire: 0,
-        }),
+        increment: () =>
+          Promise.resolve({
+            totalHits: 0,
+            timeToExpire: 0,
+            isBlocked: false,
+            timeToBlockExpire: 0,
+          }),
       })
       .compile();
 
