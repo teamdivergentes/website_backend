@@ -446,8 +446,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # SECURITY: Trivy was compromised in a supply chain attack (March 2026).
+      # Only SHA 57a97c7 (v0.35.0) is verified safe. Do NOT update without verification.
+      # See: https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947e795f7a1e9b8f17f # v0.31.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
           format: sarif
