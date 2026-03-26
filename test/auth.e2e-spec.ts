@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerStorage } from '@nestjs/throttler';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
@@ -30,7 +30,17 @@ describe('AuthController (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(ThrottlerStorage)
+      .useValue({
+        increment: async () => ({
+          totalHits: 0,
+          timeToExpire: 0,
+          isBlocked: false,
+          timeToBlockExpire: 0,
+        }),
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -40,10 +50,6 @@ describe('AuthController (e2e)', () => {
         transform: true,
       }),
     );
-
-    // Disable throttling for E2E tests (APP_GUARD cannot be overridden via overrideGuard)
-    const throttlerGuard = app.get(ThrottlerGuard);
-    jest.spyOn(throttlerGuard, 'canActivate').mockImplementation(() => Promise.resolve(true));
 
     await app.init();
 
