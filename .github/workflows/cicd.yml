@@ -5,6 +5,16 @@ on:
     branches: [ "main" ]
     tags: [ "v*" ]  # Format: vXX.YY.ZZ
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
 
 env:
   NODE_VERSION: 22
@@ -17,6 +27,12 @@ permissions: {}
 
 jobs:
   build:
+    # Run on push/pull_request/workflow_dispatch.
+    # pull_request_review and issue_comment are handled by downstream jobs directly.
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,7 +100,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-  test:
+  # Fast job: unit tests only (Jest, no E2E).
+  # Runs on every push/PR — this is the gating job for Docker and deployments.
+  test-unit:
     runs-on: ubuntu-latest
     needs: build
     if: needs.build.result == 'success'
@@ -144,7 +162,65 @@ jobs:
           NODE_ENV: test
         run: npm run test -- --coverage --coverageReporters=json-summary --coverageReporters=text
 
-      - name: Run e2e tests
+  # Slow job: NestJS E2E tests (supertest against a real Postgres).
+  # Triggers: push to main, tag, PR approval, /run-e2e comment on PR, or workflow_dispatch.
+  # NOT triggered on every PR push to keep pipelines fast.
+  # Note: github.event.comment.body is used only in if: expression context (not in run:) - safe.
+  test-e2e:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push') ||
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-e2e') ||
+      (github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run Prisma migrations
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        run: npx prisma migrate deploy
+
+      - name: Run E2E tests
         env:
           DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
           JWT_SECRET: test-secret-key-for-ci
@@ -232,16 +308,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        
+
       - name: Run Semgrep
         run: semgrep ci
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
+  # Docker depends on fast jobs only (test-unit, not test-e2e).
+  # This keeps Docker unblocked on every PR push for fast feedback.
   docker:
     runs-on: ubuntu-latest
-    needs: [build, lint, test, semgrep]
-    if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test.result == 'success' && needs.semgrep.result == 'success'
+    needs: [build, lint, test-unit, semgrep]
+    if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test-unit.result == 'success' && needs.semgrep.result == 'success'
     permissions:
       contents: read
       packages: write
@@ -257,7 +335,7 @@ jobs:
     env:
       BUILD_STATUS: ${{ needs.build.result }}
       LINT_STATUS: ${{ needs.lint.result }}
-      TEST_STATUS: ${{ needs.test.result }}
+      TEST_STATUS: ${{ needs.test-unit.result }}
       SEMGREP_STATUS: ${{ needs.semgrep.result }}
       GITHUB_SHA: ${{ github.sha }}
       GITHUB_HEAD_REF: ${{ github.head_ref || github.ref_name }}
@@ -284,7 +362,7 @@ jobs:
         run: |
           chmod +x ./.github/scripts/determine-tags.sh
           ./.github/scripts/determine-tags.sh
-      
+
       - name: Update Dockerfile with build labels
         id: labels
         run: |
@@ -302,34 +380,34 @@ jobs:
             "${{ env.GITHUB_ACTOR }}" \
             "${{ env.BUILD_TIME }}" \
             "${{ env.GITHUB_REPOSITORY }}"
-          
+
           # Extraire les labels du Dockerfile pour les passer à docker/build-push-action
           if [[ -f "Dockerfile" ]]; then
             grep "^LABEL " Dockerfile | sed 's/^LABEL //' > labels_temp.txt
-            
+
             if [[ -s "labels_temp.txt" ]]; then
               while IFS= read -r line; do
                 if [[ "$line" =~ [\;\|\&\`\$\(\)] ]]; then
-                  echo "⚠️ Label dangereux détecté et ignoré: $line"
+                  echo "Warning: Label dangereux détecté et ignoré: $line"
                   continue
                 fi
                 echo "$line" >> labels_output.txt
               done < labels_temp.txt
-              
+
               if [[ -f "labels_output.txt" && -s "labels_output.txt" ]]; then
                 echo "labels<<EOF" >> $GITHUB_OUTPUT
                 cat labels_output.txt >> $GITHUB_OUTPUT
                 echo "EOF" >> $GITHUB_OUTPUT
               else
-                echo "⚠️ Aucun label valide trouvé dans le Dockerfile"
+                echo "Warning: Aucun label valide trouvé dans le Dockerfile"
               fi
             else
-              echo "⚠️ Aucun label trouvé dans le Dockerfile"
+              echo "Warning: Aucun label trouvé dans le Dockerfile"
             fi
-            
+
             rm -f labels_temp.txt labels_output.txt
           else
-            echo "❌ Dockerfile non trouvé"
+            echo "Dockerfile non trouvé"
             exit 1
           fi
         env:
@@ -386,13 +464,13 @@ jobs:
   # Déploiement PREPROD (push sur main ou PR avec [DEPLOY])
   deploy-preprod:
     runs-on: ubuntu-latest
-    needs: [build, lint, test, semgrep, docker, scan-image]
+    needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       (github.ref == 'refs/heads/main' ||
        (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[DEPLOY]'))) &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
-      needs.test.result == 'success' &&
+      needs.test-unit.result == 'success' &&
       needs.semgrep.result == 'success' &&
       needs.docker.result == 'success' &&
       needs.scan-image.result == 'success'
@@ -425,12 +503,12 @@ jobs:
   # Déploiement PROD (tag vX.Y.Z)
   deploy-prod:
     runs-on: ubuntu-latest
-    needs: [build, lint, test, semgrep, docker, scan-image]
+    needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
-      needs.test.result == 'success' &&
+      needs.test-unit.result == 'success' &&
       needs.semgrep.result == 'success' &&
       needs.docker.result == 'success' &&
       needs.scan-image.result == 'success'
@@ -462,8 +540,11 @@ jobs:
 
   pr-report:
     runs-on: ubuntu-latest
-    needs: [build, lint, test, semgrep, docker, scan-image, deploy-preprod, deploy-prod]
-    if: github.event_name == 'pull_request' && always()
+    needs: [build, lint, test-unit, test-e2e, semgrep, docker, scan-image, deploy-preprod, deploy-prod]
+    if: |
+      always() &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null))
     continue-on-error: true
     permissions:
       contents: write
@@ -472,7 +553,8 @@ jobs:
     env:
       BUILD_STATUS: ${{ needs.build.result }}
       LINT_STATUS: ${{ needs.lint.result }}
-      TEST_STATUS: ${{ needs.test.result }}
+      TEST_STATUS: ${{ needs.test-unit.result }}
+      E2E_STATUS: ${{ needs.test-e2e.result || 'skipped' }}
       SEMGREP_STATUS: ${{ needs.semgrep.result }}
       DOCKER_STATUS: ${{ needs.docker.result }}
       DEPLOY_PREPROD_STATUS: ${{ needs.deploy-preprod.result || 'skipped' }}
@@ -485,7 +567,7 @@ jobs:
       GITHUB_HEAD_REF: ${{ github.head_ref || github.ref_name }}
       GITHUB_ACTOR: ${{ github.actor }}
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_EVENT_NUMBER: ${{ github.event.number }}
+      GITHUB_EVENT_NUMBER: ${{ github.event.number || github.event.issue.number }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
@@ -521,100 +603,97 @@ jobs:
   # Job final pour déterminer le statut global du workflow
   workflow-status:
     runs-on: ubuntu-latest
-    needs: [build, lint, test, validate-migrations, semgrep, docker, scan-image, deploy-preprod, deploy-prod, pr-report, notify]
+    needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, docker, scan-image, deploy-preprod, deploy-prod, pr-report, notify]
     if: always()
     permissions: {}
     steps:
       - name: Check workflow status
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          TEST_UNIT_RESULT: ${{ needs.test-unit.result }}
+          TEST_E2E_RESULT: ${{ needs.test-e2e.result }}
+          VALIDATE_MIGRATIONS_RESULT: ${{ needs.validate-migrations.result }}
+          SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          DEPLOY_PREPROD_RESULT: ${{ needs.deploy-preprod.result }}
+          DEPLOY_PROD_RESULT: ${{ needs.deploy-prod.result }}
         run: |
-          echo "Build status: ${{ needs.build.result }}"
-          echo "Lint status: ${{ needs.lint.result }}"
-          echo "Test status: ${{ needs.test.result }}"
-          echo "Validate migrations status: ${{ needs.validate-migrations.result }}"
-          echo "Semgrep status: ${{ needs.semgrep.result }}"
-          echo "Docker status: ${{ needs.docker.result }}"
-          echo "Deploy PREPROD status: ${{ needs.deploy-preprod.result }}"
-          echo "Deploy PROD status: ${{ needs.deploy-prod.result }}"
+          echo "Build status: $BUILD_RESULT"
+          echo "Lint status: $LINT_RESULT"
+          echo "Test (unit) status: $TEST_UNIT_RESULT"
+          echo "Test (e2e) status: $TEST_E2E_RESULT"
+          echo "Validate migrations status: $VALIDATE_MIGRATIONS_RESULT"
+          echo "Semgrep status: $SEMGREP_RESULT"
+          echo "Docker status: $DOCKER_RESULT"
+          echo "Deploy PREPROD status: $DEPLOY_PREPROD_RESULT"
+          echo "Deploy PROD status: $DEPLOY_PROD_RESULT"
 
-          # Le workflow échoue si un job critique échoue
-          if [[ "${{ needs.build.result }}" != "success" ]]; then
-            echo "❌ Workflow failed: Build job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.build.result }}" == "cancelled" ]]; then
-            echo "Build job cancelled"
+          # Critical fast jobs: must always succeed when triggered
+          if [[ "$BUILD_RESULT" == "failure" || "$BUILD_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Build job failed"
             exit 1
           fi
 
-          if [[ "${{ needs.lint.result }}" != "success" ]]; then
-            echo "❌ Workflow failed: Lint job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.lint.result }}" == "cancelled" ]]; then
-            echo "Lint job cancelled"
+          if [[ "$LINT_RESULT" == "failure" || "$LINT_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Lint job failed"
             exit 1
           fi
 
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
-            echo "❌ Workflow failed: Test job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test.result }}" == "cancelled" ]]; then
-            echo "Test job cancelled"
+          if [[ "$TEST_UNIT_RESULT" == "failure" || "$TEST_UNIT_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Test (unit) job failed"
             exit 1
           fi
 
-          if [[ "${{ needs.validate-migrations.result }}" != "success" ]]; then
+          if [[ "$VALIDATE_MIGRATIONS_RESULT" == "failure" || "$VALIDATE_MIGRATIONS_RESULT" == "cancelled" ]]; then
             echo "Workflow failed: Validate migrations job failed"
             exit 1
           fi
-          if [[ "${{ needs.validate-migrations.result }}" == "cancelled" ]]; then
-            echo "Validate migrations job cancelled"
+
+          if [[ "$SEMGREP_RESULT" == "failure" || "$SEMGREP_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Semgrep job failed"
             exit 1
           fi
 
-          if [[ "${{ needs.semgrep.result }}" != "success" ]]; then
-            echo "❌ Workflow failed: Semgrep job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.semgrep.result }}" == "cancelled" ]]; then
-            echo "Semgrep job cancelled"
+          if [[ "$DOCKER_RESULT" == "failure" || "$DOCKER_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Docker job failed"
             exit 1
           fi
 
-          if [[ "${{ needs.docker.result }}" != "success" ]]; then
-            echo "❌ Workflow failed: Docker job failed"
+          # E2E is conditional: only fail the workflow if it actually ran and failed.
+          # skipped = not yet triggered (normal on PR push), which is acceptable.
+          if [[ "$TEST_E2E_RESULT" == "failure" || "$TEST_E2E_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Test (e2e) job failed"
             exit 1
-          fi
-          if [[ "${{ needs.docker.result }}" == "cancelled" ]]; then
-            echo "Docker job cancelled"
-            exit 1
+          elif [[ "$TEST_E2E_RESULT" == "skipped" ]]; then
+            echo "Test (e2e) skipped (not triggered - will run on PR approval or push to main)"
+          elif [[ "$TEST_E2E_RESULT" == "success" ]]; then
+            echo "Test (e2e) passed"
           fi
 
-          # Verifier les deploiements si ils ont ete executes
-          if [[ "${{ needs.deploy-preprod.result }}" == "success" ]]; then
+          # Deployments: fail the workflow only if they actually ran and failed.
+          if [[ "$DEPLOY_PREPROD_RESULT" == "success" ]]; then
             echo "Deploy PREPROD succeeded"
-          elif [[ "${{ needs.deploy-preprod.result }}" == "cancelled" ]]; then
+          elif [[ "$DEPLOY_PREPROD_RESULT" == "cancelled" ]]; then
             echo "Deploy PREPROD job cancelled"
             exit 1
-          elif [[ "${{ needs.deploy-preprod.result }}" == "failure" ]]; then
+          elif [[ "$DEPLOY_PREPROD_RESULT" == "failure" ]]; then
             echo "Workflow failed: Deploy PREPROD failed"
             exit 1
-          elif [[ "${{ needs.deploy-preprod.result }}" == "skipped" ]]; then
+          elif [[ "$DEPLOY_PREPROD_RESULT" == "skipped" ]]; then
             echo "Deploy PREPROD skipped"
           fi
 
-          if [[ "${{ needs.deploy-prod.result }}" == "success" ]]; then
+          if [[ "$DEPLOY_PROD_RESULT" == "success" ]]; then
             echo "Deploy PROD succeeded"
-          elif [[ "${{ needs.deploy-prod.result }}" == "cancelled" ]]; then
+          elif [[ "$DEPLOY_PROD_RESULT" == "cancelled" ]]; then
             echo "Deploy PROD job cancelled"
             exit 1
-          elif [[ "${{ needs.deploy-prod.result }}" == "failure" ]]; then
+          elif [[ "$DEPLOY_PROD_RESULT" == "failure" ]]; then
             echo "Workflow failed: Deploy PROD failed"
             exit 1
-          elif [[ "${{ needs.deploy-prod.result }}" == "skipped" ]]; then
+          elif [[ "$DEPLOY_PROD_RESULT" == "skipped" ]]; then
             echo "Deploy PROD skipped"
           fi
 
-          echo "✅ All critical jobs succeeded"
-
+          echo "All critical jobs succeeded"
