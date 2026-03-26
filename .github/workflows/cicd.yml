@@ -144,17 +144,6 @@ jobs:
           NODE_ENV: test
         run: npm run test -- --coverage --coverageReporters=json-summary --coverageReporters=text
 
-      - name: Coverage comment
-        uses: MishaKav/jest-coverage-comment@81882822c5b7f86ce2f5e7e24aea4e438802f550 # main@2024-08
-        if: github.event_name == 'pull_request'
-        with:
-          coverage-summary-path: ./coverage/coverage-summary.json
-          title: "Couverture des tests Backend"
-          badge-title: "Coverage"
-          hide-comment: false
-          create-new-comment: false
-          junitxml-path: ./junit.xml
-
       - name: Run e2e tests
         env:
           DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
@@ -209,6 +198,11 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Create shadow database
+        env:
+          PGPASSWORD: migration_test
+        run: psql -h localhost -p 5433 -U migration_test -d testdb_migration -c "CREATE DATABASE shadow_db;"
+
       - name: Validate Prisma migrations
         env:
           DATABASE_URL: postgresql://migration_test:migration_test@localhost:5433/testdb_migration
@@ -217,7 +211,11 @@ jobs:
           echo "Running Prisma migrate deploy..."
           npx prisma migrate deploy
           echo "Validating schema consistency..."
-          npx prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-migrations prisma/migrations --exit-code
+          npx prisma migrate diff \
+            --from-schema-datamodel prisma/schema.prisma \
+            --to-migrations prisma/migrations \
+            --shadow-database-url "postgresql://migration_test:migration_test@localhost:5433/shadow_db" \
+            --exit-code
           echo "Migrations validated successfully"
 
   semgrep:
