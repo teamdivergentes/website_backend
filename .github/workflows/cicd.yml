@@ -428,7 +428,7 @@ jobs:
             ${{ steps.tags.outputs.version-tag }}
           labels: ${{ steps.labels.outputs.labels }}
           cache-from: type=gha
-          cache-to: ${{ (github.event_name == 'pull_request' && !contains(github.event.pull_request.title, '[DEPLOY]')) && '' || 'type=gha,mode=max' }}
+          cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && 'type=gha,mode=max' || '' }}
 
   scan-image:
     runs-on: ubuntu-latest
