@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
@@ -36,7 +37,10 @@ describe('UsersController (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -191,9 +195,15 @@ describe('UsersController (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      // Sans paramètres de pagination, le service retourne un tableau
-      const body = res.body as unknown;
-      expect(Array.isArray(body)).toBe(true);
+      // PaginationDto has default values (page=1, limit=20) applied by class-transformer,
+      // so the controller always routes to findAllPaginated returning a paginated response.
+      const body = res.body as {
+        data?: unknown[];
+        meta?: { total: number; page: number; limit: number; totalPages: number };
+      };
+      expect(body).toHaveProperty('data');
+      expect(body).toHaveProperty('meta');
+      expect(Array.isArray(body.data)).toBe(true);
     });
 
     it('admin avec pagination → 200 + liste paginée avec meta', async () => {

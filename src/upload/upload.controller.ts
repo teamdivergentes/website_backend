@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Post,
   Delete,
@@ -24,6 +25,9 @@ export class UploadController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file', multerConfig))
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
     return this.uploadService.uploadImage(file);
   }
 
