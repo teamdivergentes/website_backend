@@ -329,7 +329,11 @@ Ce message a été envoyé via le formulaire de candidature DVG
         filesToUpload.forEach((f, i) => {
           formData.append(`files[${i}]`, new Blob([new Uint8Array(f.buffer)]), f.originalname);
         });
-        response = await fetch(webhookUrl, { method: 'POST', body: formData, signal: controller.signal });
+        response = await fetch(webhookUrl, {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
       } else {
         response = await fetch(webhookUrl, {
           method: 'POST',

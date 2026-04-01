@@ -42,7 +42,7 @@ registry:
 # CONFIGURATION CI/CD
 # =============================================================================
 pipeline:
-  node_version: "20"
+  node_version: "22"
   nestjs_version: "11"
   prisma_version: "6"
 
@@ -50,7 +50,7 @@ pipeline:
 # CONFIGURATION DOCKER
 # =============================================================================
 docker:
-  base_image: "node:20-alpine"
+  base_image: "node:22-alpine"
   non_root_user: "nestjs"
   exposed_port: 3000
 

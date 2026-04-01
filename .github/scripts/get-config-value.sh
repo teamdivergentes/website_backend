@@ -4,7 +4,7 @@
 # Usage: ./get-config-value.sh <chemin-vers-la-valeur>
 # Exemple: ./get-config-value.sh "deployment.timeout_minutes"
 
-set -e
+set -euo pipefail
 
 if [ $# -ne 1 ]; then
     echo "❌ Usage: $0 <chemin-vers-la-valeur>"

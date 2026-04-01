@@ -3,7 +3,7 @@
 # Script pour ajouter les labels Docker avec les informations de build
 # Usage: ./update-dockerfile-labels.sh <image-tag> <workflow-tag> <tag-suffix> <build-status> <lint-status> <test-status> <semgrep-status> <github-sha> <github-head-ref> <github-actor> <build-time> <github-repository>
 
-set -e
+set -euo pipefail
 
 IMAGE_TAG="$1"
 WORKFLOW_TAG="$2"
@@ -88,7 +88,7 @@ if [[ -f "Dockerfile" ]]; then
     
     # Ajouter les nouveaux labels après la ligne FROM node:20-alpine AS production
     awk '
-    /^FROM node:20-alpine AS production/ {
+    /^FROM node:[0-9]+-alpine AS production/ {
         print $0
         print ""
         while ((getline line < "dockerfile_labels.txt") > 0) {

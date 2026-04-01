@@ -23,7 +23,7 @@ export class ArticleTypesService {
       });
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la récupération des types d\'articles');
+      throw new BadGatewayException("Erreur lors de la récupération des types d'articles");
     }
   }
 
@@ -43,7 +43,7 @@ export class ArticleTypesService {
       return articleType;
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la récupération du type d\'article');
+      throw new BadGatewayException("Erreur lors de la récupération du type d'article");
     }
   }
 
@@ -67,7 +67,7 @@ export class ArticleTypesService {
       });
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la création du type d\'article');
+      throw new BadGatewayException("Erreur lors de la création du type d'article");
     }
   }
 
@@ -102,7 +102,7 @@ export class ArticleTypesService {
       });
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la modification du type d\'article');
+      throw new BadGatewayException("Erreur lors de la modification du type d'article");
     }
   }
 
@@ -130,10 +130,10 @@ export class ArticleTypesService {
         where: { id },
       });
 
-      return { message: 'Type d\'article supprimé avec succès' };
+      return { message: "Type d'article supprimé avec succès" };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadGatewayException('Erreur lors de la suppression du type d\'article');
+      throw new BadGatewayException("Erreur lors de la suppression du type d'article");
     }
   }
 }

@@ -1,0 +1,6 @@
+.github/workflows/      @teamdivergentes/devsecops
+.github/scripts/        @teamdivergentes/devsecops
+Dockerfile              @teamdivergentes/devsecops
+devsecops.yml           @teamdivergentes/devsecops
+prisma/                 @teamdivergentes/developers
+src/                    @teamdivergentes/developers
