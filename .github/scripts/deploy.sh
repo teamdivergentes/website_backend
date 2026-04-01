@@ -120,7 +120,7 @@ echo "Correlation ID: $CORRELATION_ID"
 echo -e "${YELLOW}Declenchement du workflow Ansible...${NC}"
 
 DEPLOY_IMAGE_TAG="${DEPLOY_IMAGE_TAG:-}"
-DISPATCH_PAYLOAD="{\"ref\": \"main\", \"inputs\": {\"tags\": \"$ANSIBLE_TAG\", \"correlation_id\": \"$CORRELATION_ID\""
+DISPATCH_PAYLOAD="{\"ref\": \"main\", \"inputs\": {\"tags\": \"$ANSIBLE_TAG\", \"correlation_id\": \"$CORRELATION_ID\", \"deploy_environment\": \"$ENVIRONMENT\""
 if [[ -n "$DEPLOY_IMAGE_TAG" ]]; then
     DISPATCH_PAYLOAD="${DISPATCH_PAYLOAD}, \"image_tag\": \"$DEPLOY_IMAGE_TAG\""
     echo "Image tag specifique: $DEPLOY_IMAGE_TAG"
@@ -277,7 +277,7 @@ if [[ "$SMOKE_PASSED" != "true" ]]; then
     echo "Image de rollback: $ROLLBACK_IMAGE_TAG"
 
     ROLLBACK_CORRELATION_ID="${GITHUB_RUN_ID:-local}-ROLLBACK-${ENVIRONMENT}-$(date +%s)"
-    ROLLBACK_PAYLOAD="{\"ref\": \"main\", \"inputs\": {\"tags\": \"$ANSIBLE_TAG\", \"correlation_id\": \"$ROLLBACK_CORRELATION_ID\", \"image_tag\": \"$ROLLBACK_IMAGE_TAG\", \"rollback_mode\": \"true\"}}"
+    ROLLBACK_PAYLOAD="{\"ref\": \"main\", \"inputs\": {\"tags\": \"$ANSIBLE_TAG\", \"correlation_id\": \"$ROLLBACK_CORRELATION_ID\", \"image_tag\": \"$ROLLBACK_IMAGE_TAG\", \"rollback_mode\": \"true\", \"deploy_environment\": \"$ENVIRONMENT\"}}"
 
     ROLLBACK_BEFORE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     rollback_response=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" \
@@ -320,6 +320,39 @@ if [[ "$SMOKE_PASSED" != "true" ]]; then
     if [ -n "$ROLLBACK_RUN_ID" ] && [ "$ROLLBACK_RUN_ID" != "null" ]; then
         echo -e "${YELLOW}Run de rollback: #$ROLLBACK_RUN_ID${NC}"
         [ -n "$ROLLBACK_RUN_URL" ] && echo "URL: $ROLLBACK_RUN_URL"
+
+        # Suivre le rollback (timeout: 5min)
+        ROLLBACK_TIMEOUT=20
+        rb_status=""
+        echo "Suivi du rollback (timeout: 5min)..."
+        for rb_i in $(seq 1 $ROLLBACK_TIMEOUT); do
+            rollback_run=$(curl -s \
+                "$GITHUB_API/repos/$DEPLOY_REPO/actions/runs/$ROLLBACK_RUN_ID" \
+                -H "$AUTH_HEADER" \
+                -H "$ACCEPT_HEADER")
+
+            rb_status=$(echo "$rollback_run" | jq -r '.status')
+            rb_conclusion=$(echo "$rollback_run" | jq -r '.conclusion // empty')
+
+            if [ "$rb_status" = "completed" ]; then
+                if [ "$rb_conclusion" = "success" ]; then
+                    echo -e "${GREEN}Rollback reussi - service restaure${NC}"
+                else
+                    echo -e "${RED}Rollback echoue ($rb_conclusion) - intervention manuelle requise${NC}"
+                    echo "::error::Rollback echoue ($rb_conclusion) - verifiez $ROLLBACK_RUN_URL"
+                fi
+                break
+            fi
+            echo "  [$rb_i/$ROLLBACK_TIMEOUT] Rollback: $rb_status..."
+            sleep 15
+        done
+
+        if [ "$rb_status" != "completed" ]; then
+            echo -e "${YELLOW}Timeout suivi rollback - verifiez manuellement${NC}"
+            echo "::warning::Timeout suivi rollback - verifiez $ROLLBACK_RUN_URL"
+        fi
+    else
+        echo -e "${RED}Run de rollback non trouve - verifiez manuellement le workflow Ansible${NC}"
     fi
 
     echo "::error::Deploiement $ENVIRONMENT echoue (smoke test KO) - rollback vers $PREVIOUS_TAG en cours"
