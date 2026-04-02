@@ -19,6 +19,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { SitemapModule } from './sitemap/sitemap.module';
 import { ArticleTypesModule } from './article-types/article-types.module';
 import { ArticlesModule } from './articles/articles.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -46,6 +47,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     SitemapModule,
     ArticleTypesModule,
     ArticlesModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [
