@@ -46,7 +46,6 @@ async function main() {
     'annonces:delete',
     'articles:read',
     'articles:write',
-    'articles:delete',
   ];
 
   const gestionnairePermissions = [
@@ -66,8 +65,6 @@ async function main() {
     'annonces:write',
     'annonces:delete',
     'articles:read',
-    'articles:write',
-    'articles:delete',
     'recrutement:read',
     'recrutement:write',
     'recrutement:delete',
@@ -226,6 +223,11 @@ async function main() {
       key: 'page_recrutement_visible',
       value: 'true',
       description: 'Afficher la page Recrutement',
+    },
+    {
+      key: 'page_articles_visible',
+      value: 'true',
+      description: 'Afficher la page Articles',
     },
   ];
 

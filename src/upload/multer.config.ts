@@ -28,11 +28,9 @@ export const multerConfig = {
   fileFilter: (
     req: Request,
     file: Express.Multer.File,
-
-    cb: any,
+    cb: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call
       return cb(
         new BadRequestException(
           `Type de fichier non autorisé. Formats acceptés: jpg, jpeg, png, webp, gif, svg`,
@@ -40,7 +38,6 @@ export const multerConfig = {
         false,
       );
     }
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     cb(null, true);
   },
   limits: {

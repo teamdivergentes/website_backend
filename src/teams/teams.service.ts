@@ -14,6 +14,16 @@ export class TeamsService {
   ) {}
 
   /**
+   * Throw NotFoundException for Prisma P2025 (record not found), re-throw others.
+   */
+  private handlePrismaError(error: unknown, message: string): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      throw new NotFoundException(message);
+    }
+    throw error;
+  }
+
+  /**
    * Extract filename from URL path
    */
   private extractFilename(url: string | null): string | null {
@@ -57,15 +67,13 @@ export class TeamsService {
     const teams = await this.prisma.team.findMany({
       orderBy: { position: 'asc' },
       include: {
-        members: {
-          orderBy: { position: 'asc' },
-        },
+        _count: { select: { members: true } },
       },
     });
 
-    return teams.map((team) => ({
+    return teams.map(({ _count, ...team }) => ({
       ...team,
-      membersCount: team.members.length,
+      membersCount: _count.members,
     }));
   }
 
@@ -203,15 +211,7 @@ export class TeamsService {
         membersCount: result.members.length,
       };
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code: string }).code === 'P2025'
-      ) {
-        throw new NotFoundException(`Équipe #${id} non trouvée`);
-      }
-      throw error;
+      this.handlePrismaError(error, `Équipe #${id} non trouvée`);
     }
   }
 
@@ -254,15 +254,7 @@ export class TeamsService {
 
       return { message: 'Équipe supprimée avec succès' };
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code: string }).code === 'P2025'
-      ) {
-        throw new NotFoundException(`Équipe #${id} non trouvée`);
-      }
-      throw error;
+      this.handlePrismaError(error, `Équipe #${id} non trouvée`);
     }
   }
 
@@ -310,15 +302,7 @@ export class TeamsService {
         membersCount: updated.members.length,
       };
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code: string }).code === 'P2025'
-      ) {
-        throw new NotFoundException(`Équipe #${id} non trouvée`);
-      }
-      throw error;
+      this.handlePrismaError(error, `Équipe #${id} non trouvée`);
     }
   }
 }
