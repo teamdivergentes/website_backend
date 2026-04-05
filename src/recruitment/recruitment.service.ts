@@ -22,17 +22,23 @@ export class RecruitmentService {
     const baseSlug = this.slugify(title);
     let slug = baseSlug;
     let counter = 2;
+    const maxIterations = 100;
 
-    while (true) {
+    while (counter <= maxIterations + 1) {
       const existing = await this.prisma.recruitmentPost.findUnique({
         where: { slug },
       });
-      if (!existing || (excludeId && existing.id === excludeId)) {
+      if (!existing || (excludeId !== undefined && existing.id === excludeId)) {
         return slug;
+      }
+      if (counter > maxIterations) {
+        throw new Error('Impossible de générer un slug unique pour ce titre');
       }
       slug = `${baseSlug}-${counter}`;
       counter++;
     }
+
+    throw new Error('Impossible de générer un slug unique pour ce titre');
   }
 
   async findAllActive() {

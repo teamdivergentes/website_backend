@@ -41,18 +41,14 @@ export class UploadController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file', multerConfig))
   async uploadImageForEditor(@UploadedFile() file: Express.Multer.File) {
-    try {
-      const result = await this.uploadService.uploadImage(file);
-      return {
-        success: 1,
-        file: { url: result.url },
-      };
-    } catch {
-      return {
-        success: 0,
-        file: { url: '' },
-      };
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni');
     }
+    const result = await this.uploadService.uploadImage(file);
+    return {
+      success: 1,
+      file: { url: result.url },
+    };
   }
 
   @Delete(':filename')
