@@ -11,16 +11,17 @@ import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { ArticlesQueryDto } from './dto/articles-query.dto';
 import slugify from 'slugify';
+import { PaginatedResponse } from '../common/interfaces/paginated-response.interface';
 
-export interface PaginatedResponse<T> {
-  data: T[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-}
+/** Article avec type et auteur (select minimal) */
+export type ArticleWithRelations = Prisma.ArticleGetPayload<{
+  include: { type: true; user: { select: { id: true } } };
+}>;
+
+/** Article avec type et auteur complet (pour les vues admin) */
+export type ArticleWithFullUser = Prisma.ArticleGetPayload<{
+  include: { type: true; user: { select: { id: true; email: true } } };
+}>;
 
 @Injectable()
 export class ArticlesService {
@@ -47,7 +48,7 @@ export class ArticlesService {
     throw new ConflictException('Impossible de générer un slug unique pour ce titre');
   }
 
-  async findAll(query: ArticlesQueryDto): Promise<PaginatedResponse<unknown>> {
+  async findAll(query: ArticlesQueryDto): Promise<PaginatedResponse<ArticleWithRelations>> {
     const { page = 1, limit = 20, published, featured, typeId, search } = query;
 
     const where: Prisma.ArticleWhereInput = {};
@@ -98,7 +99,7 @@ export class ArticlesService {
     }
   }
 
-  async findHomepage(): Promise<unknown[]> {
+  async findHomepage(): Promise<ArticleWithRelations[]> {
     try {
       const featured = await this.prisma.article.findMany({
         where: { published: true, featured: true },
@@ -138,7 +139,7 @@ export class ArticlesService {
     }
   }
 
-  async findBySlug(slug: string): Promise<unknown> {
+  async findBySlug(slug: string): Promise<ArticleWithRelations> {
     try {
       const article = await this.prisma.article.findUnique({
         where: { slug },
@@ -159,7 +160,7 @@ export class ArticlesService {
     }
   }
 
-  async findOne(id: number): Promise<unknown> {
+  async findOne(id: number): Promise<ArticleWithFullUser> {
     try {
       const article = await this.prisma.article.findUnique({
         where: { id },
@@ -180,7 +181,7 @@ export class ArticlesService {
     }
   }
 
-  async create(dto: CreateArticleDto, userId: number): Promise<unknown> {
+  async create(dto: CreateArticleDto, userId: number): Promise<ArticleWithFullUser> {
     try {
       const slug = await this.generateUniqueSlug(dto.title);
 
@@ -212,7 +213,7 @@ export class ArticlesService {
     }
   }
 
-  async update(id: number, dto: UpdateArticleDto): Promise<unknown> {
+  async update(id: number, dto: UpdateArticleDto): Promise<ArticleWithFullUser> {
     try {
       const existing = await this.prisma.article.findUnique({ where: { id } });
 
@@ -271,7 +272,7 @@ export class ArticlesService {
     }
   }
 
-  async togglePublished(id: number): Promise<unknown> {
+  async togglePublished(id: number): Promise<ArticleWithFullUser> {
     try {
       const article = await this.prisma.article.findUnique({ where: { id } });
 
@@ -293,7 +294,7 @@ export class ArticlesService {
     }
   }
 
-  async toggleFeatured(id: number): Promise<unknown> {
+  async toggleFeatured(id: number): Promise<ArticleWithFullUser> {
     try {
       const article = await this.prisma.article.findUnique({ where: { id } });
 

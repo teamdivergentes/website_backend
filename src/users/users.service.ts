@@ -8,18 +8,9 @@ import { PrismaService } from '../prisma.service';
 import { User, Role, Prisma } from '../../generated/prisma';
 import { CreateUserDto, UpdateUserDto, UpdatePasswordDto, PaginationDto } from './dto/users.dto';
 import * as bcrypt from 'bcrypt';
+import { PaginatedResponse } from '../common/interfaces/paginated-response.interface';
 
 export type UserWithRole = User & { role: Role };
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-}
 
 @Injectable()
 export class UsersService {
