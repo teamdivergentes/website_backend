@@ -12,11 +12,12 @@ export class MetricsInterceptor implements NestInterceptor {
     const req = ctx.getRequest<Request>();
     const end = this.metricsService.httpRequestDuration.startTimer();
 
+    const route = String((req.route as { path?: string } | undefined)?.path ?? req.path);
+
     return next.handle().pipe(
       tap({
         next: () => {
           const res = ctx.getResponse<Response>();
-          const route = req.route?.path || req.path;
           const labels = {
             method: req.method,
             route,
@@ -27,7 +28,6 @@ export class MetricsInterceptor implements NestInterceptor {
         },
         error: () => {
           const res = ctx.getResponse<Response>();
-          const route = req.route?.path || req.path;
           const labels = {
             method: req.method,
             route,
