@@ -36,7 +36,7 @@ export class UploadService {
 
     if (ext === 'png') {
       await sharpInstance
-        .png({ quality: 85, compressionLevel: 9 })
+        .png({ compressionLevel: 9 })
         .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
         .toFile(filePath + '.optimized');
     } else if (ext === 'gif') {
@@ -47,13 +47,13 @@ export class UploadService {
       return filename;
     } else if (ext === 'webp') {
       await sharpInstance
-        .webp({ quality: 85 })
+        .webp({ quality: 92 })
         .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
         .toFile(filePath + '.optimized');
     } else {
       // JPEG
       await sharpInstance
-        .jpeg({ quality: 85, progressive: true })
+        .jpeg({ quality: 92, progressive: true })
         .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
         .toFile(filePath + '.optimized');
     }
