@@ -1,3 +1,11 @@
+## [1.3.1](https://github.com/teamdivergentes/website_backend/compare/v1.3.0...v1.3.1) (2026-04-06)
+
+
+### Bug Fixes
+
+* **ci:** use frontend proxy URL for deploy smoke test ([6995756](https://github.com/teamdivergentes/website_backend/commit/699575637250f8a39a0c54115a47b01bc475a647))
+* **ci:** use PAT for semantic-release tag push + fix smoke test URL ([becea7d](https://github.com/teamdivergentes/website_backend/commit/becea7deb413e240293a01be4c6a42bf758ef27d))
+
 # [1.3.0](https://github.com/teamdivergentes/website_backend/compare/v1.2.0...v1.3.0) (2026-04-05)
 
 
