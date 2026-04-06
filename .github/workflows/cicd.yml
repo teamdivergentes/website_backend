@@ -635,7 +635,10 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
+
+      - name: Configure git credentials for tag push
+        run: git remote set-url origin "https://x-access-token:${{ secrets.DEPLOY_TOKEN }}@github.com/${{ github.repository }}.git"
 
       - name: Setup Node
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
@@ -649,6 +652,10 @@ jobs:
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          GIT_AUTHOR_NAME: semantic-release-bot
+          GIT_AUTHOR_EMAIL: semantic-release-bot@teamdivergentes.fr
+          GIT_COMMITTER_NAME: semantic-release-bot
+          GIT_COMMITTER_EMAIL: semantic-release-bot@teamdivergentes.fr
         run: npx semantic-release
 
   # Job final pour déterminer le statut global du workflow
