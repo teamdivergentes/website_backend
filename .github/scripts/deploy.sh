@@ -235,9 +235,9 @@ fi
 
 echo -e "${CYAN}Verification post-deploiement (smoke test)...${NC}"
 
-# Le backend NestJS expose /health sur le domaine API
-HEALTH_URL="https://preprod-api.teamdivergentes.fr/health"
-[[ "$ENVIRONMENT" == "PROD" ]] && HEALTH_URL="https://api.teamdivergentes.fr/health"
+# Le backend est accessible via le proxy Nginx frontend (/api/teams)
+HEALTH_URL="https://preprod.teamdivergentes.fr/api/teams"
+[[ "$ENVIRONMENT" == "PROD" ]] && HEALTH_URL="https://www.teamdivergentes.fr/api/teams"
 
 echo "Health check URL: $HEALTH_URL"
 
