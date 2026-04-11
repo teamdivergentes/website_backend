@@ -78,7 +78,7 @@ export class SitemapService {
         this.prisma.team.findMany({
           where: { active: true },
           select: {
-            id: true,
+            slug: true,
             updatedAt: true,
           },
         }),
@@ -88,9 +88,11 @@ export class SitemapService {
             team: { active: true },
           },
           select: {
-            teamId: true,
             slug: true,
             updatedAt: true,
+            team: {
+              select: { slug: true },
+            },
           },
         }),
         this.prisma.recruitmentPost.findMany({
@@ -125,9 +127,9 @@ export class SitemapService {
         );
       }
 
-      // Dynamic team pages
+      // Dynamic team pages (URL uses team slug — the route param :teamId is resolved by slug)
       const teamEntries: DynamicEntry[] = teams.map((team) => ({
-        loc: `${normalizedBase}/structure/equipes/${team.id}`,
+        loc: `${normalizedBase}/structure/equipes/${team.slug}`,
         changefreq: 'weekly',
         priority: '0.7',
         lastmod: this.formatDate(team.updatedAt),
@@ -139,11 +141,11 @@ export class SitemapService {
         );
       }
 
-      // Dynamic team member pages (only members with a slug)
+      // Dynamic team member pages (only members with a slug — URL uses team slug, not id)
       const memberEntries: DynamicEntry[] = members
         .filter((m): m is typeof m & { slug: string } => m.slug !== null)
         .map((member) => ({
-          loc: `${normalizedBase}/structure/equipes/${member.teamId}/joueur/${member.slug}`,
+          loc: `${normalizedBase}/structure/equipes/${member.team.slug}/joueur/${member.slug}`,
           changefreq: 'monthly',
           priority: '0.6',
           lastmod: this.formatDate(member.updatedAt),
