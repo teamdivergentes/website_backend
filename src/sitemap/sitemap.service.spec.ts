@@ -90,18 +90,20 @@ describe('SitemapService', () => {
 
     it('devrait inclure les pages dynamiques des equipes actives', async () => {
       prismaService.team.findMany.mockResolvedValue([
-        { id: 1, updatedAt: TEAM_DATE },
-        { id: 2, updatedAt: TEAM_DATE },
+        { slug: 'eva-joker', updatedAt: TEAM_DATE },
+        { slug: 'eva-mystic', updatedAt: TEAM_DATE },
       ]);
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
-      expect(xml).toContain(`<loc>${BASE_URL}/structure/equipes/1</loc>`);
-      expect(xml).toContain(`<loc>${BASE_URL}/structure/equipes/2</loc>`);
+      expect(xml).toContain(`<loc>${BASE_URL}/structure/equipes/eva-joker</loc>`);
+      expect(xml).toContain(`<loc>${BASE_URL}/structure/equipes/eva-mystic</loc>`);
     });
 
     it('devrait inclure le lastmod correct pour les equipes', async () => {
-      prismaService.team.findMany.mockResolvedValue([{ id: 42, updatedAt: TEAM_DATE }]);
+      prismaService.team.findMany.mockResolvedValue([
+        { slug: 'rocket-league', updatedAt: TEAM_DATE },
+      ]);
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
@@ -110,14 +112,18 @@ describe('SitemapService', () => {
 
     it('devrait inclure les pages des joueurs avec slug', async () => {
       prismaService.teamMember.findMany.mockResolvedValue([
-        { teamId: 1, slug: 'pseudo-joueur', updatedAt: MEMBER_DATE },
-        { teamId: 2, slug: 'autre-joueur', updatedAt: MEMBER_DATE },
+        { slug: 'pseudo-joueur', updatedAt: MEMBER_DATE, team: { slug: 'eva-joker' } },
+        { slug: 'autre-joueur', updatedAt: MEMBER_DATE, team: { slug: 'eva-mystic' } },
       ]);
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
-      expect(xml).toContain(`<loc>${BASE_URL}/structure/equipes/1/joueur/pseudo-joueur</loc>`);
-      expect(xml).toContain(`<loc>${BASE_URL}/structure/equipes/2/joueur/autre-joueur</loc>`);
+      expect(xml).toContain(
+        `<loc>${BASE_URL}/structure/equipes/eva-joker/joueur/pseudo-joueur</loc>`,
+      );
+      expect(xml).toContain(
+        `<loc>${BASE_URL}/structure/equipes/eva-mystic/joueur/autre-joueur</loc>`,
+      );
     });
 
     it('devrait inclure les pages des offres de recrutement avec slug', async () => {
@@ -260,11 +266,11 @@ describe('SitemapService', () => {
 
     it('devrait generer le bon nombre total de URLs avec donnees dynamiques', async () => {
       prismaService.team.findMany.mockResolvedValue([
-        { id: 1, updatedAt: TEAM_DATE },
-        { id: 2, updatedAt: TEAM_DATE },
+        { slug: 'eva-joker', updatedAt: TEAM_DATE },
+        { slug: 'eva-mystic', updatedAt: TEAM_DATE },
       ]);
       prismaService.teamMember.findMany.mockResolvedValue([
-        { teamId: 1, slug: 'joueur-a', updatedAt: MEMBER_DATE },
+        { slug: 'joueur-a', updatedAt: MEMBER_DATE, team: { slug: 'eva-joker' } },
       ]);
       prismaService.recruitmentPost.findMany.mockResolvedValue([
         { slug: 'coach', updatedAt: RECRUIT_DATE },
