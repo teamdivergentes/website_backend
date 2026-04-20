@@ -167,7 +167,7 @@ jobs:
   # NOT triggered on every PR push to keep pipelines fast.
   # Note: github.event.comment.body is used only in if: expression context (not in run:) - safe.
   test-e2e:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     if: |
       (github.event_name == 'push') ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
@@ -408,7 +408,7 @@ jobs:
   # Docker depends on fast jobs only (test-unit, not test-e2e).
   # This keeps Docker unblocked on every PR push for fast feedback.
   docker:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep]
     if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test-unit.result == 'success' && needs.semgrep.result == 'success'
     permissions:
