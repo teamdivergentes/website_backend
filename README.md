@@ -1,6 +1,31 @@
 # DVG Web Backend
 
+[![CI](https://github.com/teamdivergentes/website_backend/actions/workflows/cicd.yml/badge.svg?branch=main)](https://github.com/teamdivergentes/website_backend/actions/workflows/cicd.yml)
+[![Quality Gate Status](https://sonarqube.tellebma.fr/api/project_badges/quality_gate?project=dvg-backend&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Coverage](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=coverage&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Lines of Code](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=ncloc&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+
+[![Maintainability](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=sqale_rating&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Reliability](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=reliability_rating&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Security](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=security_rating&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Bugs](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=bugs&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Vulnerabilities](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=vulnerabilities&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Code Smells](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=code_smells&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Technical Debt](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=sqale_index&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+[![Duplicated Lines](https://sonarqube.tellebma.fr/api/project_badges/measure?project=dvg-backend&metric=duplicated_lines_density&token=sqb_3c664194964b33777823e8707aba4296530ca2dc)](https://sonarqube.tellebma.fr/dashboard?id=dvg-backend)
+
+[![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Jest](https://img.shields.io/badge/tests-Jest-C21325?logo=jest&logoColor=white)](https://jestjs.io)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://conventionalcommits.org)
+[![semantic-release](https://img.shields.io/badge/%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079)](https://github.com/semantic-release/semantic-release)
+
 Backend NestJS pour l'application web de Team Divergentes.
+
+> **Qualité :** la CI bloque tout push qui casse la Quality Gate SonarQube (Sonar way). Voir [docs/SONARQUBE.md](./docs/SONARQUBE.md).
 
 ## Technologies
 

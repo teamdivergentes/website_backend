@@ -33,7 +33,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     permissions:
       contents: read
     outputs:
@@ -68,7 +68,7 @@ jobs:
         run: npm run build
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     if: needs.build.result == 'success'
     permissions:
@@ -103,7 +103,7 @@ jobs:
   # Fast job: unit tests only (Jest, no E2E).
   # Runs on every push/PR — this is the gating job for Docker and deployments.
   test-unit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     if: needs.build.result == 'success'
     permissions:
@@ -160,14 +160,22 @@ jobs:
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
-        run: npm run test -- --coverage --coverageReporters=json-summary --coverageReporters=text
+        run: npm run test -- --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          retention-days: 1
 
   # Slow job: NestJS E2E tests (supertest against a real Postgres).
   # Triggers: push to main, tag, PR approval, /run-e2e comment on PR, or workflow_dispatch.
   # NOT triggered on every PR push to keep pipelines fast.
   # Note: github.event.comment.body is used only in if: expression context (not in run:) - safe.
   test-e2e:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     if: |
       (github.event_name == 'push') ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
@@ -228,8 +236,99 @@ jobs:
           NODE_ENV: test
         run: npm run test:e2e
 
+  # Mutation testing with Stryker Mutator
+  # Triggers: push to main, PR approval, /run-mutation comment, workflow_dispatch.
+  # Non-blocking — reports mutation score as artifact.
+  mutation-test:
+    runs-on: [self-hosted, linux, vps, docker]
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-mutation') ||
+      (github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch main branch for incremental analysis
+        if: github.ref != 'refs/heads/main'
+        run: git fetch origin main:refs/remotes/origin/main --depth=1
+
+      - name: Setup Node
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run Prisma migrations
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        run: npx prisma migrate deploy
+
+      - name: Determine Stryker mode
+        id: stryker-mode
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "args=" >> $GITHUB_OUTPUT
+            echo "Running full mutation analysis"
+          else
+            echo "args=--since origin/main" >> $GITHUB_OUTPUT
+            echo "Running incremental mutation analysis (changed files only)"
+          fi
+
+      - name: Run mutation tests
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          JWT_SECRET: test-secret-key-for-ci
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: test
+        run: npx stryker run ${{ steps.stryker-mode.outputs.args }}
+        continue-on-error: true
+
+      - name: Upload Stryker report
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: stryker-mutation-report
+          path: reports/mutation/
+          retention-days: 7
+
   validate-migrations:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     if: needs.build.result == 'success'
     permissions:
@@ -295,7 +394,7 @@ jobs:
           echo "Migrations validated successfully"
 
   semgrep:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     # SAST: main/tag/dispatch only — saves ~3 min per PR push
     if: |
@@ -317,17 +416,58 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-  # Docker: main/tag/[DEPLOY] PR/dispatch only — saves ~7 min per PR push
-  docker:
-    runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, semgrep]
+  # SonarQube analysis — BLOCKING. Quality Gate (Sonar way) must pass.
+  # Runs after unit tests to include coverage from the test-unit artifact.
+  # Triggers: push/PR/workflow_dispatch (same gates as the rest of the pipeline).
+  # QG conditions (on New Code): 0 new issues, >=80% new coverage,
+  # <=3% new duplicated lines, 100% new security hotspots reviewed.
+  # See docs/SONARQUBE.md for details.
+  sonarqube:
+    runs-on: [self-hosted, linux, vps, docker]
+    needs: [build, test-unit]
     if: |
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[DEPLOY]'))) &&
       needs.build.result == 'success' &&
-      needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped')
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # fetch-depth: 0 is required for SonarQube blame analysis and branch detection
+          fetch-depth: 0
+
+      - name: Download coverage report
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        with:
+          name: coverage-lcov
+          path: coverage/
+
+      - name: Run SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@aa494459d7c39c106cc77b166de8b4250a32bb97 # v5.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
+          SONAR_HOST_URL: https://sonarqube.tellebma.fr
+
+      - name: Check SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@d304d050d14f3e7e9fe46f7f6cdef9fcae657b0f # v1.1.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
+          SONAR_HOST_URL: https://sonarqube.tellebma.fr
+
+  # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
+  # Sonar QG blocks Docker build → no image is published if quality fails.
+  docker:
+    runs-on: [self-hosted, linux, vps, docker]
+    needs: [build, lint, test-unit, semgrep, sonarqube]
+    if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test-unit.result == 'success' && needs.semgrep.result == 'success' && needs.sonarqube.result == 'success'
     permissions:
       contents: read
       packages: write
@@ -432,11 +572,16 @@ jobs:
             ${{ steps.tags.outputs.workflow-tag }}
             ${{ steps.tags.outputs.version-tag }}
           labels: ${{ steps.labels.outputs.labels }}
-          cache-from: type=gha
-          cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && 'type=gha,mode=max' || '' }}
+          # Cache : sur le runner self-hosted, le backend cache GHA (type=gha)
+          # renvoie regulierement des HTTP 400 et declenche des retries qui
+          # font durer le build 30+ min. On utilise type=registry (cache pousse
+          # dans GHCR sous un tag dedie) qui ne depend pas du backend GHA
+          # interne et profite a tous les runners.
+          cache-from: type=registry,ref=${{ steps.tags.outputs.image-name }}:buildcache
+          cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && format('type=registry,ref={0}:buildcache,mode=max', steps.tags.outputs.image-name) || '' }}
 
   scan-image:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [docker]
     if: needs.docker.result == 'success'
     permissions:
@@ -484,7 +629,7 @@ jobs:
 
   # Déploiement PREPROD (push sur main ou PR avec [DEPLOY])
   deploy-preprod:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       (github.ref == 'refs/heads/main' ||
@@ -523,7 +668,7 @@ jobs:
 
   # Déploiement PROD (tag vX.Y.Z)
   deploy-prod:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
@@ -560,7 +705,7 @@ jobs:
         run: echo "deploy-status=${{ steps.deploy-prod.outcome }}" >> $GITHUB_OUTPUT
 
   pr-report:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, test-e2e, semgrep, docker, scan-image, deploy-preprod, deploy-prod]
     if: |
       always() &&
@@ -623,7 +768,7 @@ jobs:
 
   # Semantic Release (auto-tag sur main)
   release:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker]
     if: |
       github.event_name == 'push' &&
@@ -668,8 +813,8 @@ jobs:
 
   # Job final pour déterminer le statut global du workflow
   workflow-status:
-    runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify]
+    runs-on: [self-hosted, linux, vps, docker]
+    needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, sonarqube, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
     if: always()
     permissions: {}
     steps:
@@ -681,9 +826,11 @@ jobs:
           TEST_E2E_RESULT: ${{ needs.test-e2e.result }}
           VALIDATE_MIGRATIONS_RESULT: ${{ needs.validate-migrations.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
           DEPLOY_PREPROD_RESULT: ${{ needs.deploy-preprod.result }}
           DEPLOY_PROD_RESULT: ${{ needs.deploy-prod.result }}
+          MUTATION_RESULT: ${{ needs.mutation-test.result }}
         run: |
           echo "Build status: $BUILD_RESULT"
           echo "Lint status: $LINT_RESULT"
@@ -691,6 +838,7 @@ jobs:
           echo "Test (e2e) status: $TEST_E2E_RESULT"
           echo "Validate migrations status: $VALIDATE_MIGRATIONS_RESULT"
           echo "Semgrep status: $SEMGREP_RESULT"
+          echo "SonarQube status: $SONARQUBE_RESULT"
           echo "Docker status: $DOCKER_RESULT"
           echo "Deploy PREPROD status: $DEPLOY_PREPROD_RESULT"
           echo "Deploy PROD status: $DEPLOY_PROD_RESULT"
@@ -764,6 +912,24 @@ jobs:
             exit 1
           elif [[ "$DEPLOY_PROD_RESULT" == "skipped" ]]; then
             echo "Deploy PROD skipped"
+          fi
+
+          # SonarQube is non-blocking (continue-on-error: true on the job)
+          if [[ "$SONARQUBE_RESULT" == "failure" ]]; then
+            echo "Warning: SonarQube scan failed (non-blocking)"
+          elif [[ "$SONARQUBE_RESULT" == "success" ]]; then
+            echo "SonarQube scan passed"
+          elif [[ "$SONARQUBE_RESULT" == "skipped" ]]; then
+            echo "SonarQube scan skipped"
+          fi
+
+          # Mutation testing is non-blocking (informational only)
+          if [[ "$MUTATION_RESULT" == "failure" ]]; then
+            echo "Warning: Mutation testing failed (non-blocking)"
+          elif [[ "$MUTATION_RESULT" == "success" ]]; then
+            echo "Mutation testing passed"
+          elif [[ "$MUTATION_RESULT" == "skipped" ]]; then
+            echo "Mutation testing skipped (not triggered)"
           fi
 
           echo "All critical jobs succeeded"
