@@ -89,7 +89,7 @@ describe('AuthService', () => {
   // login
   // -------------------------------------------------------------------------
   describe('login', () => {
-    it('should return access_token and user on valid credentials', async () => {
+    it('devrait retourner access_token et user avec credentials valides', async () => {
       mockUsersService.findByEmail.mockResolvedValue(mockUser);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       mockJwtService.signAsync.mockResolvedValue('jwt-token');
@@ -101,7 +101,17 @@ describe('AuthService', () => {
       expect(result.user.role.name).toBe(mockRole.name);
     });
 
-    it('should throw UnauthorizedException if user not found', async () => {
+    it('ne doit pas exposer le mot de passe dans la réponse', async () => {
+      mockUsersService.findByEmail.mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      mockJwtService.signAsync.mockResolvedValue('jwt-token');
+
+      const result = await service.login({ email: 'admin@example.com', password: 'admin123' });
+
+      expect(result.user).not.toHaveProperty('password');
+    });
+
+    it('devrait lancer UnauthorizedException si user non trouvé', async () => {
       mockUsersService.findByEmail.mockResolvedValue(null);
 
       await expect(
@@ -109,7 +119,7 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException if account is inactive', async () => {
+    it('devrait lancer UnauthorizedException si compte inactif', async () => {
       mockUsersService.findByEmail.mockResolvedValue({ ...mockUser, actif: false });
 
       await expect(
@@ -117,7 +127,7 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException if password is wrong', async () => {
+    it('devrait lancer UnauthorizedException si mot de passe incorrect', async () => {
       mockUsersService.findByEmail.mockResolvedValue(mockUser);
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
@@ -131,7 +141,7 @@ describe('AuthService', () => {
   // register
   // -------------------------------------------------------------------------
   describe('register', () => {
-    it('should create user and return access_token', async () => {
+    it('devrait créer un utilisateur et retourner access_token', async () => {
       mockUsersService.findByEmail.mockResolvedValue(null);
       mockPrismaService.role.findUnique.mockResolvedValue(mockRole);
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashedpw');
@@ -147,7 +157,7 @@ describe('AuthService', () => {
       expect(result.access_token).toBe('jwt-token');
     });
 
-    it('should throw ConflictException if email already exists', async () => {
+    it('devrait lancer ConflictException si email déjà utilisé', async () => {
       mockUsersService.findByEmail.mockResolvedValue(mockUser);
 
       await expect(
@@ -155,7 +165,7 @@ describe('AuthService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should throw NotFoundException if default role not found', async () => {
+    it('devrait lancer NotFoundException si rôle par défaut non trouvé', async () => {
       mockUsersService.findByEmail.mockResolvedValue(null);
       mockPrismaService.role.findUnique.mockResolvedValue(null);
 
@@ -169,7 +179,7 @@ describe('AuthService', () => {
   // refresh
   // -------------------------------------------------------------------------
   describe('refresh', () => {
-    it('should return a new access_token for active user', async () => {
+    it('devrait retourner un nouveau access_token pour un utilisateur actif', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
       mockJwtService.signAsync.mockResolvedValue('new-jwt-token');
 
@@ -178,13 +188,24 @@ describe('AuthService', () => {
       expect(result.access_token).toBe('new-jwt-token');
     });
 
-    it('should throw UnauthorizedException if user not found', async () => {
+    it('devrait signer avec sub et email dans le payload', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+      mockJwtService.signAsync.mockResolvedValue('new-jwt-token');
+
+      await service.refresh(1);
+
+      const [payload] = mockJwtService.signAsync.mock.calls[0] as [{ sub: number; email: string }];
+      expect(payload.sub).toBe(mockUser.id);
+      expect(payload.email).toBe(mockUser.email);
+    });
+
+    it('devrait lancer UnauthorizedException si user non trouvé', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
 
       await expect(service.refresh(999)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException if user is inactive', async () => {
+    it('devrait lancer UnauthorizedException si user inactif', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue({ ...mockUser, actif: false });
 
       await expect(service.refresh(1)).rejects.toThrow(UnauthorizedException);
@@ -195,7 +216,7 @@ describe('AuthService', () => {
   // getProfile
   // -------------------------------------------------------------------------
   describe('getProfile', () => {
-    it('should return user profile without password', async () => {
+    it('devrait retourner le profil sans mot de passe', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
 
       const result = await service.getProfile(1);
@@ -204,7 +225,7 @@ describe('AuthService', () => {
       expect(result).not.toHaveProperty('password');
     });
 
-    it('should throw NotFoundException if user not found', async () => {
+    it('devrait lancer NotFoundException si user non trouvé', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
 
       await expect(service.getProfile(999)).rejects.toThrow(NotFoundException);

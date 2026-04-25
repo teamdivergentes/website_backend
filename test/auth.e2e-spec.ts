@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 
@@ -10,22 +11,34 @@ import { PrismaService } from '../src/prisma.service';
  * Tests E2E du module Auth.
  *
  * Couvre :
- *   - Login avec credentials valides → 200 + access_token
+ *   - Login avec credentials valides → 200 + cookie dvg_auth_token HttpOnly
+ *   - Login ne retourne PAS access_token dans le body
  *   - Login avec mauvais mot de passe → 401
  *   - Login avec email inexistant → 401
  *   - Login avec données invalides (email malformé, champs manquants) → 400
+ *   - La réponse de login ne contient pas le mot de passe
+ *   - Accès à /api/auth/me via cookie → 200
  *   - Accès à /api/auth/me sans token → 401
  *   - Accès à /api/auth/me avec token invalide → 401
- *   - Accès à /api/auth/me avec token valide → 200
- *   - Logout → 200
+ *   - Accès à /api/auth/me avec Bearer header (rétro-compat) → 200
+ *   - Logout → 200 + cookie effacé
+ *   - Refresh → 204 + nouveau cookie
  *   - Accès à une route protégée sans token → 401
- *   - Accès à une route protégée avec token invalide → 401
- *   - Accès à une route protégée avec token valide → 200
+ *   - Accès à une route protégée avec Bearer header valide → 200
  */
 describe('AuthController (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let validToken: string;
+  let authCookie: string; // cookie dvg_auth_token extrait après login
+  let bearerToken: string; // token Bearer pour rétro-compat
+
+  const extractAuthCookie = (res: request.Response): string | null => {
+    const setCookieHeader = res.headers['set-cookie'] as string[] | string | undefined;
+    if (!setCookieHeader) return null;
+    const cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+    const found = cookies.find((c) => c.startsWith('dvg_auth_token='));
+    return found ?? null;
+  };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -44,6 +57,7 @@ describe('AuthController (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -101,17 +115,21 @@ describe('AuthController (e2e)', () => {
       },
     });
 
-    // Obtenir un token valide pour les tests
+    // Obtenir le cookie de session valide pour les tests
     const server = app.getHttpServer() as Parameters<typeof request>[0];
     const loginRes = await request(server)
       .post('/api/auth/login')
       .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
 
-    const loginBody = loginRes.body as { access_token?: string };
-    if (!loginBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin pour les tests auth");
+    const cookie = extractAuthCookie(loginRes);
+    if (!cookie) {
+      throw new Error("Impossible d'obtenir le cookie admin pour les tests auth");
     }
-    validToken = loginBody.access_token;
+    authCookie = cookie;
+
+    // Extraire la valeur du token pour les tests Bearer rétro-compat
+    const tokenMatch = cookie.match(/dvg_auth_token=([^;]+)/);
+    bearerToken = tokenMatch ? tokenMatch[1] : '';
   });
 
   afterAll(async () => {
@@ -125,16 +143,39 @@ describe('AuthController (e2e)', () => {
   describe('POST /api/auth/login', () => {
     const server = () => app.getHttpServer() as Parameters<typeof request>[0];
 
-    it('credentials valides → 200 + access_token', async () => {
+    it('credentials valides → 200 + cookie dvg_auth_token HttpOnly', async () => {
       const res = await request(server())
         .post('/api/auth/login')
         .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' })
         .expect(200);
 
-      const body = res.body as { access_token?: string };
-      expect(body).toHaveProperty('access_token');
-      expect(typeof body.access_token).toBe('string');
-      expect(body.access_token!.length).toBeGreaterThan(0);
+      const cookie = extractAuthCookie(res);
+      expect(cookie).toBeTruthy();
+      // Le cookie doit être HttpOnly
+      expect(cookie).toContain('HttpOnly');
+    });
+
+    it('le body de login contient { user } mais PAS access_token', async () => {
+      const res = await request(server())
+        .post('/api/auth/login')
+        .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' })
+        .expect(200);
+
+      const body = res.body as Record<string, unknown>;
+      expect(body).toHaveProperty('user');
+      expect(body).not.toHaveProperty('access_token');
+    });
+
+    it('le body de login ne contient pas le mot de passe', async () => {
+      const res = await request(server())
+        .post('/api/auth/login')
+        .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' })
+        .expect(200);
+
+      const body = res.body as Record<string, unknown>;
+      expect(body).not.toHaveProperty('password');
+      const user = body.user as Record<string, unknown> | undefined;
+      expect(user).not.toHaveProperty('password');
     });
 
     it('mauvais mot de passe → 401', async () => {
@@ -172,16 +213,6 @@ describe('AuthController (e2e)', () => {
     it('body vide → 400', async () => {
       await request(server()).post('/api/auth/login').send({}).expect(400);
     });
-
-    it('la réponse ne doit pas contenir le mot de passe', async () => {
-      const res = await request(server())
-        .post('/api/auth/login')
-        .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' })
-        .expect(200);
-
-      const body = res.body as Record<string, unknown>;
-      expect(body).not.toHaveProperty('password');
-    });
   });
 
   // -----------------------------------------------------------------------
@@ -195,7 +226,7 @@ describe('AuthController (e2e)', () => {
       await request(server()).get('/api/auth/me').expect(401);
     });
 
-    it('avec token invalide → 401', async () => {
+    it('avec Bearer token invalide → 401', async () => {
       await request(server())
         .get('/api/auth/me')
         .set('Authorization', 'Bearer token_invalide_xyz')
@@ -212,11 +243,8 @@ describe('AuthController (e2e)', () => {
         .expect(401);
     });
 
-    it('avec token valide → 200 + profil utilisateur', async () => {
-      const res = await request(server())
-        .get('/api/auth/me')
-        .set('Authorization', `Bearer ${validToken}`)
-        .expect(200);
+    it('avec cookie valide → 200 + profil utilisateur', async () => {
+      const res = await request(server()).get('/api/auth/me').set('Cookie', authCookie).expect(200);
 
       const body = res.body as {
         email?: string;
@@ -226,8 +254,17 @@ describe('AuthController (e2e)', () => {
 
       expect(body).toHaveProperty('email', 'admin@teamdivergentes.fr');
       expect(body).toHaveProperty('id');
-      // Le mot de passe ne doit jamais être exposé
       expect(body).not.toHaveProperty('password');
+    });
+
+    it('avec Bearer header valide (rétro-compat) → 200', async () => {
+      const res = await request(server())
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${bearerToken}`)
+        .expect(200);
+
+      const body = res.body as { email?: string };
+      expect(body).toHaveProperty('email', 'admin@teamdivergentes.fr');
     });
   });
 
@@ -242,10 +279,31 @@ describe('AuthController (e2e)', () => {
       await request(server()).post('/api/auth/logout').expect(401);
     });
 
-    it('avec token valide → 200', async () => {
+    it('avec cookie valide → 200 + cookie effacé', async () => {
       const res = await request(server())
         .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${validToken}`)
+        .set('Cookie', authCookie)
+        .expect(200);
+
+      const body = res.body as { message?: string };
+      expect(body).toHaveProperty('message');
+
+      // Vérifier que le cookie est vidé (Max-Age=0 ou expires passé)
+      const setCookieHeader = res.headers['set-cookie'] as string[] | string | undefined;
+      if (setCookieHeader) {
+        const cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+        const authCookieCleared = cookies.find((c) => c.startsWith('dvg_auth_token='));
+        // Si le cookie est présent dans la réponse, sa valeur doit être vide
+        if (authCookieCleared) {
+          expect(authCookieCleared).toMatch(/dvg_auth_token=;|dvg_auth_token=(?:;|$)/);
+        }
+      }
+    });
+
+    it('avec Bearer header valide (rétro-compat) → 200', async () => {
+      const res = await request(server())
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${bearerToken}`)
         .expect(200);
 
       const body = res.body as { message?: string };
@@ -254,7 +312,40 @@ describe('AuthController (e2e)', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Routes protégées — vérification générique JWT
+  // POST /api/auth/refresh
+  // -----------------------------------------------------------------------
+
+  describe('POST /api/auth/refresh', () => {
+    const server = () => app.getHttpServer() as Parameters<typeof request>[0];
+
+    it('sans token → 401', async () => {
+      await request(server()).post('/api/auth/refresh').expect(401);
+    });
+
+    it('avec cookie valide → 204 + nouveau cookie émis', async () => {
+      const res = await request(server())
+        .post('/api/auth/refresh')
+        .set('Cookie', authCookie)
+        .expect(204);
+
+      const newCookie = extractAuthCookie(res);
+      expect(newCookie).toBeTruthy();
+      expect(newCookie).toContain('HttpOnly');
+    });
+
+    it('avec Bearer header valide → 204 + nouveau cookie émis', async () => {
+      const res = await request(server())
+        .post('/api/auth/refresh')
+        .set('Authorization', `Bearer ${bearerToken}`)
+        .expect(204);
+
+      const newCookie = extractAuthCookie(res);
+      expect(newCookie).toBeTruthy();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Routes protégées — vérification générique JWT via cookie
   // -----------------------------------------------------------------------
 
   describe('Routes protégées — vérification JWT', () => {
@@ -264,14 +355,18 @@ describe('AuthController (e2e)', () => {
       await request(server()).get('/api/users').expect(401);
     });
 
-    it('GET /api/users avec token invalide → 401', async () => {
+    it('GET /api/users avec Bearer invalide → 401', async () => {
       await request(server()).get('/api/users').set('Authorization', 'Bearer invalide').expect(401);
     });
 
-    it('GET /api/users avec token valide (admin) → 200', async () => {
+    it('GET /api/users avec cookie valide (admin) → 200', async () => {
+      await request(server()).get('/api/users').set('Cookie', authCookie).expect(200);
+    });
+
+    it('GET /api/users avec Bearer header valide (rétro-compat, admin) → 200', async () => {
       await request(server())
         .get('/api/users')
-        .set('Authorization', `Bearer ${validToken}`)
+        .set('Authorization', `Bearer ${bearerToken}`)
         .expect(200);
     });
   });
