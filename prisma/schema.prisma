@@ -60,42 +60,44 @@ model StaffMember {
 }
 
 model Team {
-  id                 Int          @id @default(autoincrement())
+  id                 Int             @id @default(autoincrement())
   name               String
-  slug               String       @unique
+  slug               String          @unique
   game               String
   image              String?
   banner             String?
   description        String?
-  active             Boolean      @default(true)
-  position           Int          @default(0)
+  active             Boolean         @default(true)
+  position           Int             @default(0)
   socials            Json?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
   memberFieldsConfig Json?
   members            TeamMember[]
+  coachingStaff      CoachingStaff[]
 
   @@map("teams")
 }
 
 model TeamMember {
-  id           Int       @id @default(autoincrement())
-  name         String
-  realName     String?
-  role         String
-  image        String?
-  teamId       Int
-  position     Int       @default(0)
-  socials      Json?
-  joinedAt     DateTime  @default(now())
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  nationality  String?
-  birthDate    DateTime?
-  biography    String?
-  customFields Json?
-  slug         String?   @unique
-  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  id              Int              @id @default(autoincrement())
+  name            String
+  realName        String?
+  role            String
+  image           String?
+  teamId          Int
+  position        Int              @default(0)
+  socials         Json?
+  joinedAt        DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  nationality     String?
+  birthDate       DateTime?
+  biography       String?
+  customFields    Json?
+  slug            String?          @unique
+  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  twitchChannels  TwitchChannel[]
 
   @@map("team_members")
 }
@@ -218,6 +220,43 @@ model Article {
   @@index([typeId])
   @@index([published, featured])
   @@map("articles")
+}
+
+model TwitchChannel {
+  id           Int         @id @default(autoincrement())
+  username     String      @unique
+  displayName  String?
+  gameLabel    String?
+  description  String?
+  active       Boolean     @default(true)
+  position     Int         @default(0)
+  teamMemberId Int?
+  teamMember   TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([active, position])
+  @@index([teamMemberId])
+  @@map("twitch_channels")
+}
+
+model CoachingStaff {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name      String
+  realName  String?
+  role      String
+  image     String?
+  biography String?
+  position  Int      @default(0)
+  socials   Json?
+  slug      String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teamId, position])
+  @@map("coaching_staff")
 }
 
 model RecruitmentPost {
