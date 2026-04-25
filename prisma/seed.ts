@@ -38,6 +38,12 @@ async function main() {
     'recrutement:write',
     'recrutement:delete',
     'analytics:read',
+    'twitch_channels:read',
+    'twitch_channels:write',
+    'twitch_channels:delete',
+    'coaching_staff:read',
+    'coaching_staff:write',
+    'coaching_staff:delete',
   ];
 
   const cmPermissions = [
@@ -68,6 +74,12 @@ async function main() {
     'recrutement:read',
     'recrutement:write',
     'recrutement:delete',
+    'twitch_channels:read',
+    'twitch_channels:write',
+    'twitch_channels:delete',
+    'coaching_staff:read',
+    'coaching_staff:write',
+    'coaching_staff:delete',
   ];
 
   const adminRole = await prisma.role.upsert({
