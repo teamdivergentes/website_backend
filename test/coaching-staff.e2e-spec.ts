@@ -253,5 +253,44 @@ describe('CoachingStaffController (e2e)', () => {
         .send({ items: [] })
         .expect(400);
     });
+
+    it('IDOR cross-team : IDs appartenant à une autre équipe → 400', async () => {
+      // Crée team B et un coach appartenant à team B
+      const teamB = await prisma.team.create({
+        data: {
+          name: 'E2E_CoachingStaff_TeamB',
+          slug: `e2e-coaching-staff-team-b-${Date.now()}`,
+          game: 'Valorant',
+        },
+      });
+
+      const coachB = await prisma.coachingStaff.create({
+        data: {
+          teamId: teamB.id,
+          name: 'E2E_Coach_TeamB',
+          role: 'Drafter',
+          position: 0,
+          slug: `e2e-coach-team-b-${Date.now()}`,
+        },
+      });
+
+      const positionBefore = coachB.position;
+
+      try {
+        // Tente un reorder sur team A en fournissant l'ID du coach B → doit rejeter
+        await request(server())
+          .patch(`/api/admin/teams/${testTeamId}/coaching-staff/reorder`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ items: [{ id: coachB.id, position: 5 }] })
+          .expect(400);
+
+        // Vérifie que la position du coach B n'a pas changé
+        const coachBAfter = await prisma.coachingStaff.findUnique({ where: { id: coachB.id } });
+        expect(coachBAfter?.position).toBe(positionBefore);
+      } finally {
+        await prisma.coachingStaff.delete({ where: { id: coachB.id } }).catch(() => {});
+        await prisma.team.delete({ where: { id: teamB.id } }).catch(() => {});
+      }
+    });
   });
 });

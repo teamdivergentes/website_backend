@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { CoachingStaffService } from './coaching-staff.service';
 import { PrismaService } from '../prisma.service';
 import { UploadService } from '../upload/upload.service';
@@ -301,10 +301,37 @@ describe('CoachingStaffService', () => {
         ],
       };
 
+      mockPrisma.coachingStaff.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }]);
       mockPrisma.$transaction.mockResolvedValue([]);
 
       const result: Awaited<ReturnType<typeof service.reorder>> = await service.reorder(1, dto);
       expect(result).toEqual({ message: 'Ordre mis à jour avec succès' });
+    });
+
+    it('should throw BadRequestException when an ID does not belong to the team (IDOR)', async () => {
+      // teamId = 1 (team A), but dto contains id=99 which belongs to team B
+      const dto: ReorderCoachingStaffDto = {
+        items: [{ id: 99, position: 0 }],
+      };
+
+      // findMany returns empty: id=99 is not in teamId=1
+      mockPrisma.coachingStaff.findMany.mockResolvedValue([]);
+
+      await expect(service.reorder(1, dto)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when only some IDs belong to the team (partial IDOR)', async () => {
+      const dto: ReorderCoachingStaffDto = {
+        items: [
+          { id: 1, position: 0 }, // belongs to team 1
+          { id: 99, position: 1 }, // belongs to team 2
+        ],
+      };
+
+      // Only id=1 is returned: id=99 is foreign
+      mockPrisma.coachingStaff.findMany.mockResolvedValue([{ id: 1 }]);
+
+      await expect(service.reorder(1, dto)).rejects.toThrow(BadRequestException);
     });
   });
 });
