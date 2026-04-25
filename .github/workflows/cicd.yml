@@ -463,7 +463,7 @@ jobs:
           SONAR_HOST_URL: https://sonarqube.tellebma.fr
 
       - name: Check SonarQube Quality Gate
-        uses: SonarSource/sonarqube-quality-gate-action@d304d050d14f3e7e9fe46f7f6cdef9fcae657b0f # v1.1.0
+        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
