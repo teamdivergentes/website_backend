@@ -373,6 +373,13 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+
       - name: Create shadow database
         env:
           PGPASSWORD: migration_test
