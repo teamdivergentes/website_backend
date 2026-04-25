@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     permissions:
       packages: write
     steps:

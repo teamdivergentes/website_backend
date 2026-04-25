@@ -33,7 +33,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     permissions:
       contents: read
     outputs:
@@ -68,7 +68,7 @@ jobs:
         run: npm run build
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     if: needs.build.result == 'success'
     permissions:
@@ -103,7 +103,7 @@ jobs:
   # Fast job: unit tests only (Jest, no E2E).
   # Runs on every push/PR — this is the gating job for Docker and deployments.
   test-unit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     if: needs.build.result == 'success'
     permissions:
@@ -240,7 +240,7 @@ jobs:
   # Triggers: push to main, PR approval, /run-mutation comment, workflow_dispatch.
   # Non-blocking — reports mutation score as artifact.
   mutation-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
@@ -328,7 +328,7 @@ jobs:
           retention-days: 7
 
   validate-migrations:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     if: needs.build.result == 'success'
     permissions:
@@ -394,7 +394,7 @@ jobs:
           echo "Migrations validated successfully"
 
   semgrep:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: build
     # Skip any PR created by dependabot to avoid permission issues:
     if: (github.actor != 'dependabot[bot]') && needs.build.result == 'success'
@@ -420,7 +420,7 @@ jobs:
   # <=3% new duplicated lines, 100% new security hotspots reviewed.
   # See docs/SONARQUBE.md for details.
   sonarqube:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, test-unit]
     if: |
       needs.build.result == 'success' &&
@@ -578,7 +578,7 @@ jobs:
           cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && format('type=registry,ref={0}:buildcache,mode=max', steps.tags.outputs.image-name) || '' }}
 
   scan-image:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [docker]
     if: needs.docker.result == 'success'
     permissions:
@@ -626,7 +626,7 @@ jobs:
 
   # Déploiement PREPROD (push sur main ou PR avec [DEPLOY])
   deploy-preprod:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       (github.ref == 'refs/heads/main' ||
@@ -665,7 +665,7 @@ jobs:
 
   # Déploiement PROD (tag vX.Y.Z)
   deploy-prod:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
@@ -702,7 +702,7 @@ jobs:
         run: echo "deploy-status=${{ steps.deploy-prod.outcome }}" >> $GITHUB_OUTPUT
 
   pr-report:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, test-e2e, semgrep, docker, scan-image, deploy-preprod, deploy-prod]
     if: |
       always() &&
@@ -765,7 +765,7 @@ jobs:
 
   # Semantic Release (auto-tag sur main)
   release:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker]
     if: |
       github.event_name == 'push' &&
@@ -810,7 +810,7 @@ jobs:
 
   # Job final pour déterminer le statut global du workflow
   workflow-status:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, sonarqube, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
     if: always()
     permissions: {}
