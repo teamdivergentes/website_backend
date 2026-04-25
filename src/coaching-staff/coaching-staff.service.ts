@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { CreateCoachingStaffDto } from './dto/create-coaching-staff.dto';
@@ -217,6 +222,18 @@ export class CoachingStaffService {
    * Réordonne le coaching staff d'une équipe.
    */
   async reorder(teamId: number, dto: ReorderCoachingStaffDto): Promise<{ message: string }> {
+    const requestedIds = dto.items.map((i) => i.id);
+    const validIds = await this.prisma.coachingStaff.findMany({
+      where: { teamId, id: { in: requestedIds } },
+      select: { id: true },
+    });
+
+    if (validIds.length !== requestedIds.length) {
+      throw new BadRequestException(
+        "Un ou plusieurs IDs de coaching staff n'appartiennent pas à cette équipe",
+      );
+    }
+
     await this.prisma.$transaction(
       dto.items.map((item) =>
         this.prisma.coachingStaff.update({
@@ -226,7 +243,6 @@ export class CoachingStaffService {
       ),
     );
 
-    void teamId; // teamId gardé pour validation possible future
     return { message: 'Ordre mis à jour avec succès' };
   }
 }
