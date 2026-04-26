@@ -10,6 +10,8 @@ on:
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
+      - '.github/dependabot.yml'
+      - 'BACKLOG/**'
   pull_request_review:
     types: [submitted]
   issue_comment:
@@ -19,6 +21,9 @@ on:
 env:
   NODE_VERSION: 22
 
+# Cancel in-progress runs on the same branch/PR when a new push arrives.
+# Avoids accumulation of stale runs (e.g. 3 consecutive update-branch pushes = 3 runs
+# that would queue up and monopolize the 2 self-hosted runners).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -38,18 +43,70 @@ jobs:
       contents: read
     outputs:
       build-status: ${{ steps.build.outcome }}
+      # Actor classification — propagated to downstream jobs to skip heavy
+      # jobs on Dependabot PRs that don't justify a full pipeline run.
+      #
+      # is-dependabot-actions : PR bumps a GitHub Action only (.github/workflows)
+      #   -> skip everything except pr-report + workflow-status
+      # is-dependabot-dev     : PR bumps a devDependency (minor/patch npm)
+      #   -> skip e2e, mutation-test, docker, scan-image, deploy-*, release
+      # Dependabot prod dep bumps (major or prod): treated as human PRs (full pipeline)
+      is-dependabot-actions: ${{ steps.actor.outputs.is-dependabot-actions }}
+      is-dependabot-dev: ${{ steps.actor.outputs.is-dependabot-dev }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Classify PR actor and dependency type
+        id: actor
+        run: |
+          IS_DEP_ACTIONS=false
+          IS_DEP_DEV=false
+
+          if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
+            BRANCH="${{ github.head_ref }}"
+            echo "Dependabot branch: $BRANCH"
+
+            # dependabot/github_actions/... -> only action bumps, no code change
+            if [[ "$BRANCH" == dependabot/github_actions/* ]]; then
+              IS_DEP_ACTIONS=true
+              echo "Classified as: github_actions bump (skip all except pr-report)"
+
+            # dependabot/npm_and_yarn/... -> check package.json to classify
+            elif [[ "$BRANCH" == dependabot/npm_and_yarn/* ]]; then
+              PKG_HINT=$(echo "$BRANCH" | sed 's|dependabot/npm_and_yarn/||' | tr '/_-' ' ' | tr '[:upper:]' '[:lower:]')
+              echo "Package hint: $PKG_HINT"
+
+              # Classify as devDep if the package name fragment matches a devDependency key
+              if node -e "
+                const pkg = require('./package.json');
+                const hint = process.argv[1].toLowerCase();
+                const devKeys = Object.keys(pkg.devDependencies || {}).map(k => k.toLowerCase().replace(/[@\/]/g, ''));
+                const isDev = devKeys.some(k => hint.includes(k) || k.includes(hint.split(' ')[0]));
+                process.exit(isDev ? 0 : 1);
+              " "$PKG_HINT" 2>/dev/null; then
+                IS_DEP_DEV=true
+                echo "Classified as: devDependency bump (skip docker/e2e/deploy)"
+              else
+                echo "Classified as: prod/unknown dependency bump (full pipeline)"
+              fi
+            fi
+          fi
+
+          echo "is-dependabot-actions=$IS_DEP_ACTIONS" >> $GITHUB_OUTPUT
+          echo "is-dependabot-dev=$IS_DEP_DEV" >> $GITHUB_OUTPUT
+
       - name: Setup Node
+        # Skip full setup for action-only bumps (no code to build)
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache node_modules
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         id: cache-modules
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
@@ -57,20 +114,30 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
-        if: steps.cache-modules.outputs.cache-hit != 'true'
+        if: steps.actor.outputs.is-dependabot-actions != 'true' && steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Generate Prisma Client
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         run: npx prisma generate
 
       - name: Build NestJS
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         id: build
         run: npm run build
+
+      # For github_actions bumps there is no code to build — mark as success via echo
+      - name: Skip build (github_actions bump)
+        if: steps.actor.outputs.is-dependabot-actions == 'true'
+        run: echo "Skipping build — github_actions Dependabot bump, no application code changed."
 
   lint:
     runs-on: [self-hosted, linux, vps, docker]
     needs: build
-    if: needs.build.result == 'success'
+    # Skip for github_actions bumps (no code changed)
+    if: |
+      needs.build.result == 'success' &&
+      needs.build.outputs.is-dependabot-actions != 'true'
     permissions:
       contents: read
     steps:
@@ -101,11 +168,13 @@ jobs:
         run: npm run lint
 
   # Fast job: unit tests only (Jest, no E2E).
-  # Runs on every push/PR — this is the gating job for Docker and deployments.
+  # Runs on every push/PR (except github_actions bumps) — gating job for Docker and deployments.
   test-unit:
     runs-on: [self-hosted, linux, vps, docker]
     needs: build
-    if: needs.build.result == 'success'
+    if: |
+      needs.build.result == 'success' &&
+      needs.build.outputs.is-dependabot-actions != 'true'
     permissions:
       contents: read
       pull-requests: write
@@ -173,14 +242,20 @@ jobs:
   # Slow job: NestJS E2E tests (supertest against a real Postgres).
   # Triggers: push to main, tag, PR approval, /run-e2e comment on PR, or workflow_dispatch.
   # NOT triggered on every PR push to keep pipelines fast.
+  # NOT triggered for Dependabot action bumps or dev dep bumps.
   # Note: github.event.comment.body is used only in if: expression context (not in run:) - safe.
   test-e2e:
     runs-on: [self-hosted, linux, vps, docker]
+    needs: build
     if: |
-      (github.event_name == 'push') ||
-      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-e2e') ||
-      (github.event_name == 'workflow_dispatch')
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true' &&
+      (
+        (github.event_name == 'push') ||
+        (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-e2e') ||
+        (github.event_name == 'workflow_dispatch')
+      )
     permissions:
       contents: read
 
@@ -238,14 +313,20 @@ jobs:
 
   # Mutation testing with Stryker Mutator
   # Triggers: push to main, PR approval, /run-mutation comment, workflow_dispatch.
+  # NOT triggered for Dependabot PRs (no new application code to mutate).
   # Non-blocking — reports mutation score as artifact.
   mutation-test:
     runs-on: [self-hosted, linux, vps, docker]
+    needs: build
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-mutation') ||
-      (github.event_name == 'workflow_dispatch')
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-mutation') ||
+        (github.event_name == 'workflow_dispatch')
+      )
     permissions:
       contents: read
 
@@ -330,7 +411,12 @@ jobs:
   validate-migrations:
     runs-on: [self-hosted, linux, vps, docker]
     needs: build
-    if: needs.build.result == 'success'
+    # Skip for Dependabot action bumps (no code change) and dev dep bumps
+    # (no schema change expected from a devDep update).
+    if: |
+      needs.build.result == 'success' &&
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true'
     permissions:
       contents: read
 
@@ -403,7 +489,8 @@ jobs:
   semgrep:
     runs-on: [self-hosted, linux, vps, docker]
     needs: build
-    # SAST: main/tag/dispatch only — saves ~3 min per PR push
+    # SAST: main/tag/dispatch only — saves ~3 min per PR push.
+    # Never runs for Dependabot (no new application code to scan).
     if: |
       (github.actor != 'dependabot[bot]') &&
       needs.build.result == 'success' &&
@@ -426,6 +513,7 @@ jobs:
   # SonarQube analysis — BLOCKING. Quality Gate (Sonar way) must pass.
   # Runs after unit tests to include coverage from the test-unit artifact.
   # Triggers: push/PR/workflow_dispatch (same gates as the rest of the pipeline).
+  # Skipped for Dependabot github_actions bumps (no application code changed).
   # QG conditions (on New Code): 0 new issues, >=80% new coverage,
   # <=3% new duplicated lines, 100% new security hotspots reviewed.
   # See docs/SONARQUBE.md for details.
@@ -433,6 +521,7 @@ jobs:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, test-unit]
     if: |
+      needs.build.outputs.is-dependabot-actions != 'true' &&
       needs.build.result == 'success' &&
       needs.test-unit.result == 'success' &&
       (
@@ -470,11 +559,19 @@ jobs:
           SONAR_HOST_URL: https://sonarqube.tellebma.fr
 
   # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
-  # Sonar QG blocks Docker build → no image is published if quality fails.
+  # Sonar QG blocks Docker build -> no image is published if quality fails.
+  # Skipped for Dependabot dev-dep and action bumps (no production code changed).
   docker:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, sonarqube]
-    if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test-unit.result == 'success' && needs.semgrep.result == 'success' && needs.sonarqube.result == 'success'
+    if: |
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true' &&
+      needs.build.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.test-unit.result == 'success' &&
+      needs.semgrep.result == 'success' &&
+      needs.sonarqube.result == 'success'
     permissions:
       contents: read
       packages: write
@@ -534,14 +631,14 @@ jobs:
             "${{ env.BUILD_TIME }}" \
             "${{ env.GITHUB_REPOSITORY }}"
 
-          # Extraire les labels du Dockerfile pour les passer à docker/build-push-action
+          # Extraire les labels du Dockerfile pour les passer a docker/build-push-action
           if [[ -f "Dockerfile" ]]; then
             grep "^LABEL " Dockerfile | sed 's/^LABEL //' > labels_temp.txt
 
             if [[ -s "labels_temp.txt" ]]; then
               while IFS= read -r line; do
                 if [[ "$line" =~ [\;\|\&\`\$\(\)] ]]; then
-                  echo "Warning: Label dangereux détecté et ignoré: $line"
+                  echo "Warning: Label dangereux detecte et ignore: $line"
                   continue
                 fi
                 echo "$line" >> labels_output.txt
@@ -552,15 +649,15 @@ jobs:
                 cat labels_output.txt >> $GITHUB_OUTPUT
                 echo "EOF" >> $GITHUB_OUTPUT
               else
-                echo "Warning: Aucun label valide trouvé dans le Dockerfile"
+                echo "Warning: Aucun label valide trouve dans le Dockerfile"
               fi
             else
-              echo "Warning: Aucun label trouvé dans le Dockerfile"
+              echo "Warning: Aucun label trouve dans le Dockerfile"
             fi
 
             rm -f labels_temp.txt labels_output.txt
           else
-            echo "Dockerfile non trouvé"
+            echo "Dockerfile non trouve"
             exit 1
           fi
         env:
@@ -572,7 +669,7 @@ jobs:
         with:
           context: .
           push: true
-          # platforms: linux/amd64,linux/arm64  # Multi-arch désactivé : serveur cible amd64 uniquement
+          # platforms: linux/amd64,linux/arm64  # Multi-arch desactive : serveur cible amd64 uniquement
           platforms: linux/amd64
           tags: |
             ${{ steps.tags.outputs.image-tag }}
@@ -634,7 +731,7 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-  # Déploiement PREPROD (push sur main ou PR avec [DEPLOY])
+  # Deploiement PREPROD (push sur main ou PR avec [DEPLOY])
   deploy-preprod:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
@@ -673,7 +770,7 @@ jobs:
         if: always()
         run: echo "deploy-status=${{ steps.deploy.outcome }}" >> $GITHUB_OUTPUT
 
-  # Déploiement PROD (tag vX.Y.Z)
+  # Deploiement PROD (tag vX.Y.Z)
   deploy-prod:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
@@ -746,7 +843,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Générer le rapport de PR
+      - name: Generer le rapport de PR
         id: report
         run: |
           chmod +x ./.github/scripts/generate-pr-report.sh
@@ -818,7 +915,7 @@ jobs:
           GIT_COMMITTER_EMAIL: semantic-release-bot@teamdivergentes.fr
         run: npx semantic-release
 
-  # Job final pour déterminer le statut global du workflow
+  # Job final pour determiner le statut global du workflow
   workflow-status:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, sonarqube, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
