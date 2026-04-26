@@ -62,7 +62,15 @@ export class RecruitmentController {
             'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           ];
-          cb(null, allowedMimeTypes.includes(file.mimetype));
+          if (!allowedMimeTypes.includes(file.mimetype)) {
+            return cb(
+              new BadRequestException(
+                'Type de fichier non autorisé. Formats acceptés : PDF, DOC, DOCX',
+              ),
+              false,
+            );
+          }
+          cb(null, true);
         },
       },
     ),

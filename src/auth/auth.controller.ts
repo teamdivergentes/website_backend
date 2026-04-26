@@ -14,6 +14,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
+import { Roles } from './decorators/roles.decorator';
 
 interface AuthenticatedRequest extends Request {
   user: { id: number; email: string };
@@ -23,8 +24,9 @@ interface AuthenticatedRequest extends Request {
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @Public()
   @Post('register')
+  @Roles('admin')
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }

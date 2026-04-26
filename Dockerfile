@@ -1,7 +1,7 @@
 # ================================
 # Stage 1: Dependencies (dev + prod)
 # ================================
-FROM node:20-alpine AS dependencies
+FROM node:22-alpine AS dependencies
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN npx prisma generate
 # ================================
 # Stage 2: Builder
 # ================================
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ RUN npm run build
 # ================================
 # Stage 3: Production Dependencies
 # ================================
-FROM node:20-alpine AS prod-deps
+FROM node:22-alpine AS prod-deps
 
 WORKDIR /app
 
@@ -47,12 +47,12 @@ RUN npm ci --only=production --no-audit --no-fund && npm cache clean --force
 # ================================
 # Stage 4: Production
 # ================================
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Apply latest security patches + install dumb-init
+RUN apk update && apk upgrade --no-cache && apk add --no-cache dumb-init && rm -rf /var/cache/apk/*
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \

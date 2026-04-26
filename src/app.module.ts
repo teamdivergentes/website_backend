@@ -15,6 +15,11 @@ import { ProfileModule } from './profile/profile.module';
 import { SponsorsModule } from './sponsors/sponsors.module';
 import { ContactModule } from './contact/contact.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { SitemapModule } from './sitemap/sitemap.module';
+import { ArticleTypesModule } from './article-types/article-types.module';
+import { ArticlesModule } from './articles/articles.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -38,6 +43,11 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     SponsorsModule,
     ContactModule,
     RecruitmentModule,
+    AnalyticsModule,
+    SitemapModule,
+    ArticleTypesModule,
+    ArticlesModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [

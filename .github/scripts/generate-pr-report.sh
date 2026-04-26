@@ -3,13 +3,16 @@
 # Script pour générer le rapport de Pull Request
 # Usage: ./generate-pr-report.sh
 
-set -e
+set -euo pipefail
 
 # Vérifier les variables requises
 if [[ -z "$BUILD_STATUS" || -z "$LINT_STATUS" || -z "$TEST_STATUS" || -z "$SEMGREP_STATUS" || -z "$DOCKER_STATUS" ]]; then
-    echo "❌ Variables manquantes pour générer le rapport PR"
+    echo "Variables manquantes pour générer le rapport PR"
     exit 1
 fi
+
+# E2E status is optional (skipped on plain PR push)
+E2E_STATUS="${E2E_STATUS:-skipped}"
 
 # Variables de déploiement (optionnelles)
 DEPLOY_PREPROD_STATUS="${DEPLOY_PREPROD_STATUS:-skipped}"
@@ -38,7 +41,8 @@ cat << EOF > pr_report.md
 |-----------|--------|------------|
 | **Build** | $BUILD_STATUS | Build NestJS production |
 | **Linter** | $LINT_STATUS | Vérification qualité de code ESLint |
-| **Tests** | $TEST_STATUS | Tests unitaires et e2e |
+| **Tests unitaires** | $TEST_STATUS | Tests unitaires Jest avec couverture |
+| **Tests E2E** | $E2E_STATUS | Tests E2E NestJS (supertest) - déclenché sur approbation PR ou push main |
 | **Sécurité** | $SEMGREP_STATUS | Analyse de sécurité Semgrep |
 | **Docker** | $DOCKER_STATUS | Build de l'image conteneur |
 | **Deploy PREPROD** | $DEPLOY_PREPROD_STATUS | Déploiement environnement PREPROD |

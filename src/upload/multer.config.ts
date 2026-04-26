@@ -1,5 +1,6 @@
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { randomBytes } from 'crypto';
 import { BadRequestException } from '@nestjs/common';
 import { Request } from 'express';
 
@@ -18,10 +19,7 @@ export const multerConfig = {
   storage: diskStorage({
     destination: './uploads',
     filename: (req: Request, file: Express.Multer.File, cb) => {
-      const randomName = Array(32)
-        .fill(null)
-        .map(() => Math.round(Math.random() * 16).toString(16))
-        .join('');
+      const randomName = randomBytes(16).toString('hex');
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
       const ext = extname(sanitizedName);
       cb(null, `${randomName}${ext}`);
@@ -30,11 +28,9 @@ export const multerConfig = {
   fileFilter: (
     req: Request,
     file: Express.Multer.File,
-
-    cb: any,
+    cb: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call
       return cb(
         new BadRequestException(
           `Type de fichier non autorisé. Formats acceptés: jpg, jpeg, png, webp, gif, svg`,
@@ -42,7 +38,6 @@ export const multerConfig = {
         false,
       );
     }
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     cb(null, true);
   },
   limits: {

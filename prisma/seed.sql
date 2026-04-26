@@ -25,7 +25,8 @@ INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALU
     'config:read','config:write',
     'annonces:read','annonces:write','annonces:delete',
     'articles:read','articles:write','articles:delete',
-    'recrutement:read','recrutement:write','recrutement:delete'
+    'recrutement:read','recrutement:write','recrutement:delete',
+    'analytics:read'
   ], true, NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
   permissions = EXCLUDED.permissions,
@@ -77,6 +78,13 @@ INSERT INTO configs (key, value, description, "createdAt", "updatedAt") VALUES
   ('twitter_url', 'https://x.com/teamdivergentes', 'Lien Twitter/X', NOW(), NOW()),
   ('instagram_url', 'https://www.instagram.com/teamdivergentes/', 'Lien Instagram', NOW(), NOW()),
   ('discord_url', 'https://discord.com/invite/mF67YZKnU3', 'Lien Discord', NOW(), NOW()),
+  ('youtube_url', 'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g', 'Lien YouTube (chaine, affiche dans le footer)', NOW(), NOW()),
+  ('twitch_url', 'https://www.twitch.tv/teamdivergentes', 'Lien Twitch', NOW(), NOW()),
+  ('mail_url', 'mailto:contact@teamdivergentes.fr', 'Lien email (affiche dans le footer)', NOW(), NOW()),
+  ('social_urls', E'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes', 'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)', NOW(), NOW()),
+  ('og_title', 'Team Divergentes | Organisation Esportive', 'Titre Open Graph pour les apercus Discord/reseaux sociaux', NOW(), NOW()),
+  ('og_description', E'Team Divergentes, organisation e-sportive creee en 2017. Decouvrez nos joueurs, nos equipes et rejoignez l''aventure !', 'Description Open Graph pour les apercus Discord/reseaux sociaux', NOW(), NOW()),
+  ('og_image', '', 'Image Open Graph pour les apercus Discord/reseaux sociaux (URL absolue ou chemin /uploads/...)', NOW(), NOW()),
   -- Visibilite des pages
   ('page_shop_visible', 'true', 'Afficher la page Boutique', NOW(), NOW()),
   ('page_contact_visible', 'true', 'Afficher la page Contact', NOW(), NOW()),
@@ -133,7 +141,16 @@ INSERT INTO recruitment_posts (title, type, description, active, position, slug,
    NOW(), NOW())
 ON CONFLICT (slug) DO NOTHING;
 
--- 8. Verification
+-- 8. Creation des categories d'articles
+INSERT INTO article_types (name, created_at, updated_at) VALUES
+  ('Actualité', NOW(), NOW()),
+  ('Annonce', NOW(), NOW()),
+  ('Match Report', NOW(), NOW()),
+  ('eSport', NOW(), NOW()),
+  ('Interview', NOW(), NOW())
+ON CONFLICT (name) DO NOTHING;
+
+-- 9. Verification
 SELECT '=== SEED RESULTS ===' as info;
 SELECT 'Roles:' as entity, count(*) as count FROM roles
 UNION ALL
@@ -147,4 +164,6 @@ SELECT 'Games:', count(*) FROM games
 UNION ALL
 SELECT 'Sponsors:', count(*) FROM sponsors
 UNION ALL
-SELECT 'Recruitment:', count(*) FROM recruitment_posts;
+SELECT 'Recruitment:', count(*) FROM recruitment_posts
+UNION ALL
+SELECT 'Article Types:', count(*) FROM article_types;

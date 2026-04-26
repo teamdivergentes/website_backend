@@ -72,12 +72,13 @@ export class UsersController {
 
   @Delete(':id')
   @Roles('admin')
-  delete(@Param('id', ParseIntPipe) id: number, @Request() req: RequestWithUser) {
+  async delete(@Param('id', ParseIntPipe) id: number, @Request() req: RequestWithUser) {
     // Prevent self-deletion
     if (req.user.id === id) {
       throw new ForbiddenException('Vous ne pouvez pas supprimer votre propre compte');
     }
-    return this.usersService.delete(id);
+    await this.usersService.delete(id);
+    return { message: 'Utilisateur supprimé avec succès' };
   }
 
   @Patch(':id/toggle')

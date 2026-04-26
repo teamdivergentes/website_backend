@@ -1,0 +1,82 @@
+name: Discord Notification
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      status:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      actor:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      url:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      DISCORD_DEPLOY_WEBHOOK:
+        required: true
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: [self-hosted, linux, vps, docker]
+    permissions: {}
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          INPUT_STATUS: ${{ inputs.status }}
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_ACTOR: ${{ inputs.actor }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          set -euo pipefail
+
+          # Color: green for success, red for failure, orange for cancelled
+          if [[ "$INPUT_STATUS" == "success" ]]; then
+            COLOR=3066993
+            EMOJI="✅"
+          elif [[ "$INPUT_STATUS" == "cancelled" ]]; then
+            COLOR=16776960
+            EMOJI="⚠️"
+          else
+            COLOR=15158332
+            EMOJI="❌"
+          fi
+
+          SHA_SHORT="${INPUT_SHA:0:7}"
+
+          # Build description
+          DESCRIPTION="${EMOJI} Deploiement **${INPUT_ENVIRONMENT}** — **${INPUT_STATUS}**"
+          if [[ -n "$INPUT_URL" ]]; then
+            DESCRIPTION="${DESCRIPTION}\n[Voir le site](${INPUT_URL})"
+          fi
+
+          curl -sf -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"Deploy ${INPUT_ENVIRONMENT} — ${INPUT_STATUS}\",
+                \"description\": \"${DESCRIPTION}\",
+                \"color\": ${COLOR},
+                \"fields\": [
+                  {\"name\": \"Repo\", \"value\": \"${INPUT_REPOSITORY}\", \"inline\": true},
+                  {\"name\": \"Commit\", \"value\": \"\`${SHA_SHORT}\`\", \"inline\": true},
+                  {\"name\": \"Par\", \"value\": \"${INPUT_ACTOR}\", \"inline\": true}
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+              }]
+            }"

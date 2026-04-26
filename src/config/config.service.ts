@@ -9,6 +9,7 @@ export class ConfigService {
   async findAll() {
     return this.prisma.config.findMany({
       orderBy: { key: 'asc' },
+      take: 200,
     });
   }
 

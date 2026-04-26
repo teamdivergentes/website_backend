@@ -14,25 +14,31 @@ export class RecruitmentService {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // strip accents
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')     // non-alphanumeric → dash
-      .replace(/^-+|-+$/g, '');        // trim leading/trailing dashes
+      .replace(/[^a-z0-9]+/g, '-') // non-alphanumeric → dash
+      .replace(/^-+|-+$/g, ''); // trim leading/trailing dashes
   }
 
   private async generateUniqueSlug(title: string, excludeId?: number): Promise<string> {
     const baseSlug = this.slugify(title);
     let slug = baseSlug;
     let counter = 2;
+    const maxIterations = 100;
 
-    while (true) {
+    while (counter <= maxIterations + 1) {
       const existing = await this.prisma.recruitmentPost.findUnique({
         where: { slug },
       });
-      if (!existing || (excludeId && existing.id === excludeId)) {
+      if (!existing || (excludeId !== undefined && existing.id === excludeId)) {
         return slug;
+      }
+      if (counter > maxIterations) {
+        throw new Error('Impossible de générer un slug unique pour ce titre');
       }
       slug = `${baseSlug}-${counter}`;
       counter++;
     }
+
+    throw new Error('Impossible de générer un slug unique pour ce titre');
   }
 
   async findAllActive() {
@@ -78,7 +84,7 @@ export class RecruitmentService {
     });
 
     const position = (maxPosition._max.position ?? -1) + 1;
-    const slug = dto.slug || await this.generateUniqueSlug(dto.title);
+    const slug = dto.slug || (await this.generateUniqueSlug(dto.title));
 
     return this.prisma.recruitmentPost.create({
       data: {

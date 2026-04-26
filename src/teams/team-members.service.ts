@@ -37,6 +37,18 @@ export class TeamMembersService {
   }
 
   /**
+   * Generate a URL-friendly slug from member name
+   */
+  private generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with -
+      .replace(/(^-|-$)/g, ''); // Remove leading/trailing dashes
+  }
+
+  /**
    * Get all members of a team
    */
   async findByTeam(teamId: number) {
@@ -74,6 +86,9 @@ export class TeamMembersService {
       _max: { position: true },
     });
 
+    // Generate slug if not provided
+    const slug = createMemberDto.slug || this.generateSlug(createMemberDto.name);
+
     return this.prisma.teamMember.create({
       data: {
         name: createMemberDto.name,
@@ -83,6 +98,11 @@ export class TeamMembersService {
         teamId,
         position: (maxPosition._max.position ?? -1) + 1,
         socials: createMemberDto.socials || {},
+        nationality: createMemberDto.nationality,
+        birthDate: createMemberDto.birthDate ? new Date(createMemberDto.birthDate) : undefined,
+        biography: createMemberDto.biography,
+        customFields: createMemberDto.customFields || {},
+        slug,
       },
     });
   }
@@ -116,11 +136,28 @@ export class TeamMembersService {
 
       const updateData: Prisma.TeamMemberUpdateInput = {};
 
-      if (updateMemberDto.name !== undefined) updateData.name = updateMemberDto.name;
+      if (updateMemberDto.name !== undefined) {
+        updateData.name = updateMemberDto.name;
+        // Regenerate slug if name changes and no explicit slug provided
+        if (updateMemberDto.slug === undefined) {
+          updateData.slug = this.generateSlug(updateMemberDto.name);
+        }
+      }
       if (updateMemberDto.realName !== undefined) updateData.realName = updateMemberDto.realName;
       if (updateMemberDto.role !== undefined) updateData.role = updateMemberDto.role;
       if (updateMemberDto.image !== undefined) updateData.image = updateMemberDto.image;
       if (updateMemberDto.socials !== undefined) updateData.socials = updateMemberDto.socials;
+      if (updateMemberDto.nationality !== undefined)
+        updateData.nationality = updateMemberDto.nationality;
+      if (updateMemberDto.birthDate !== undefined) {
+        updateData.birthDate = updateMemberDto.birthDate
+          ? new Date(updateMemberDto.birthDate)
+          : null;
+      }
+      if (updateMemberDto.biography !== undefined) updateData.biography = updateMemberDto.biography;
+      if (updateMemberDto.customFields !== undefined)
+        updateData.customFields = updateMemberDto.customFields;
+      if (updateMemberDto.slug !== undefined) updateData.slug = updateMemberDto.slug;
 
       return this.prisma.teamMember.update({
         where: { id },
@@ -208,5 +245,45 @@ export class TeamMembersService {
     );
 
     return { message: 'Ordre des membres mis à jour avec succès' };
+  }
+
+  /**
+   * Find member by slug with team information
+   */
+  async findBySlug(slug: string) {
+    const member = await this.prisma.teamMember.findUnique({
+      where: { slug },
+      include: {
+        team: true,
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Membre avec le slug "${slug}" non trouvé`);
+    }
+
+    return member;
+  }
+
+  /**
+   * Find single member by ID
+   */
+  async findOne(teamId: number, id: number) {
+    const member = await this.prisma.teamMember.findUnique({
+      where: { id },
+      include: {
+        team: true,
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Membre #${id} non trouvé`);
+    }
+
+    if (member.teamId !== teamId) {
+      throw new NotFoundException(`Membre #${id} n'appartient pas à l'équipe #${teamId}`);
+    }
+
+    return member;
   }
 }

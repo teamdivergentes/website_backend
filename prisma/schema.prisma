@@ -21,14 +21,15 @@ model Role {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
   password  String
   roleId    Int
-  actif     Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  role      Role     @relation(fields: [roleId], references: [id])
+  actif     Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  role      Role      @relation(fields: [roleId], references: [id])
+  articles  Article[]
 
   @@map("users")
 }
@@ -59,42 +60,44 @@ model StaffMember {
 }
 
 model Team {
-  id                 Int          @id @default(autoincrement())
+  id                 Int             @id @default(autoincrement())
   name               String
-  slug               String       @unique
+  slug               String          @unique
   game               String
   image              String?
   banner             String?
   description        String?
-  active             Boolean      @default(true)
-  position           Int          @default(0)
+  active             Boolean         @default(true)
+  position           Int             @default(0)
   socials            Json?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
   memberFieldsConfig Json?
   members            TeamMember[]
+  coachingStaff      CoachingStaff[]
 
   @@map("teams")
 }
 
 model TeamMember {
-  id           Int       @id @default(autoincrement())
-  name         String
-  realName     String?
-  role         String
-  image        String?
-  teamId       Int
-  position     Int       @default(0)
-  socials      Json?
-  joinedAt     DateTime  @default(now())
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  nationality  String?
-  birthDate    DateTime?
-  biography    String?
-  customFields Json?
-  slug         String?   @unique
-  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  id              Int              @id @default(autoincrement())
+  name            String
+  realName        String?
+  role            String
+  image           String?
+  teamId          Int
+  position        Int              @default(0)
+  socials         Json?
+  joinedAt        DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  nationality     String?
+  birthDate       DateTime?
+  biography       String?
+  customFields    Json?
+  slug            String?          @unique
+  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  twitchChannels  TwitchChannel[]
 
   @@map("team_members")
 }
@@ -183,6 +186,77 @@ enum ImageLayout {
   LAYOUT_3
 
   @@map("image_layout")
+}
+
+model ArticleType {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  articles  Article[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("article_types")
+}
+
+model Article {
+  id             Int         @id @default(autoincrement())
+  title          String
+  slug           String      @unique
+  content        String      @db.Text
+  excerpt        String?     @db.Text
+  imageUrl       String?     @map("image_url")
+  mobileImageUrl String?     @map("mobile_image_url")
+  tabletImageUrl String?     @map("tablet_image_url")
+  published      Boolean     @default(false)
+  featured       Boolean     @default(false)
+  typeId         Int         @map("type_id")
+  userId         Int         @map("user_id")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  type           ArticleType @relation(fields: [typeId], references: [id])
+  user           User        @relation(fields: [userId], references: [id])
+
+  @@index([typeId])
+  @@index([published, featured])
+  @@map("articles")
+}
+
+model TwitchChannel {
+  id           Int         @id @default(autoincrement())
+  username     String      @unique
+  displayName  String?
+  gameLabel    String?
+  description  String?
+  active       Boolean     @default(true)
+  position     Int         @default(0)
+  teamMemberId Int?
+  teamMember   TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([active, position])
+  @@index([teamMemberId])
+  @@map("twitch_channels")
+}
+
+model CoachingStaff {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name      String
+  realName  String?
+  role      String
+  image     String?
+  biography String?
+  position  Int      @default(0)
+  socials   Json?
+  slug      String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teamId, position])
+  @@map("coaching_staff")
 }
 
 model RecruitmentPost {

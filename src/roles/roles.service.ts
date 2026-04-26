@@ -23,6 +23,8 @@ export class RolesService {
       config: ['config:read', 'config:write'],
       annonces: ['annonces:read', 'annonces:write', 'annonces:delete'],
       articles: ['articles:read', 'articles:write', 'articles:delete'],
+      recrutement: ['recrutement:read', 'recrutement:write', 'recrutement:delete'],
+      analytics: ['analytics:read'],
     };
   }
 

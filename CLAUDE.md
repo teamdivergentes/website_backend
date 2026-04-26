@@ -142,6 +142,19 @@ Dual notification: Email (Nodemailer) + Discord webhook.
 - HTML + text email templates with DVG branding
 - Discord embeds with color `#32D299`
 
+### Prisma Migrations (CRITICAL)
+
+Les fichiers de migration Prisma (`prisma/migrations/*/migration.sql`) sont **immuables**. Une fois creee, une migration ne doit **jamais** etre modifiee.
+
+**Regles strictes** :
+- **Ne jamais modifier** un fichier `migration.sql` existant, meme pour reordonner des colonnes ou reformater le SQL
+- **Ne jamais regenerer** une migration existante avec `prisma migrate dev` si elle a deja ete committee
+- Pour tout changement de schema, **toujours creer une nouvelle migration** via `npx prisma migrate dev --name descriptive_name`
+- Si une migration existante pose probleme (erreur, oubli), creer une migration corrective qui ALTER/DROP les elements concernes
+- Lors d'un rebase ou merge, si un conflit touche un fichier de migration, **garder la version deja presente sur la branche cible** (celle deja appliquee en base) et creer une nouvelle migration pour les ajouts manquants
+
+**Pourquoi** : Les migrations sont appliquees sequentiellement et tracees dans la table `_prisma_migrations`. Modifier une migration deja appliquee cree une divergence entre le schema en base et l'historique des migrations, ce qui casse `prisma migrate deploy` en production.
+
 ### Static Files
 
 Uploads served from `/uploads/` directory via Express static assets middleware in `main.ts`.
@@ -191,71 +204,8 @@ contact_email, contact_discord_webhook
 
 ---
 
-## Docker Configuration
-
-**4-stage multi-stage build:**
-1. Dependencies - `node:20-alpine`, `npm ci`, Prisma generate
-2. Builder - TypeScript compilation to `dist/`
-3. Prod-deps - Production dependencies only
-4. Production - `node:20-alpine`, `dumb-init`, non-root user `nestjs` (uid 1001)
-
-**entrypoint.sh:** Runs `prisma migrate deploy` then `node dist/src/main.js`
-
-**Health check:** `GET /health` every 30s
-
 ---
 
-## CI/CD
-
-Unified workflow (`.github/workflows/cicd.yml`). Docker images pushed to `ghcr.io/teamdivergentes/website_backend/dvg_web_backend`.
-
-**Pipeline:** build -> lint -> test (with Postgres service) -> semgrep -> docker -> deploy
-
-- PR: Build + Lint + Tests + Semgrep + Docker build (tag `unstable-{branch}`)
-- Push to main: All checks + Docker push (tag `PREPROD`) + Auto-deploy via Ansible
-- Tag `v*.*.*`: All checks + Docker push (tag `RELEASE`) + Auto-deploy PROD
-- `[DEPLOY]` in PR title: Manual PREPROD deployment
-
-**Required secrets:** `SEMGREP_APP_TOKEN`, `DEPLOY_REPO`, `DEPLOY_TOKEN`
-
----
-
-## Key Dependencies
-
-| Package | Usage |
-|---------|-------|
-| `@nestjs/*` v11 | Framework |
-| `@prisma/client` v6 | ORM |
-| `passport-jwt` | JWT strategy |
-| `bcrypt` v6 | Password hashing (cost factor 12) |
-| `sharp` v0.34 | Image optimization |
-| `nodemailer` | Email sending |
-| `class-validator` / `class-transformer` | DTO validation |
-| `@nestjs/swagger` v11 | API documentation |
-
----
-
-## Outils MCP et Plugins
-
-### Context7
-
-Utiliser `resolve-library-id` puis `query-docs` pour consulter la documentation a jour de :
-- **NestJS** : modules, guards, interceptors, pipes, decorators
-- **Prisma** : schema, migrations, queries, relations
-- **class-validator** : decorators de validation
-- **Passport/JWT** : strategies d'authentification
-- **Sharp** : transformations d'images
-
-### Playwright (via orchestrateur)
-
-Les tests E2E des endpoints peuvent etre verifies via Playwright :
-- Tester les reponses API (status codes, body)
-- Verifier les headers de securite
-- Tester les flux d'authentification
-
----
-
-## Securite - Regles Obligatoires
 
 ### Validation des entrees
 - **Toujours** utiliser des DTOs avec `class-validator` pour chaque endpoint
@@ -292,53 +242,6 @@ Les tests E2E des endpoints peuvent etre verifies via Playwright :
 
 ---
 
-## Fichiers et chemins importants
-
-```
-src/
-├── main.ts                           # Bootstrap, CORS, Swagger, static files
-├── app.module.ts                     # Global config, module imports, guards
-├── app.controller.ts                 # Root endpoint + /health
-├── prisma.service.ts                 # PrismaClient lifecycle
-├── auth/
-│   ├── auth.service.ts               # Login, register, validateUser
-│   ├── strategies/jwt.strategy.ts    # Token validation + user loading
-│   ├── guards/jwt-auth.guard.ts      # Global auth guard
-│   ├── guards/roles.guard.ts         # Per-endpoint role guard
-│   ├── decorators/public.decorator.ts
-│   └── decorators/roles.decorator.ts
-├── upload/
-│   ├── upload.controller.ts          # POST /upload/image, DELETE /upload/:filename
-│   └── upload.service.ts             # Sharp optimization
-├── contact/
-│   └── contact.service.ts            # Email + Discord notifications
-├── common/
-│   └── constants/permissions.ts      # Permission definitions
-prisma/
-├── schema.prisma                     # Database schema (11 models, 3 enums)
-├── seed.ts                           # Seed data
-└── migrations/                       # Auto-generated migrations
-generated/prisma/                     # Generated Prisma client
-```
-
----
-
-## Testing
-
-**Jest configuration:**
-- Unit tests: `src/**/*.spec.ts`
-- E2E tests: `test/*.e2e-spec.ts` (separate Postgres database)
-- Coverage: `npm run test:cov`
-
-**Existing test files:**
-- `auth.service.spec.ts`, `auth.controller.spec.ts`
-- `roles.service.spec.ts`, `roles.controller.spec.ts`
-- `users.service.spec.ts`, `users.controller.spec.ts`
-- `recruitment-application.service.spec.ts`
-- `test/app.e2e-spec.ts`, `test/roles.e2e-spec.ts`
-
----
-
 ## Notes specifiques au projet
 
 1. **French-first** : Messages de validation et labels en francais
@@ -349,15 +252,3 @@ generated/prisma/                     # Generated Prisma client
 6. **StaffCategory** : ADMIN = direction, HEADSTAFF = responsables, AMBASSADOR = ambassadeurs
 7. **TypeScript** : target ES2023, `nodenext` module resolution, strict null checks
 8. **Deployment** : tag-driven (`vX.Y.Z` pour PROD, `[DEPLOY]` dans titre PR pour PREPROD)
-
-## Review Format
-
-When reviewing code, use this structure:
-1. Points positifs (what's done well)
-2. Points a ameliorer (improvements needed)
-3. Suggestions ou alternatives
-
-Priority levels:
-- **majeur** - Critical issues (security, data loss, crash)
-- **mineur** - Minor improvements (style, naming, optimization)
-- **suggestion** - Optional enhancements
