@@ -140,6 +140,49 @@ export class CoachingStaffService {
   }
 
   /**
+   * Résout le slug à appliquer lors d'une mise à jour.
+   * Priorité : slug explicite dans le DTO > régénération depuis le nom > inchangé.
+   */
+  private async resolveSlugForUpdate(
+    id: number,
+    dto: UpdateCoachingStaffDto,
+  ): Promise<string | undefined> {
+    if (dto.slug !== undefined) {
+      const conflicting = await this.prisma.coachingStaff.findFirst({
+        where: { slug: dto.slug, id: { not: id } },
+      });
+      if (conflicting) {
+        throw new ConflictException(`Le slug "${dto.slug}" est déjà utilisé`);
+      }
+      return dto.slug;
+    }
+    if (dto.name !== undefined) {
+      const baseSlug = this.generateSlug(dto.name);
+      return this.findUniqueSlug(baseSlug, id);
+    }
+    return undefined;
+  }
+
+  /**
+   * Construit le payload de mise à jour depuis le DTO.
+   */
+  private buildUpdateData(
+    dto: UpdateCoachingStaffDto,
+    slug: string | undefined,
+  ): Prisma.CoachingStaffUpdateInput {
+    const data: Prisma.CoachingStaffUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (slug !== undefined) data.slug = slug;
+    if (dto.realName !== undefined) data.realName = dto.realName;
+    if (dto.role !== undefined) data.role = dto.role;
+    if (dto.image !== undefined) data.image = dto.image;
+    if (dto.biography !== undefined) data.biography = dto.biography;
+    if (dto.position !== undefined) data.position = dto.position;
+    if (dto.socials !== undefined) data.socials = dto.socials;
+    return data;
+  }
+
+  /**
    * Met à jour un membre du coaching staff.
    */
   async update(id: number, dto: UpdateCoachingStaffDto) {
@@ -149,37 +192,12 @@ export class CoachingStaffService {
       throw new NotFoundException(`Coach #${id} non trouvé`);
     }
 
-    // Supprime l'ancienne image si une nouvelle est fournie
     if (dto.image !== undefined && existing.image && dto.image !== existing.image) {
       await this.deleteImageSilently(existing.image);
     }
 
-    const updateData: Prisma.CoachingStaffUpdateInput = {};
-
-    if (dto.name !== undefined) {
-      updateData.name = dto.name;
-      // Régénère le slug si le nom change et pas de slug explicite
-      if (dto.slug === undefined) {
-        const baseSlug = this.generateSlug(dto.name);
-        updateData.slug = await this.findUniqueSlug(baseSlug, id);
-      }
-    }
-    if (dto.slug !== undefined) {
-      // Vérifie que le slug n'est pas pris par un autre coach
-      const conflicting = await this.prisma.coachingStaff.findFirst({
-        where: { slug: dto.slug, id: { not: id } },
-      });
-      if (conflicting) {
-        throw new ConflictException(`Le slug "${dto.slug}" est déjà utilisé`);
-      }
-      updateData.slug = dto.slug;
-    }
-    if (dto.realName !== undefined) updateData.realName = dto.realName;
-    if (dto.role !== undefined) updateData.role = dto.role;
-    if (dto.image !== undefined) updateData.image = dto.image;
-    if (dto.biography !== undefined) updateData.biography = dto.biography;
-    if (dto.position !== undefined) updateData.position = dto.position;
-    if (dto.socials !== undefined) updateData.socials = dto.socials;
+    const slug = await this.resolveSlugForUpdate(id, dto);
+    const updateData = this.buildUpdateData(dto, slug);
 
     try {
       return await this.prisma.coachingStaff.update({

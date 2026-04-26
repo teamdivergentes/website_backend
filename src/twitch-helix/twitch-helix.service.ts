@@ -147,7 +147,7 @@ export class TwitchHelixService implements OnModuleInit {
       return [];
     }
 
-    const cacheKey = [...usernames].sort().join(',');
+    const cacheKey = [...usernames].sort((a, b) => a.localeCompare(b)).join(',');
     const cached = this.liveCache.get(cacheKey);
     const now = Date.now();
 
