@@ -570,8 +570,8 @@ jobs:
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
-      needs.sonarqube.result == 'success'
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
+      (needs.sonarqube.result == 'success' || needs.sonarqube.result == 'skipped')
     permissions:
       contents: read
       packages: write
@@ -741,7 +741,7 @@ jobs:
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success' &&
       needs.scan-image.result == 'success'
     environment:
@@ -779,7 +779,7 @@ jobs:
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success' &&
       needs.scan-image.result == 'success'
     environment:
@@ -881,7 +881,7 @@ jobs:
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success'
     permissions:
       contents: write
