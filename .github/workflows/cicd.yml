@@ -565,6 +565,7 @@ jobs:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, sonarqube]
     if: |
+      !cancelled() &&
       needs.build.outputs.is-dependabot-actions != 'true' &&
       needs.build.outputs.is-dependabot-dev != 'true' &&
       needs.build.result == 'success' &&
@@ -687,7 +688,7 @@ jobs:
   scan-image:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [docker]
-    if: needs.docker.result == 'success'
+    if: ${{ !cancelled() && needs.docker.result == 'success' }}
     permissions:
       contents: read
       security-events: write
@@ -736,6 +737,7 @@ jobs:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
+      !cancelled() &&
       (github.ref == 'refs/heads/main' ||
        (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[DEPLOY]'))) &&
       needs.build.result == 'success' &&
@@ -775,6 +777,7 @@ jobs:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
+      !cancelled() &&
       startsWith(github.ref, 'refs/tags/v') &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
@@ -875,6 +878,7 @@ jobs:
     runs-on: [self-hosted, linux, vps, docker]
     needs: [build, lint, test-unit, semgrep, docker]
     if: |
+      !cancelled() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       !startsWith(github.event.head_commit.message, 'chore(release)') &&
