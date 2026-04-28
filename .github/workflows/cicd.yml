@@ -230,10 +230,11 @@ jobs:
         # Compares the live schema (after migrate deploy) with prisma/schema.prisma.
         # Catches schema drift without needing a separate job + service postgres.
         # Local equivalent: pre-push Husky hook on backend/prisma/* changes.
+        # --to-url reads the live database directly (no shadow DB needed).
         run: |
           npx prisma migrate diff \
             --from-schema-datamodel prisma/schema.prisma \
-            --to-schema-datasource $DATABASE_URL \
+            --to-url "$DATABASE_URL" \
             --exit-code
         env:
           DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
