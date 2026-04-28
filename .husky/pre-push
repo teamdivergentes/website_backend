@@ -1,0 +1,49 @@
+#!/usr/bin/env sh
+# Pre-push hook : valider l'absence de drift Prisma avant un push
+# qui touche prisma/schema.prisma ou prisma/migrations/.
+#
+# Sans diff Prisma a pousser → exit 0 immediat (zero cout).
+# Avec diff → execute `prisma migrate diff` qui compare schema.prisma
+# au resultat de toutes les migrations. Aucune DB n'est requise.
+#
+# Empêche un push qui ferait planter `prisma migrate deploy` en prod.
+
+# Detecter les commits qui vont être pousses (vs upstream)
+RANGE="@{u}..HEAD"
+
+# Si pas d'upstream defini (premier push d'une branche), comparer a develop
+if ! git rev-parse --verify "@{u}" >/dev/null 2>&1; then
+  RANGE="origin/develop..HEAD"
+  if ! git rev-parse --verify "origin/develop" >/dev/null 2>&1; then
+    # En dernier recours, compare au dernier commit
+    exit 0
+  fi
+fi
+
+# Liste des fichiers touches dans les commits a pousser
+CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null)
+
+# Skip si aucun fichier Prisma touche
+echo "$CHANGED" | grep -qE "^prisma/(schema\.prisma|migrations/)" || exit 0
+
+echo ""
+echo "🔍 Prisma changes detected — validating schema drift…"
+echo ""
+
+# Pas de DB necessaire : compare schema.prisma a l'etat post-migrations
+# directement depuis les fichiers locaux.
+if ! npx --no-install prisma migrate diff \
+    --from-schema-datamodel prisma/schema.prisma \
+    --to-migrations prisma/migrations \
+    --exit-code 2>&1; then
+  echo ""
+  echo "❌ Schema drift detected!"
+  echo "   Your prisma/schema.prisma diverges from prisma/migrations/."
+  echo "   Run: cd backend && npx prisma migrate dev"
+  echo ""
+  echo "   To bypass (NOT recommended): git push --no-verify"
+  exit 1
+fi
+
+echo "✓ Prisma schema and migrations are in sync."
+exit 0
