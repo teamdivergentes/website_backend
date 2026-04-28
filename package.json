@@ -23,7 +23,7 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "cleanup:images": "ts-node scripts/cleanup-orphan-images.ts",
     "test:mutation": "stryker run",
-    "prepare": "husky"
+    "prepare": "husky 2>/dev/null || true"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
