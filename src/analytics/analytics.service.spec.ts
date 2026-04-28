@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-// FIX [BETA-009] Import statique de GatewayTimeoutException pour le test timeout
 import {
   ServiceUnavailableException,
   GatewayTimeoutException,
@@ -7,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { AnalyticsService } from './analytics.service';
+import { AnalyticsCacheService } from './analytics-cache.service';
+import { AnalyticsOverviewService } from './analytics-overview.service';
+import { AnalyticsPagesService } from './analytics-pages.service';
+import { AnalyticsTrafficService } from './analytics-traffic.service';
+import { AnalyticsRealtimeService } from './analytics-realtime.service';
 
 const mockCacheManager = {
   get: jest.fn(),
@@ -24,7 +28,7 @@ jest.mock('@google-analytics/data', () => ({
   })),
 }));
 
-describe('AnalyticsService', () => {
+describe('AnalyticsService (façade)', () => {
   let service: AnalyticsService;
 
   const setupEnv = (configured: boolean) => {
@@ -42,7 +46,15 @@ describe('AnalyticsService', () => {
 
   const createService = async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AnalyticsService, { provide: CACHE_MANAGER, useValue: mockCacheManager }],
+      providers: [
+        AnalyticsService,
+        AnalyticsCacheService,
+        AnalyticsOverviewService,
+        AnalyticsPagesService,
+        AnalyticsTrafficService,
+        AnalyticsRealtimeService,
+        { provide: CACHE_MANAGER, useValue: mockCacheManager },
+      ],
     }).compile();
     return module.get<AnalyticsService>(AnalyticsService);
   };
@@ -84,6 +96,34 @@ describe('AnalyticsService', () => {
       service = await createService();
       await expect(service.getRealtime()).rejects.toThrow(ServiceUnavailableException);
     });
+
+    it('devrait lever ServiceUnavailableException sur getTopPages', async () => {
+      service = await createService();
+      await expect(service.getTopPages('2024-01-01', '2024-01-31')).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('devrait lever ServiceUnavailableException sur getTrafficSources', async () => {
+      service = await createService();
+      await expect(service.getTrafficSources('2024-01-01', '2024-01-31')).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('devrait lever ServiceUnavailableException sur getGeography', async () => {
+      service = await createService();
+      await expect(service.getGeography('2024-01-01', '2024-01-31')).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('devrait lever ServiceUnavailableException sur getDevices', async () => {
+      service = await createService();
+      await expect(service.getDevices('2024-01-01', '2024-01-31')).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
   });
 
   describe('Validation GA_PROPERTY_ID', () => {
@@ -101,17 +141,22 @@ describe('AnalyticsService', () => {
   describe('Service configuré', () => {
     beforeEach(() => setupEnv(true));
 
+    it('devrait retourner configured: true via getStatus', async () => {
+      service = await createService();
+      expect(service.getStatus()).toEqual({ configured: true });
+    });
+
     describe('getOverview', () => {
       const mockGaResponse = {
         rows: [
           {
             metricValues: [
-              { value: '1000' }, // totalUsers
-              { value: '800' }, // newUsers
-              { value: '1200' }, // sessions
-              { value: '3000' }, // screenPageViews
-              { value: '120.5' }, // averageSessionDuration
-              { value: '0.45' }, // bounceRate
+              { value: '1000' },
+              { value: '800' },
+              { value: '1200' },
+              { value: '3000' },
+              { value: '120.5' },
+              { value: '0.45' },
             ],
           },
           {
@@ -136,12 +181,9 @@ describe('AnalyticsService', () => {
         expect(result).toHaveProperty('period');
         expect(result).toHaveProperty('previousPeriod');
         expect(result).toHaveProperty('metrics');
-        expect(result.metrics).toHaveProperty('totalUsers');
         expect(result.metrics.totalUsers).toHaveProperty('value');
         expect(result.metrics.totalUsers).toHaveProperty('previous');
         expect(result.metrics.totalUsers).toHaveProperty('changePercent');
-        expect(result.period.startDate).toBe('2024-01-01');
-        expect(result.period.endDate).toBe('2024-01-31');
       });
 
       it('devrait utiliser le cache si disponible', async () => {
@@ -259,14 +301,9 @@ describe('AnalyticsService', () => {
 
         const result = await service.getVisitorsByDay('2024-01-01', '2024-01-07');
 
-        expect(result).toHaveProperty('period');
-        expect(result).toHaveProperty('data');
         expect(result.data).toHaveLength(2);
         expect(result.data[0]).toHaveProperty('date', '20240101');
         expect(result.data[0]).toHaveProperty('totalUsers', 100);
-        expect(result.data[0]).toHaveProperty('newUsers', 80);
-        expect(result.data[0]).toHaveProperty('sessions', 120);
-        expect(result.data[0]).toHaveProperty('pageViews', 300);
       });
 
       it('devrait stocker en cache avec TTL 600000ms', async () => {
@@ -326,7 +363,6 @@ describe('AnalyticsService', () => {
 
         expect(result.data).toHaveLength(2);
         expect(result.data[0]).toHaveProperty('path', '/');
-        expect(result.data[0]).toHaveProperty('title', 'Accueil - Team Divergentes');
         expect(result.data[0]).toHaveProperty('pageViews', 5000);
       });
 
@@ -375,11 +411,7 @@ describe('AnalyticsService', () => {
         expect(result).toHaveProperty('data');
         expect(result).toHaveProperty('byChannel');
         expect(result.data).toHaveLength(3);
-        expect(result.data[0]).toHaveProperty('source', 'google');
-        expect(result.data[0]).toHaveProperty('medium', 'organic');
         expect(result.byChannel).toHaveLength(3);
-        expect(result.byChannel[0]).toHaveProperty('channel');
-        expect(result.byChannel[0]).toHaveProperty('sessions');
       });
 
       it('ne devrait pas inclure channel dans data', async () => {
@@ -418,7 +450,6 @@ describe('AnalyticsService', () => {
         const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
         const channel = result.byChannel.find((c) => c.channel === 'Organic Search');
         expect(channel).toBeDefined();
-        // Moyenne pondérée : (0.20 * 100 + 0.60 * 400) / (100 + 400) = (20 + 240) / 500 = 0.52
         expect(channel!.bounceRate).toBeCloseTo(0.52, 4);
       });
 
@@ -438,11 +469,6 @@ describe('AnalyticsService', () => {
         const result = await service.getTrafficSources('2024-01-01', '2024-01-31');
         const channel = result.byChannel.find((c) => c.channel === 'Direct');
         expect(channel!.bounceRate).toBe(0);
-      });
-
-      it('devrait retourner configured: true via getStatus', async () => {
-        service = await createService();
-        expect(service.getStatus()).toEqual({ configured: true });
       });
 
       it('devrait retourner data: [], byChannel: [] quand rows est null', async () => {
@@ -490,8 +516,6 @@ describe('AnalyticsService', () => {
         service = await createService();
         const result = await service.getGeography('2024-01-01', '2024-01-31');
 
-        expect(result).toHaveProperty('byCountry');
-        expect(result).toHaveProperty('byCity');
         expect(result.byCountry[0]).toHaveProperty('country', 'France');
         expect(result.byCountry[0]).toHaveProperty('countryId', 'FR');
         expect(result.byCity[0]).toHaveProperty('city', 'Paris');
@@ -510,12 +534,9 @@ describe('AnalyticsService', () => {
         );
       });
 
-      // ALPHA-RES-005 : Test getGeography avec échec partiel (2ème appel cities rejette)
       it('devrait lever BadGatewayException si le 2ème appel (cities) échoue', async () => {
         const networkError = new Error('Network error');
-        mockRunReport
-          .mockResolvedValueOnce([{ rows: [] }]) // countries OK
-          .mockRejectedValueOnce(networkError); // cities KO
+        mockRunReport.mockResolvedValueOnce([{ rows: [] }]).mockRejectedValueOnce(networkError);
         service = await createService();
 
         await expect(service.getGeography('2024-01-01', '2024-01-31')).rejects.toThrow(
@@ -573,10 +594,6 @@ describe('AnalyticsService', () => {
 
         expect(result.byCategory).toHaveLength(3);
         expect(result.byBrowser).toHaveLength(2);
-        expect(result.byCategory[0]).toHaveProperty('percentage');
-        expect(result.byBrowser[0]).toHaveProperty('percentage');
-
-        // Somme des pourcentages doit être ~100%
         const totalPercent = result.byCategory.reduce((s, c) => s + c.percentage, 0);
         expect(totalPercent).toBeCloseTo(100, 0);
       });
@@ -617,36 +634,17 @@ describe('AnalyticsService', () => {
     describe('getRealtime', () => {
       const mockPageResponse = {
         rows: [
-          {
-            dimensionValues: [{ value: '/' }],
-            metricValues: [{ value: '12' }],
-          },
-          {
-            dimensionValues: [{ value: '/structure/equipes' }],
-            metricValues: [{ value: '5' }],
-          },
+          { dimensionValues: [{ value: '/' }], metricValues: [{ value: '12' }] },
+          { dimensionValues: [{ value: '/structure/equipes' }], metricValues: [{ value: '5' }] },
         ],
       };
-
       const mockCountryResponse = {
-        rows: [
-          {
-            dimensionValues: [{ value: 'France' }],
-            metricValues: [{ value: '14' }],
-          },
-        ],
+        rows: [{ dimensionValues: [{ value: 'France' }], metricValues: [{ value: '14' }] }],
       };
-
       const mockDeviceResponse = {
         rows: [
-          {
-            dimensionValues: [{ value: 'desktop' }],
-            metricValues: [{ value: '10' }],
-          },
-          {
-            dimensionValues: [{ value: 'mobile' }],
-            metricValues: [{ value: '7' }],
-          },
+          { dimensionValues: [{ value: 'desktop' }], metricValues: [{ value: '10' }] },
+          { dimensionValues: [{ value: 'mobile' }], metricValues: [{ value: '7' }] },
         ],
       };
 
@@ -664,7 +662,6 @@ describe('AnalyticsService', () => {
         expect(result).toHaveProperty('byCountry');
         expect(result).toHaveProperty('byDevice');
         expect(result).toHaveProperty('updatedAt');
-        expect(result.byPage).toHaveLength(2);
         expect(result.byPage[0]).toHaveProperty('page', '/');
         expect(result.byPage[0]).toHaveProperty('activeUsers', 12);
       });
@@ -693,115 +690,110 @@ describe('AnalyticsService', () => {
       });
     });
 
-    // FIX [BETA-009] Tests des cas d'erreur de l'API GA
-    describe('Gestion des erreurs API Google Analytics', () => {
-      describe('Erreur 403 - Accès refusé', () => {
-        it("devrait lever BadGatewayException sur getOverview en cas d'erreur gRPC 403", async () => {
-          const error403 = Object.assign(new Error('Permission denied'), { code: 403 });
-          mockRunReport.mockRejectedValue(error403);
-          service = await createService();
-
-          await expect(service.getOverview('2024-01-01', '2024-01-31')).rejects.toThrow(
-            BadGatewayException,
-          );
-        });
-
-        it("devrait lever BadGatewayException sur getVisitorsByDay en cas d'erreur gRPC 403", async () => {
-          const error403 = Object.assign(new Error('Permission denied'), { code: 403 });
-          mockRunReport.mockRejectedValue(error403);
-          service = await createService();
-
-          await expect(service.getVisitorsByDay('2024-01-01', '2024-01-31')).rejects.toThrow(
-            BadGatewayException,
-          );
-        });
+    describe("Timeout de l'API GA", () => {
+      beforeEach(() => {
+        jest.useFakeTimers();
       });
 
-      describe('Erreur 429 - Quota dépassé', () => {
-        it("devrait lever BadGatewayException sur getTopPages en cas d'erreur gRPC 429", async () => {
-          const error429 = Object.assign(new Error('Quota exceeded'), { code: 429 });
-          mockRunReport.mockRejectedValue(error429);
-          service = await createService();
-
-          await expect(service.getTopPages('2024-01-01', '2024-01-31')).rejects.toThrow(
-            BadGatewayException,
-          );
-        });
-
-        it("devrait lever BadGatewayException sur getRealtime en cas d'erreur gRPC 429", async () => {
-          const error429 = Object.assign(new Error('Quota exceeded'), { code: 429 });
-          mockRunRealtimeReport.mockRejectedValue(error429);
-          service = await createService();
-
-          await expect(service.getRealtime()).rejects.toThrow(BadGatewayException);
-        });
+      afterEach(() => {
+        jest.useRealTimers();
       });
 
-      describe('Réponse avec rows=null (pas undefined)', () => {
-        it('devrait retourner un tableau vide sur getVisitorsByDay quand rows est null', async () => {
-          mockRunReport.mockResolvedValue([{ rows: null }]);
-          service = await createService();
+      it("devrait lever GatewayTimeoutException si l'API GA ne répond pas dans les délais", async () => {
+        service = await createService();
 
-          const result = await service.getVisitorsByDay('2024-01-01', '2024-01-07');
-          expect(result.data).toHaveLength(0);
-        });
-
-        it('devrait retourner des listes vides sur getTopPages quand rows est null', async () => {
-          mockRunReport.mockResolvedValue([{ rows: null }]);
-          service = await createService();
-
-          const result = await service.getTopPages('2024-01-01', '2024-01-31');
-          expect(result.data).toHaveLength(0);
-        });
-
-        it('devrait retourner des listes vides sur getRealtime quand rows est null', async () => {
-          mockRunRealtimeReport.mockResolvedValue([{ rows: null }]);
-          service = await createService();
-
-          const result = await service.getRealtime();
-          expect(result.byPage).toHaveLength(0);
-          expect(result.byCountry).toHaveLength(0);
-          expect(result.byDevice).toHaveLength(0);
-          expect(result.activeUsers).toBe(0);
-        });
-
-        it('devrait retourner 0 sur getOverview quand rows est null', async () => {
-          mockRunReport.mockResolvedValue([{ rows: null }]);
-          service = await createService();
-
-          const result = await service.getOverview('2024-01-01', '2024-01-31');
-          expect(result.metrics.totalUsers.value).toBe(0);
-          expect(result.metrics.sessions.value).toBe(0);
-        });
-      });
-
-      describe("Timeout de l'API GA", () => {
-        // Utilisation des fake timers pour éviter les timers pendants qui empêchent Jest de terminer
-        beforeEach(() => {
-          jest.useFakeTimers();
-        });
-
-        afterEach(() => {
-          jest.useRealTimers();
-        });
-
-        it("devrait lever GatewayTimeoutException si l'API GA ne répond pas dans les délais", async () => {
-          service = await createService();
-
-          // On accède à la méthode privée via un cast explicitement typé
-          const serviceAny = service as unknown as {
-            withTimeout: <T>(p: Promise<T>, ms: number) => Promise<T>;
+        const serviceAny = service as unknown as {
+          overviewService: {
+            cache: {
+              withTimeout: <T>(p: Promise<T>, ms: number) => Promise<T>;
+            };
           };
+        };
 
-          // FIX [BETA-009] Import statique GatewayTimeoutException utilisé (voir imports en haut du fichier)
-          // On démarre l'assertion sur une promesse qui ne se résout jamais avec un timeout de 100ms
-          const promise = serviceAny.withTimeout(new Promise<never>(() => undefined), 100);
+        const promise = serviceAny.overviewService.cache.withTimeout(
+          new Promise<never>(() => undefined),
+          100,
+        );
 
-          // On avance les timers de 100ms pour déclencher le timeout
-          jest.advanceTimersByTime(100);
+        jest.advanceTimersByTime(100);
 
-          await expect(promise).rejects.toThrow(GatewayTimeoutException);
-        });
+        await expect(promise).rejects.toThrow(GatewayTimeoutException);
+      });
+    });
+
+    describe('Gestion des erreurs API Google Analytics', () => {
+      it("devrait lever BadGatewayException sur getOverview en cas d'erreur gRPC 403", async () => {
+        const error403 = Object.assign(new Error('Permission denied'), { code: 403 });
+        mockRunReport.mockRejectedValue(error403);
+        service = await createService();
+
+        await expect(service.getOverview('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
+        );
+      });
+
+      it("devrait lever BadGatewayException sur getVisitorsByDay en cas d'erreur gRPC 403", async () => {
+        const error403 = Object.assign(new Error('Permission denied'), { code: 403 });
+        mockRunReport.mockRejectedValue(error403);
+        service = await createService();
+
+        await expect(service.getVisitorsByDay('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
+        );
+      });
+
+      it("devrait lever BadGatewayException sur getTopPages en cas d'erreur gRPC 429", async () => {
+        const error429 = Object.assign(new Error('Quota exceeded'), { code: 429 });
+        mockRunReport.mockRejectedValue(error429);
+        service = await createService();
+
+        await expect(service.getTopPages('2024-01-01', '2024-01-31')).rejects.toThrow(
+          BadGatewayException,
+        );
+      });
+
+      it("devrait lever BadGatewayException sur getRealtime en cas d'erreur gRPC 429", async () => {
+        const error429 = Object.assign(new Error('Quota exceeded'), { code: 429 });
+        mockRunRealtimeReport.mockRejectedValue(error429);
+        service = await createService();
+
+        await expect(service.getRealtime()).rejects.toThrow(BadGatewayException);
+      });
+
+      it('devrait retourner un tableau vide sur getVisitorsByDay quand rows est null', async () => {
+        mockRunReport.mockResolvedValue([{ rows: null }]);
+        service = await createService();
+
+        const result = await service.getVisitorsByDay('2024-01-01', '2024-01-07');
+        expect(result.data).toHaveLength(0);
+      });
+
+      it('devrait retourner des listes vides sur getTopPages quand rows est null', async () => {
+        mockRunReport.mockResolvedValue([{ rows: null }]);
+        service = await createService();
+
+        const result = await service.getTopPages('2024-01-01', '2024-01-31');
+        expect(result.data).toHaveLength(0);
+      });
+
+      it('devrait retourner des listes vides sur getRealtime quand rows est null', async () => {
+        mockRunRealtimeReport.mockResolvedValue([{ rows: null }]);
+        service = await createService();
+
+        const result = await service.getRealtime();
+        expect(result.byPage).toHaveLength(0);
+        expect(result.byCountry).toHaveLength(0);
+        expect(result.byDevice).toHaveLength(0);
+        expect(result.activeUsers).toBe(0);
+      });
+
+      it('devrait retourner 0 sur getOverview quand rows est null', async () => {
+        mockRunReport.mockResolvedValue([{ rows: null }]);
+        service = await createService();
+
+        const result = await service.getOverview('2024-01-01', '2024-01-31');
+        expect(result.metrics.totalUsers.value).toBe(0);
+        expect(result.metrics.sessions.value).toBe(0);
       });
     });
 

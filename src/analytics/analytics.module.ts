@@ -2,6 +2,11 @@ import { Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { AnalyticsCacheService } from './analytics-cache.service';
+import { AnalyticsOverviewService } from './analytics-overview.service';
+import { AnalyticsPagesService } from './analytics-pages.service';
+import { AnalyticsTrafficService } from './analytics-traffic.service';
+import { AnalyticsRealtimeService } from './analytics-realtime.service';
 
 @Module({
   imports: [
@@ -13,7 +18,14 @@ import { AnalyticsService } from './analytics.service';
     }),
   ],
   controllers: [AnalyticsController],
-  providers: [AnalyticsService],
+  providers: [
+    AnalyticsCacheService,
+    AnalyticsOverviewService,
+    AnalyticsPagesService,
+    AnalyticsTrafficService,
+    AnalyticsRealtimeService,
+    AnalyticsService,
+  ],
   exports: [AnalyticsService],
 })
 export class AnalyticsModule {}
