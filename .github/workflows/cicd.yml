@@ -191,16 +191,33 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # No host port mapping: the runner itself runs inside a Docker container
-        # (self-hosted runner-in-Docker pattern). In this topology, the service
-        # container is reachable from the job steps via its Docker network alias
-        # ("postgres:5432") — localhost:<mapped-port> is NOT accessible from inside
-        # the runner container. Each job gets its own github_network_*, so there
-        # are no port conflicts between parallel jobs.
+        # Runner-in-Docker topology: the runner process runs inside a Docker
+        # container. Service containers land on github_network_* with the alias
+        # "postgres", but the runner container is NOT joined to that network.
+        # Solution: expose a random host port (-p 5432) so the postgres container
+        # is reachable from the runner container via the Docker host gateway IP
+        # (resolved in the "Resolve postgres host" step below via `ip route`).
+        ports:
+          - 5432
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve postgres host
+        # Runner-in-Docker: steps run inside the runner container.
+        # The postgres service container's mapped port is only reachable via the
+        # Docker host gateway — NOT via "localhost" (which is the runner container
+        # itself) and NOT via the "postgres" alias (different network).
+        # We resolve the host gateway IP from the default route and export it
+        # together with the mapped port as PGHOST / PGPORT for downstream steps.
+        id: pg-host
+        run: |
+          DOCKER_HOST_IP=$(ip route show default | awk '/default/ {print $3; exit}')
+          PG_PORT=${{ job.services.postgres.ports['5432'] }}
+          echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
+          echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at ${DOCKER_HOST_IP}:${PG_PORT}"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -224,7 +241,7 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
 
       - name: Validate schema drift (replaces validate-migrations job)
@@ -238,11 +255,11 @@ jobs:
             --to-url "$DATABASE_URL" \
             --exit-code
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
 
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -288,11 +305,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # No host port mapping — see test-unit comment above for rationale.
+        # See test-unit for topology explanation. Random host port + gateway IP resolution.
+        ports:
+          - 5432
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve postgres host
+        id: pg-host
+        run: |
+          DOCKER_HOST_IP=$(ip route show default | awk '/default/ {print $3; exit}')
+          PG_PORT=${{ job.services.postgres.ports['5432'] }}
+          echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
+          echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at ${DOCKER_HOST_IP}:${PG_PORT}"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -316,12 +344,12 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
 
       - name: Run E2E tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -358,7 +386,9 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # No host port mapping — see test-unit comment above for rationale.
+        # See test-unit for topology explanation. Random host port + gateway IP resolution.
+        ports:
+          - 5432
 
     steps:
       - name: Checkout
@@ -369,6 +399,15 @@ jobs:
       - name: Fetch main branch for incremental analysis
         if: github.ref != 'refs/heads/main'
         run: git fetch origin main:refs/remotes/origin/main --depth=1
+
+      - name: Resolve postgres host
+        id: pg-host
+        run: |
+          DOCKER_HOST_IP=$(ip route show default | awk '/default/ {print $3; exit}')
+          PG_PORT=${{ job.services.postgres.ports['5432'] }}
+          echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
+          echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at ${DOCKER_HOST_IP}:${PG_PORT}"
 
       - name: Setup Node
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
@@ -392,7 +431,7 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
 
       - name: Determine Stryker mode
@@ -408,7 +447,7 @@ jobs:
 
       - name: Run mutation tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
