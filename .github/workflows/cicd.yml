@@ -191,12 +191,11 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Runner-in-Docker topology: the runner process runs inside a Docker
-        # container. Service containers land on github_network_* with the alias
-        # "postgres", but the runner container is NOT joined to that network.
-        # Solution: expose a random host port (-p 5432) so the postgres container
-        # is reachable from the runner container via the Docker host gateway IP
-        # (resolved in the "Resolve postgres host" step below via /proc/net/route).
+        # Runner-in-Docker topology: the runner process runs inside a container
+        # that mounts the Docker socket. Service containers land on github_network_*
+        # with the alias "postgres". The "Resolve postgres host" step below connects
+        # the runner container to that network so "postgres:5432" becomes reachable.
+        # The random host port (-p 5432) is kept for compat but no longer used.
         ports:
           - 5432
 
@@ -205,24 +204,28 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Resolve postgres host
-        # Runner-in-Docker: steps run inside the runner container.
-        # The postgres service container's mapped port is only reachable via the
-        # Docker host gateway — NOT via "localhost" (which is the runner container
-        # itself) and NOT via the "postgres" alias (different network).
-        # We resolve the host gateway IP from /proc/net/route (always available on
-        # Linux, no external tools required) and export it together with the mapped
-        # port as PGHOST / PGPORT for downstream steps.
+        # Runner-in-Docker topology (myoung34/github-runner with Docker socket mount):
+        # - The runner process runs inside a container on the "bridge" network.
+        # - Service containers (postgres) are created on a per-job "github_network_*"
+        #   bridge network and are NOT reachable via the host gateway IP + mapped port
+        #   because host ports are not forwarded back into the runner container.
+        # Fix: connect the runner container itself to the github_network_* so that
+        # it can reach postgres directly via the "postgres" DNS alias on port 5432.
+        # The runner container ID is its hostname (set by Docker).
         id: pg-host
         run: |
-          # Read default gateway from /proc/net/route (hex little-endian in field 3).
-          # Uses printf for hex conversion — compatible with mawk/busybox awk (no strtonum).
-          GW_HEX=$(awk '$2=="00000000"{print $3; exit}' /proc/net/route)
-          DOCKER_HOST_IP=$(printf '%d.%d.%d.%d\n' \
-            "0x${GW_HEX:6:2}" "0x${GW_HEX:4:2}" "0x${GW_HEX:2:2}" "0x${GW_HEX:0:2}")
-          PG_PORT=${{ job.services.postgres.ports['5432'] }}
-          echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
-          echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at ${DOCKER_HOST_IP}:${PG_PORT}"
+          RUNNER_ID=$(hostname)
+          # Find the github_network_* created for this job
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            exit 1
+          fi
+          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
+          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -310,7 +313,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # See test-unit for topology explanation. Random host port + gateway IP resolution.
+        # See test-unit for topology explanation. Runner is connected to github_network_* in Resolve step.
         ports:
           - 5432
 
@@ -319,17 +322,21 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Resolve postgres host
+        # See test-unit for topology explanation.
+        # Connect runner container to github_network_* to reach postgres via DNS alias.
         id: pg-host
         run: |
-          # Read default gateway from /proc/net/route (hex little-endian in field 3).
-          # Uses printf for hex conversion — compatible with mawk/busybox awk (no strtonum).
-          GW_HEX=$(awk '$2=="00000000"{print $3; exit}' /proc/net/route)
-          DOCKER_HOST_IP=$(printf '%d.%d.%d.%d\n' \
-            "0x${GW_HEX:6:2}" "0x${GW_HEX:4:2}" "0x${GW_HEX:2:2}" "0x${GW_HEX:0:2}")
-          PG_PORT=${{ job.services.postgres.ports['5432'] }}
-          echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
-          echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at ${DOCKER_HOST_IP}:${PG_PORT}"
+          RUNNER_ID=$(hostname)
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            exit 1
+          fi
+          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
+          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -395,7 +402,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # See test-unit for topology explanation. Random host port + gateway IP resolution.
+        # See test-unit for topology explanation. Runner is connected to github_network_* in Resolve step.
         ports:
           - 5432
 
@@ -410,17 +417,21 @@ jobs:
         run: git fetch origin main:refs/remotes/origin/main --depth=1
 
       - name: Resolve postgres host
+        # See test-unit for topology explanation.
+        # Connect runner container to github_network_* to reach postgres via DNS alias.
         id: pg-host
         run: |
-          # Read default gateway from /proc/net/route (hex little-endian in field 3).
-          # Uses printf for hex conversion — compatible with mawk/busybox awk (no strtonum).
-          GW_HEX=$(awk '$2=="00000000"{print $3; exit}' /proc/net/route)
-          DOCKER_HOST_IP=$(printf '%d.%d.%d.%d\n' \
-            "0x${GW_HEX:6:2}" "0x${GW_HEX:4:2}" "0x${GW_HEX:2:2}" "0x${GW_HEX:0:2}")
-          PG_PORT=${{ job.services.postgres.ports['5432'] }}
-          echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
-          echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at ${DOCKER_HOST_IP}:${PG_PORT}"
+          RUNNER_ID=$(hostname)
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            exit 1
+          fi
+          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
+          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
 
       - name: Setup Node
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
