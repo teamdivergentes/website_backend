@@ -196,7 +196,7 @@ jobs:
         # "postgres", but the runner container is NOT joined to that network.
         # Solution: expose a random host port (-p 5432) so the postgres container
         # is reachable from the runner container via the Docker host gateway IP
-        # (resolved in the "Resolve postgres host" step below via `ip route`).
+        # (resolved in the "Resolve postgres host" step below via /proc/net/route).
         ports:
           - 5432
 
@@ -209,11 +209,21 @@ jobs:
         # The postgres service container's mapped port is only reachable via the
         # Docker host gateway — NOT via "localhost" (which is the runner container
         # itself) and NOT via the "postgres" alias (different network).
-        # We resolve the host gateway IP from the default route and export it
-        # together with the mapped port as PGHOST / PGPORT for downstream steps.
+        # We resolve the host gateway IP from /proc/net/route (always available on
+        # Linux, no external tools required) and export it together with the mapped
+        # port as PGHOST / PGPORT for downstream steps.
         id: pg-host
         run: |
-          DOCKER_HOST_IP=$(ip route show default | awk '/default/ {print $3; exit}')
+          # Read default gateway from /proc/net/route (hex little-endian IP in field 3)
+          DOCKER_HOST_IP=$(awk '$2 == "00000000" {
+            h = $3
+            printf "%d.%d.%d.%d\n",
+              strtonum("0x" substr(h,7,2)),
+              strtonum("0x" substr(h,5,2)),
+              strtonum("0x" substr(h,3,2)),
+              strtonum("0x" substr(h,1,2))
+            exit
+          }' /proc/net/route)
           PG_PORT=${{ job.services.postgres.ports['5432'] }}
           echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
@@ -316,7 +326,16 @@ jobs:
       - name: Resolve postgres host
         id: pg-host
         run: |
-          DOCKER_HOST_IP=$(ip route show default | awk '/default/ {print $3; exit}')
+          # Read default gateway from /proc/net/route (hex little-endian IP in field 3)
+          DOCKER_HOST_IP=$(awk '$2 == "00000000" {
+            h = $3
+            printf "%d.%d.%d.%d\n",
+              strtonum("0x" substr(h,7,2)),
+              strtonum("0x" substr(h,5,2)),
+              strtonum("0x" substr(h,3,2)),
+              strtonum("0x" substr(h,1,2))
+            exit
+          }' /proc/net/route)
           PG_PORT=${{ job.services.postgres.ports['5432'] }}
           echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
@@ -403,7 +422,16 @@ jobs:
       - name: Resolve postgres host
         id: pg-host
         run: |
-          DOCKER_HOST_IP=$(ip route show default | awk '/default/ {print $3; exit}')
+          # Read default gateway from /proc/net/route (hex little-endian IP in field 3)
+          DOCKER_HOST_IP=$(awk '$2 == "00000000" {
+            h = $3
+            printf "%d.%d.%d.%d\n",
+              strtonum("0x" substr(h,7,2)),
+              strtonum("0x" substr(h,5,2)),
+              strtonum("0x" substr(h,3,2)),
+              strtonum("0x" substr(h,1,2))
+            exit
+          }' /proc/net/route)
           PG_PORT=${{ job.services.postgres.ports['5432'] }}
           echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
