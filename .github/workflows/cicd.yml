@@ -191,11 +191,12 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Random host port to avoid clashes when 2 jobs share the
-        # self-hosted runner host (Docker bind 5432:5432 fails on parallel jobs).
-        # Job step env injects the dynamic port via ${{ job.services.postgres.ports['5432'] }}.
-        ports:
-          - 5432
+        # No host port mapping: the runner itself runs inside a Docker container
+        # (self-hosted runner-in-Docker pattern). In this topology, the service
+        # container is reachable from the job steps via its Docker network alias
+        # ("postgres:5432") — localhost:<mapped-port> is NOT accessible from inside
+        # the runner container. Each job gets its own github_network_*, so there
+        # are no port conflicts between parallel jobs.
 
     steps:
       - name: Checkout
@@ -223,7 +224,7 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
         run: npx prisma migrate deploy
 
       - name: Validate schema drift (replaces validate-migrations job)
@@ -237,11 +238,11 @@ jobs:
             --to-url "$DATABASE_URL" \
             --exit-code
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
 
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -287,11 +288,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Random host port to avoid clashes when 2 jobs share the
-        # self-hosted runner host (Docker bind 5432:5432 fails on parallel jobs).
-        # Job step env injects the dynamic port via ${{ job.services.postgres.ports['5432'] }}.
-        ports:
-          - 5432
+        # No host port mapping — see test-unit comment above for rationale.
 
     steps:
       - name: Checkout
@@ -319,12 +316,12 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
         run: npx prisma migrate deploy
 
       - name: Run E2E tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -361,11 +358,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Random host port to avoid clashes when 2 jobs share the
-        # self-hosted runner host (Docker bind 5432:5432 fails on parallel jobs).
-        # Job step env injects the dynamic port via ${{ job.services.postgres.ports['5432'] }}.
-        ports:
-          - 5432
+        # No host port mapping — see test-unit comment above for rationale.
 
     steps:
       - name: Checkout
@@ -399,7 +392,7 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
         run: npx prisma migrate deploy
 
       - name: Determine Stryker mode
@@ -415,7 +408,7 @@ jobs:
 
       - name: Run mutation tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
