@@ -214,16 +214,11 @@ jobs:
         # port as PGHOST / PGPORT for downstream steps.
         id: pg-host
         run: |
-          # Read default gateway from /proc/net/route (hex little-endian IP in field 3)
-          DOCKER_HOST_IP=$(awk '$2 == "00000000" {
-            h = $3
-            printf "%d.%d.%d.%d\n",
-              strtonum("0x" substr(h,7,2)),
-              strtonum("0x" substr(h,5,2)),
-              strtonum("0x" substr(h,3,2)),
-              strtonum("0x" substr(h,1,2))
-            exit
-          }' /proc/net/route)
+          # Read default gateway from /proc/net/route (hex little-endian in field 3).
+          # Uses printf for hex conversion — compatible with mawk/busybox awk (no strtonum).
+          GW_HEX=$(awk '$2=="00000000"{print $3; exit}' /proc/net/route)
+          DOCKER_HOST_IP=$(printf '%d.%d.%d.%d\n' \
+            "0x${GW_HEX:6:2}" "0x${GW_HEX:4:2}" "0x${GW_HEX:2:2}" "0x${GW_HEX:0:2}")
           PG_PORT=${{ job.services.postgres.ports['5432'] }}
           echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
@@ -326,16 +321,11 @@ jobs:
       - name: Resolve postgres host
         id: pg-host
         run: |
-          # Read default gateway from /proc/net/route (hex little-endian IP in field 3)
-          DOCKER_HOST_IP=$(awk '$2 == "00000000" {
-            h = $3
-            printf "%d.%d.%d.%d\n",
-              strtonum("0x" substr(h,7,2)),
-              strtonum("0x" substr(h,5,2)),
-              strtonum("0x" substr(h,3,2)),
-              strtonum("0x" substr(h,1,2))
-            exit
-          }' /proc/net/route)
+          # Read default gateway from /proc/net/route (hex little-endian in field 3).
+          # Uses printf for hex conversion — compatible with mawk/busybox awk (no strtonum).
+          GW_HEX=$(awk '$2=="00000000"{print $3; exit}' /proc/net/route)
+          DOCKER_HOST_IP=$(printf '%d.%d.%d.%d\n' \
+            "0x${GW_HEX:6:2}" "0x${GW_HEX:4:2}" "0x${GW_HEX:2:2}" "0x${GW_HEX:0:2}")
           PG_PORT=${{ job.services.postgres.ports['5432'] }}
           echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
@@ -422,16 +412,11 @@ jobs:
       - name: Resolve postgres host
         id: pg-host
         run: |
-          # Read default gateway from /proc/net/route (hex little-endian IP in field 3)
-          DOCKER_HOST_IP=$(awk '$2 == "00000000" {
-            h = $3
-            printf "%d.%d.%d.%d\n",
-              strtonum("0x" substr(h,7,2)),
-              strtonum("0x" substr(h,5,2)),
-              strtonum("0x" substr(h,3,2)),
-              strtonum("0x" substr(h,1,2))
-            exit
-          }' /proc/net/route)
+          # Read default gateway from /proc/net/route (hex little-endian in field 3).
+          # Uses printf for hex conversion — compatible with mawk/busybox awk (no strtonum).
+          GW_HEX=$(awk '$2=="00000000"{print $3; exit}' /proc/net/route)
+          DOCKER_HOST_IP=$(printf '%d.%d.%d.%d\n' \
+            "0x${GW_HEX:6:2}" "0x${GW_HEX:4:2}" "0x${GW_HEX:2:2}" "0x${GW_HEX:0:2}")
           PG_PORT=${{ job.services.postgres.ports['5432'] }}
           echo "PGHOST=${DOCKER_HOST_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
