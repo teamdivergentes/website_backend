@@ -191,15 +191,41 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Random host port to avoid clashes when 2 jobs share the
-        # self-hosted runner host (Docker bind 5432:5432 fails on parallel jobs).
-        # Job step env injects the dynamic port via ${{ job.services.postgres.ports['5432'] }}.
+        # Runner-in-Docker topology: the runner process runs inside a container
+        # that mounts the Docker socket. Service containers land on github_network_*
+        # with the alias "postgres". The "Resolve postgres host" step below connects
+        # the runner container to that network so "postgres:5432" becomes reachable.
+        # The random host port (-p 5432) is kept for compat but no longer used.
         ports:
           - 5432
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve postgres host
+        # Runner-in-Docker topology (myoung34/github-runner with Docker socket mount):
+        # - The runner process runs inside a container on the "bridge" network.
+        # - Service containers (postgres) are created on a per-job "github_network_*"
+        #   bridge network and are NOT reachable via the host gateway IP + mapped port
+        #   because host ports are not forwarded back into the runner container.
+        # Fix: connect the runner container itself to the github_network_* so that
+        # it can reach postgres directly via the "postgres" DNS alias on port 5432.
+        # The runner container ID is its hostname (set by Docker).
+        id: pg-host
+        run: |
+          RUNNER_ID=$(hostname)
+          # Find the github_network_* created for this job
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            exit 1
+          fi
+          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
+          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -223,12 +249,25 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
+
+      - name: Validate schema drift (replaces validate-migrations job)
+        # Compares the live schema (after migrate deploy) with prisma/schema.prisma.
+        # Catches schema drift without needing a separate job + service postgres.
+        # Local equivalent: pre-push Husky hook on backend/prisma/* changes.
+        # --to-url reads the live database directly (no shadow DB needed).
+        run: |
+          npx prisma migrate diff \
+            --from-schema-datamodel prisma/schema.prisma \
+            --to-url "$DATABASE_URL" \
+            --exit-code
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
 
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -274,15 +313,30 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Random host port to avoid clashes when 2 jobs share the
-        # self-hosted runner host (Docker bind 5432:5432 fails on parallel jobs).
-        # Job step env injects the dynamic port via ${{ job.services.postgres.ports['5432'] }}.
+        # See test-unit for topology explanation. Runner is connected to github_network_* in Resolve step.
         ports:
           - 5432
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve postgres host
+        # See test-unit for topology explanation.
+        # Connect runner container to github_network_* to reach postgres via DNS alias.
+        id: pg-host
+        run: |
+          RUNNER_ID=$(hostname)
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            exit 1
+          fi
+          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
+          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -306,12 +360,12 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
 
       - name: Run E2E tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -348,9 +402,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        # Random host port to avoid clashes when 2 jobs share the
-        # self-hosted runner host (Docker bind 5432:5432 fails on parallel jobs).
-        # Job step env injects the dynamic port via ${{ job.services.postgres.ports['5432'] }}.
+        # See test-unit for topology explanation. Runner is connected to github_network_* in Resolve step.
         ports:
           - 5432
 
@@ -363,6 +415,23 @@ jobs:
       - name: Fetch main branch for incremental analysis
         if: github.ref != 'refs/heads/main'
         run: git fetch origin main:refs/remotes/origin/main --depth=1
+
+      - name: Resolve postgres host
+        # See test-unit for topology explanation.
+        # Connect runner container to github_network_* to reach postgres via DNS alias.
+        id: pg-host
+        run: |
+          RUNNER_ID=$(hostname)
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            exit 1
+          fi
+          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
+          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
 
       - name: Setup Node
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
@@ -386,7 +455,7 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
 
       - name: Determine Stryker mode
@@ -402,7 +471,7 @@ jobs:
 
       - name: Run mutation tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:${{ job.services.postgres.ports['5432'] }}/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -417,84 +486,9 @@ jobs:
           path: reports/mutation/
           retention-days: 7
 
-  validate-migrations:
-    runs-on: [self-hosted, linux, vps, docker]
-    needs: build
-    # Skip for Dependabot action bumps (no code change) and dev dep bumps
-    # (no schema change expected from a devDep update).
-    if: |
-      needs.build.result == 'success' &&
-      needs.build.outputs.is-dependabot-actions != 'true' &&
-      needs.build.outputs.is-dependabot-dev != 'true'
-    permissions:
-      contents: read
-
-    services:
-      postgres-migration:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: migration_test
-          POSTGRES_PASSWORD: migration_test
-          POSTGRES_DB: testdb_migration
-        # Random host port (see test-unit comment).
-        ports:
-          - 5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Cache node_modules
-        id: cache-modules
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-
-      - name: Install dependencies
-        if: steps.cache-modules.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Install PostgreSQL client
-        run: |
-          if ! command -v psql >/dev/null 2>&1; then
-            sudo apt-get update -qq
-            sudo apt-get install -y --no-install-recommends postgresql-client
-          fi
-
-      - name: Create shadow database
-        env:
-          PGPASSWORD: migration_test
-        run: psql -h localhost -p ${{ job.services.postgres-migration.ports['5432'] }} -U migration_test -d testdb_migration -c "CREATE DATABASE shadow_db;"
-
-      - name: Validate Prisma migrations
-        env:
-          DATABASE_URL: postgresql://migration_test:migration_test@localhost:${{ job.services.postgres-migration.ports['5432'] }}/testdb_migration
-        run: |
-          set -euo pipefail
-          echo "Running Prisma migrate deploy..."
-          npx prisma migrate deploy
-          echo "Validating schema consistency..."
-          npx prisma migrate diff \
-            --from-schema-datamodel prisma/schema.prisma \
-            --to-migrations prisma/migrations \
-            --shadow-database-url "postgresql://migration_test:migration_test@localhost:${{ job.services.postgres-migration.ports['5432'] }}/shadow_db" \
-            --exit-code
-          echo "Migrations validated successfully"
+  # Note: the `validate-migrations` job has been removed in favor of
+  # an inline `Validate schema drift` step in `test-unit` (uses the same
+  # postgres service), and a Husky pre-push hook on backend/prisma/* changes.
 
   semgrep:
     runs-on: [self-hosted, linux, vps, docker]
@@ -932,7 +926,7 @@ jobs:
   # Job final pour determiner le statut global du workflow
   workflow-status:
     runs-on: [self-hosted, linux, vps, docker]
-    needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, sonarqube, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
+    needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
     if: always()
     permissions: {}
     steps:
@@ -942,7 +936,6 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           TEST_UNIT_RESULT: ${{ needs.test-unit.result }}
           TEST_E2E_RESULT: ${{ needs.test-e2e.result }}
-          VALIDATE_MIGRATIONS_RESULT: ${{ needs.validate-migrations.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
@@ -954,7 +947,6 @@ jobs:
           echo "Lint status: $LINT_RESULT"
           echo "Test (unit) status: $TEST_UNIT_RESULT"
           echo "Test (e2e) status: $TEST_E2E_RESULT"
-          echo "Validate migrations status: $VALIDATE_MIGRATIONS_RESULT"
           echo "Semgrep status: $SEMGREP_RESULT"
           echo "SonarQube status: $SONARQUBE_RESULT"
           echo "Docker status: $DOCKER_RESULT"
@@ -974,11 +966,6 @@ jobs:
 
           if [[ "$TEST_UNIT_RESULT" == "failure" || "$TEST_UNIT_RESULT" == "cancelled" ]]; then
             echo "Workflow failed: Test (unit) job failed"
-            exit 1
-          fi
-
-          if [[ "$VALIDATE_MIGRATIONS_RESULT" == "failure" || "$VALIDATE_MIGRATIONS_RESULT" == "cancelled" ]]; then
-            echo "Workflow failed: Validate migrations job failed"
             exit 1
           fi
 
