@@ -22,7 +22,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
     "cleanup:images": "ts-node scripts/cleanup-orphan-images.ts",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "prepare": "husky 2>/dev/null || true"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -79,6 +80,7 @@
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.3.0",
+    "husky": "^9.1.7",
     "jest": "^30.3.0",
     "prettier": "^3.4.2",
     "prisma": "^6.16.2",
