@@ -222,10 +222,28 @@ jobs:
             exit 1
           fi
           echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
-          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
-          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
-          echo "PGPORT=5432" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
+          # Tolerate 3 runner topologies: containerized (success), already-connected
+          # endpoint (re-run on same runner), and native VPS runner (no container).
+          # The native runner falls back to localhost + the random host-mapped port
+          # obtained via `docker inspect` on the postgres container.
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Connected. Using postgres:5432 via ${PG_NETWORK}"
+            echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+            echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Already connected to ${PG_NETWORK}. Using postgres:5432"
+            echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+            echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          else
+            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
+            echo "Falling back to localhost + mapped host port"
+            PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+            PG_PORT=$(docker inspect "${PG_CONTAINER}" --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_PORT}" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_PORT}"
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
