@@ -71,13 +71,14 @@ describe('AuthController', () => {
 
       await controller.login(loginDto, res as unknown as Response);
 
-      // Le cookie dvg_auth_token doit être posé
+      // Le cookie dvg_auth_token doit être posé avec les options de sécurité attendues
       expect(res.cookie).toHaveBeenCalledWith(
         'dvg_auth_token',
         'jwt-token',
         expect.objectContaining({
           httpOnly: true,
           path: '/',
+          sameSite: 'lax',
         }),
       );
 
