@@ -64,33 +64,37 @@ jobs:
           IS_DEP_ACTIONS=false
           IS_DEP_DEV=false
 
-          if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
-            BRANCH="${{ github.head_ref }}"
-            echo "Dependabot branch: $BRANCH"
+          # Classification basee uniquement sur le prefixe de branche, pas sur github.actor.
+          # Quand un humain re-run la CI ou force-push sur une branche Dependabot,
+          # github.actor devient l'humain — la classification basee sur l'acteur perd
+          # alors la branche et reactive le pipeline complet (Sonar inclus), ce qui
+          # bloque les bumps Dependabot meme triviaux a cause du QG.
+          BRANCH="${{ github.head_ref }}"
 
-            # dependabot/github_actions/... -> only action bumps, no code change
-            if [[ "$BRANCH" == dependabot/github_actions/* ]]; then
-              IS_DEP_ACTIONS=true
-              echo "Classified as: github_actions bump (skip all except pr-report)"
+          # dependabot/github_actions/... -> only action bumps, no code change
+          if [[ "$BRANCH" == dependabot/github_actions/* ]]; then
+            IS_DEP_ACTIONS=true
+            echo "Dependabot branch (actions): $BRANCH"
+            echo "Classified as: github_actions bump (skip all except pr-report)"
 
-            # dependabot/npm_and_yarn/... -> check package.json to classify
-            elif [[ "$BRANCH" == dependabot/npm_and_yarn/* ]]; then
-              PKG_HINT=$(echo "$BRANCH" | sed 's|dependabot/npm_and_yarn/||' | tr '/_-' ' ' | tr '[:upper:]' '[:lower:]')
-              echo "Package hint: $PKG_HINT"
+          # dependabot/npm_and_yarn/... -> check package.json to classify
+          elif [[ "$BRANCH" == dependabot/npm_and_yarn/* ]]; then
+            echo "Dependabot branch (npm): $BRANCH"
+            PKG_HINT=$(echo "$BRANCH" | sed 's|dependabot/npm_and_yarn/||' | tr '/_-' ' ' | tr '[:upper:]' '[:lower:]')
+            echo "Package hint: $PKG_HINT"
 
-              # Classify as devDep if the package name fragment matches a devDependency key
-              if node -e "
-                const pkg = require('./package.json');
-                const hint = process.argv[1].toLowerCase();
-                const devKeys = Object.keys(pkg.devDependencies || {}).map(k => k.toLowerCase().replace(/[@\/]/g, ''));
-                const isDev = devKeys.some(k => hint.includes(k) || k.includes(hint.split(' ')[0]));
-                process.exit(isDev ? 0 : 1);
-              " "$PKG_HINT" 2>/dev/null; then
-                IS_DEP_DEV=true
-                echo "Classified as: devDependency bump (skip docker/e2e/deploy)"
-              else
-                echo "Classified as: prod/unknown dependency bump (full pipeline)"
-              fi
+            # Classify as devDep if the package name fragment matches a devDependency key
+            if node -e "
+              const pkg = require('./package.json');
+              const hint = process.argv[1].toLowerCase();
+              const devKeys = Object.keys(pkg.devDependencies || {}).map(k => k.toLowerCase().replace(/[@\/]/g, ''));
+              const isDev = devKeys.some(k => hint.includes(k) || k.includes(hint.split(' ')[0]));
+              process.exit(isDev ? 0 : 1);
+            " "$PKG_HINT" 2>/dev/null; then
+              IS_DEP_DEV=true
+              echo "Classified as: devDependency bump (skip docker/e2e/deploy)"
+            else
+              echo "Classified as: prod/unknown dependency bump (full pipeline)"
             fi
           fi
 
