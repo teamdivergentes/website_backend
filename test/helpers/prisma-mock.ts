@@ -29,10 +29,7 @@ type PrismaModelMock = {
 };
 
 /** Sous-ensemble partiel de PrismaService mocké. */
-export type PrismaMock = Pick<
-  PrismaService,
-  '$connect' | '$disconnect' | '$transaction'
-> & {
+export type PrismaMock = Pick<PrismaService, '$connect' | '$disconnect' | '$transaction'> & {
   user: PrismaModelMock;
   role: PrismaModelMock;
   config: PrismaModelMock;
