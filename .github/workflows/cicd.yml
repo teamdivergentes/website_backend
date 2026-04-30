@@ -572,6 +572,27 @@ jobs:
           path: reports/mutation/
           retention-days: 7
 
+      - name: Write Stryker summary to GitHub Step Summary
+        if: always()
+        run: |
+          {
+            echo "## 🧬 Mutation testing (Stryker)"
+            echo ""
+            if [[ -f reports/mutation/mutation.json ]]; then
+              # Extract score from report (Stryker JSON format)
+              SCORE=$(node -e "const r=require('./reports/mutation/mutation.json'); console.log(r.thresholds ? r.thresholds.high : 'n/a')" 2>/dev/null || echo "n/a")
+              KILLED=$(node -e "const r=require('./reports/mutation/mutation.json'); const f=Object.values(r.files || {}); console.log(f.reduce((a,x)=>a+(x.mutants?.filter(m=>m.status==='Killed').length||0),0))" 2>/dev/null || echo "n/a")
+              SURVIVED=$(node -e "const r=require('./reports/mutation/mutation.json'); const f=Object.values(r.files || {}); console.log(f.reduce((a,x)=>a+(x.mutants?.filter(m=>m.status==='Survived').length||0),0))" 2>/dev/null || echo "n/a")
+              echo "- Mutation score threshold (high): **${SCORE}%**"
+              echo "- Mutants killed : ${KILLED}"
+              echo "- Mutants survived : ${SURVIVED}"
+            else
+              echo "_No mutation report found (mutation.json missing)._"
+            fi
+            echo ""
+            echo "Full HTML report : artifact \`stryker-mutation-report\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Note: the `validate-migrations` job has been removed in favor of
   # an inline `Validate schema drift` step in `test-unit` (uses the same
   # postgres service), and a Husky pre-push hook on backend/prisma/* changes.
@@ -932,6 +953,7 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       GITHUB_EVENT_NUMBER: ${{ github.event.number || github.event.issue.number }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
