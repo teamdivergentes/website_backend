@@ -31,13 +31,15 @@ const cookieOptions = (
 ): {
   httpOnly: boolean;
   secure: boolean;
-  sameSite: 'strict' | 'lax';
+  sameSite: 'lax';
   path: string;
   maxAge: number;
 } => ({
   httpOnly: true,
   secure: isProd,
-  sameSite: isProd ? 'strict' : 'lax',
+  // SameSite=Lax : cookie envoyé sur navigation top-level cross-origin
+  // Compatible avec le proxy Nginx (même domaine en prod, cross-origin en dev)
+  sameSite: 'lax',
   path: '/',
   maxAge: COOKIE_MAX_AGE_SECONDS * 1000, // Express attend des ms
 });
