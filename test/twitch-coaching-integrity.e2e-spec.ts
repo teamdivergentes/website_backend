@@ -75,13 +75,9 @@ describe('TwitchChannel + CoachingStaff — integrity', () => {
     await prisma.twitchChannel
       .deleteMany({ where: { username: { startsWith: '__test_integrity__' } } })
       .catch(() => undefined);
-    await prisma.coachingStaff
-      .deleteMany({ where: { teamId: testTeamId } })
-      .catch(() => undefined);
+    await prisma.coachingStaff.deleteMany({ where: { teamId: testTeamId } }).catch(() => undefined);
     // TeamMember puis Team (cascade ne s'applique pas en sens inverse ici)
-    await prisma.teamMember
-      .deleteMany({ where: { teamId: testTeamId } })
-      .catch(() => undefined);
+    await prisma.teamMember.deleteMany({ where: { teamId: testTeamId } }).catch(() => undefined);
     await prisma.team.delete({ where: { id: testTeamId } }).catch(() => undefined);
   });
 
@@ -95,9 +91,7 @@ describe('TwitchChannel + CoachingStaff — integrity', () => {
     });
     twitchId1 = ch.id;
 
-    await expect(
-      prisma.twitchChannel.create({ data: { username } }),
-    ).rejects.toThrow();
+    await expect(prisma.twitchChannel.create({ data: { username } })).rejects.toThrow();
 
     await prisma.twitchChannel.delete({ where: { id: twitchId1 } });
   });
