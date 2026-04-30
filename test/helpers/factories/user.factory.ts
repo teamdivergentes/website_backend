@@ -50,9 +50,7 @@ export function createUserRecord(overrides: Partial<UserRecord> = {}): UserRecor
  * Crée un objet UserWithRole (inclut la relation role).
  * @param overrides Propriétés à surcharger (UserRecord + role).
  */
-export function createUserWithRole(
-  overrides: Partial<UserWithRole> = {},
-): UserWithRole {
+export function createUserWithRole(overrides: Partial<UserWithRole> = {}): UserWithRole {
   const base = createUserRecord(overrides);
   return {
     ...base,
