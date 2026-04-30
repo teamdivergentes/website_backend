@@ -211,25 +211,65 @@ jobs:
         # Runner-in-Docker topology (myoung34/github-runner with Docker socket mount):
         # - The runner process runs inside a container on the "bridge" network.
         # - Service containers (postgres) are created on a per-job "github_network_*"
-        #   bridge network and are NOT reachable via the host gateway IP + mapped port
-        #   because host ports are not forwarded back into the runner container.
-        # Fix: connect the runner container itself to the github_network_* so that
-        # it can reach postgres directly via the "postgres" DNS alias on port 5432.
-        # The runner container ID is its hostname (set by Docker).
+        #   bridge network.
+        #
+        # Root cause (PRs #91/#92): `docker network connect` attaches the runner to
+        #   the overlay network at the kernel level but does NOT update the in-container
+        #   DNS resolver (127.0.0.11). The "postgres" alias therefore never resolves
+        #   even though the network is reachable, causing Prisma P1001 timeout.
+        #
+        # Fix: bypass DNS entirely. Inspect the postgres container's IP on the
+        #   github_network_* via `docker inspect` and export it as PGHOST.
+        #   TCP routing to the IP works as soon as the runner is connected to the
+        #   network — no DNS resolution required.
+        #
+        # Fallback: native VPS runner (no runner container) falls back to
+        #   localhost + host-mapped port (pre-#90 behaviour).
         id: pg-host
         run: |
           RUNNER_ID=$(hostname)
           # Find the github_network_* created for this job
           PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
           if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            echo "ERROR: No github_network_* found" >&2
             exit 1
           fi
-          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
-          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
-          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "Found service network: ${PG_NETWORK}"
+
+          # Locate the postgres service container on the github_network_*
+          PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          if [ -z "$PG_CONTAINER" ]; then
+            echo "ERROR: No container found on ${PG_NETWORK}" >&2
+            exit 1
+          fi
+
+          # Get the postgres container IP directly (avoids DNS resolver entirely)
+          PG_IP=$(docker inspect "${PG_CONTAINER}" \
+            --format "{{(index .NetworkSettings.Networks \"${PG_NETWORK}\").IPAddress}}")
+          echo "Postgres container IP on ${PG_NETWORK}: ${PG_IP}"
+
+          # Connect the runner container to the network so TCP routing works.
+          # Tolerate "already connected" (re-run) and fall back for native runners.
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner container already connected (re-run)"
+          else
+            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
+            echo "Falling back to localhost + host-mapped port"
+            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
+              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
+            exit 0
+          fi
+
+          # Export the direct IP — no DNS dependency
+          echo "PGHOST=${PG_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=5432" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
+          echo "DATABASE_URL will use ${PG_IP}:5432 (direct IP, no DNS)"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -326,21 +366,42 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Resolve postgres host
-        # See test-unit for topology explanation.
-        # Connect runner container to github_network_* to reach postgres via DNS alias.
+        # See test-unit for full topology explanation and root cause analysis.
+        # Fix: use direct IP from docker inspect instead of DNS alias "postgres".
         id: pg-host
         run: |
           RUNNER_ID=$(hostname)
           PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
           if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            echo "ERROR: No github_network_* found" >&2
             exit 1
           fi
-          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
-          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
-          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "Found service network: ${PG_NETWORK}"
+          PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          if [ -z "$PG_CONTAINER" ]; then
+            echo "ERROR: No container found on ${PG_NETWORK}" >&2
+            exit 1
+          fi
+          PG_IP=$(docker inspect "${PG_CONTAINER}" \
+            --format "{{(index .NetworkSettings.Networks \"${PG_NETWORK}\").IPAddress}}")
+          echo "Postgres container IP on ${PG_NETWORK}: ${PG_IP}"
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner container already connected (re-run)"
+          else
+            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
+            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
+              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
+            exit 0
+          fi
+          echo "PGHOST=${PG_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=5432" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
+          echo "DATABASE_URL will use ${PG_IP}:5432 (direct IP, no DNS)"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -421,21 +482,42 @@ jobs:
         run: git fetch origin main:refs/remotes/origin/main --depth=1
 
       - name: Resolve postgres host
-        # See test-unit for topology explanation.
-        # Connect runner container to github_network_* to reach postgres via DNS alias.
+        # See test-unit for full topology explanation and root cause analysis.
+        # Fix: use direct IP from docker inspect instead of DNS alias "postgres".
         id: pg-host
         run: |
           RUNNER_ID=$(hostname)
           PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
           if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found — cannot connect runner to postgres network" >&2
+            echo "ERROR: No github_network_* found" >&2
             exit 1
           fi
-          echo "Connecting runner container ${RUNNER_ID} to network ${PG_NETWORK}"
-          docker network connect "${PG_NETWORK}" "${RUNNER_ID}"
-          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "Found service network: ${PG_NETWORK}"
+          PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          if [ -z "$PG_CONTAINER" ]; then
+            echo "ERROR: No container found on ${PG_NETWORK}" >&2
+            exit 1
+          fi
+          PG_IP=$(docker inspect "${PG_CONTAINER}" \
+            --format "{{(index .NetworkSettings.Networks \"${PG_NETWORK}\").IPAddress}}")
+          echo "Postgres container IP on ${PG_NETWORK}: ${PG_IP}"
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner container already connected (re-run)"
+          else
+            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
+            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
+              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
+            exit 0
+          fi
+          echo "PGHOST=${PG_IP}" >> $GITHUB_OUTPUT
           echo "PGPORT=5432" >> $GITHUB_OUTPUT
-          echo "Postgres reachable at postgres:5432 (via ${PG_NETWORK})"
+          echo "DATABASE_URL will use ${PG_IP}:5432 (direct IP, no DNS)"
 
       - name: Setup Node
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
