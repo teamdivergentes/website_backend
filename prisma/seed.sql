@@ -26,7 +26,8 @@ INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALU
     'annonces:read','annonces:write','annonces:delete',
     'articles:read','articles:write','articles:delete',
     'recrutement:read','recrutement:write','recrutement:delete',
-    'analytics:read'
+    'analytics:read',
+    'twitch_channels:read','twitch_channels:write','twitch_channels:delete'
   ], true, NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
   permissions = EXCLUDED.permissions,
