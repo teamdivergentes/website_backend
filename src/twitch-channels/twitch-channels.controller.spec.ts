@@ -44,9 +44,7 @@ describe('TwitchChannelsController', () => {
 
   describe('findLive', () => {
     it('devrait appeler twitchChannelsService.findLive et retourner le résultat', async () => {
-      const liveChannels = [
-        { id: 1, username: 'scyphoz', displayName: 'Scyphoz', isLive: true },
-      ];
+      const liveChannels = [{ id: 1, username: 'pendulelapin7', displayName: 'Pendulelapin7', isLive: true }];
       mockTwitchChannelsService.findLive.mockResolvedValue(liveChannels);
 
       const result = await controller.findLive();
@@ -61,8 +59,14 @@ describe('TwitchChannelsController', () => {
   describe('findAll', () => {
     it('devrait appeler twitchChannelsService.findAll et retourner la liste', async () => {
       const channels = [
-        { id: 1, username: 'scyphoz', displayName: 'Scyphoz', active: true, position: 0 },
-        { id: 2, username: 'teamdivergentes', displayName: 'Team Divergentes', active: true, position: 1 },
+        { id: 1, username: 'pendulelapin7', displayName: 'Pendulelapin7', active: true, position: 0 },
+        {
+          id: 2,
+          username: 'teamdivergentes',
+          displayName: 'Team Divergentes',
+          active: true,
+          position: 1,
+        },
       ];
       mockTwitchChannelsService.findAll.mockResolvedValue(channels);
 
@@ -76,8 +80,8 @@ describe('TwitchChannelsController', () => {
   // ─── findOne (admin) ─────────────────────────────────────────────────────────
 
   describe('findOne', () => {
-    it('devrait appeler twitchChannelsService.findOne avec l\'id et retourner le channel', async () => {
-      const channel = { id: 1, username: 'scyphoz', displayName: 'Scyphoz' };
+    it("devrait appeler twitchChannelsService.findOne avec l'id et retourner le channel", async () => {
+      const channel = { id: 1, username: 'pendulelapin7', displayName: 'Pendulelapin7' };
       mockTwitchChannelsService.findOne.mockResolvedValue(channel);
 
       const result = await controller.findOne(1);
@@ -108,9 +112,9 @@ describe('TwitchChannelsController', () => {
   // ─── update (admin) ──────────────────────────────────────────────────────────
 
   describe('update', () => {
-    it('devrait appeler twitchChannelsService.update avec l\'id et le DTO', async () => {
+    it("devrait appeler twitchChannelsService.update avec l'id et le DTO", async () => {
       const dto: UpdateTwitchChannelDto = { displayName: 'Updated Name' };
-      const updated = { id: 1, username: 'scyphoz', displayName: 'Updated Name' };
+      const updated = { id: 1, username: 'pendulelapin7', displayName: 'Updated Name' };
       mockTwitchChannelsService.update.mockResolvedValue(updated);
 
       const result = await controller.update(1, dto);
@@ -141,7 +145,7 @@ describe('TwitchChannelsController', () => {
   // ─── delete (admin) ──────────────────────────────────────────────────────────
 
   describe('delete', () => {
-    it('devrait appeler twitchChannelsService.delete avec l\'id', async () => {
+    it("devrait appeler twitchChannelsService.delete avec l'id", async () => {
       mockTwitchChannelsService.delete.mockResolvedValue({ id: 1 });
 
       const result = await controller.delete(1);

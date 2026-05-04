@@ -42,9 +42,7 @@ describe('CoachingStaffController', () => {
 
   describe('findByTeamPublic', () => {
     it('devrait appeler coachingStaffService.findByTeam avec le teamId', async () => {
-      const staff = [
-        { id: 1, name: 'Head Coach', role: 'Head Coach', teamId: 1 },
-      ];
+      const staff = [{ id: 1, name: 'Head Coach', role: 'Head Coach', teamId: 1 }];
       mockCoachingStaffService.findByTeam.mockResolvedValue(staff);
 
       const result = await controller.findByTeamPublic(1);
@@ -92,7 +90,7 @@ describe('CoachingStaffController', () => {
   // ─── update (admin) ──────────────────────────────────────────────────────────
 
   describe('update', () => {
-    it('devrait appeler coachingStaffService.update avec l\'id et le DTO', async () => {
+    it("devrait appeler coachingStaffService.update avec l'id et le DTO", async () => {
       const dto: UpdateCoachingStaffDto = { role: 'Head Analyst' };
       const updated = { id: 1, name: 'Head Coach', role: 'Head Analyst', teamId: 1 };
       mockCoachingStaffService.update.mockResolvedValue(updated);
@@ -126,7 +124,7 @@ describe('CoachingStaffController', () => {
   // ─── delete (admin) ──────────────────────────────────────────────────────────
 
   describe('delete', () => {
-    it('devrait appeler coachingStaffService.delete avec l\'id', async () => {
+    it("devrait appeler coachingStaffService.delete avec l'id", async () => {
       mockCoachingStaffService.delete.mockResolvedValue({ id: 1 });
 
       const result = await controller.delete(1);

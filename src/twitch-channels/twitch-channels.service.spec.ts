@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
-import { TwitchChannelsService, TwitchChannelLiveDto } from './twitch-channels.service';
+import {
+  TwitchChannelsService,
+  TwitchChannelLiveDto,
+  TwitchChannelDto,
+} from './twitch-channels.service';
 import { PrismaService } from '../prisma.service';
 import { TwitchHelixService } from '../twitch-helix/twitch-helix.service';
 import { CreateTwitchChannelDto } from './dto/create-twitch-channel.dto';
@@ -28,8 +32,8 @@ describe('TwitchChannelsService', () => {
 
   const sampleChannel = {
     id: 1,
-    username: 'scyphoz',
-    displayName: 'Scyphoz',
+    username: 'pendulelapin7',
+    displayName: 'Pendulelapin7',
     gameLabel: 'Valorant',
     description: 'Joueur pro DVG',
     active: true,
@@ -61,8 +65,8 @@ describe('TwitchChannelsService', () => {
       mockPrisma.twitchChannel.findMany.mockResolvedValue([sampleChannel]);
       mockHelixService.getLiveStreams.mockResolvedValue([
         {
-          username: 'scyphoz',
-          displayName: 'Scyphoz',
+          username: 'pendulelapin7',
+          displayName: 'Pendulelapin7',
           gameId: '516575',
           gameLabel: 'Valorant',
           viewerCount: 1200,
@@ -76,7 +80,7 @@ describe('TwitchChannelsService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
-        username: 'scyphoz',
+        twitchUsername: 'pendulelapin7',
         isLive: true,
         viewerCount: 1200,
         streamTitle: 'Ranked!',
@@ -90,7 +94,7 @@ describe('TwitchChannelsService', () => {
       const result: TwitchChannelLiveDto[] = await service.findAll();
 
       expect(result[0]).toMatchObject({
-        username: 'scyphoz',
+        twitchUsername: 'pendulelapin7',
         isLive: false,
       });
     });
@@ -121,10 +125,14 @@ describe('TwitchChannelsService', () => {
   // ─── findOne ─────────────────────────────────────────────────────────────────
 
   describe('findOne', () => {
-    it('should return a channel by id', async () => {
+    it('should return a channel by id mapped to DTO', async () => {
       mockPrisma.twitchChannel.findUnique.mockResolvedValue(sampleChannel);
-      const result = await service.findOne(1);
-      expect(result).toEqual(sampleChannel);
+      const result: TwitchChannelDto = await service.findOne(1);
+      expect(result).toMatchObject({
+        twitchUsername: 'pendulelapin7',
+        isActive: true,
+        id: 1,
+      });
     });
 
     it('should throw NotFoundException when channel not found', async () => {
@@ -138,26 +146,35 @@ describe('TwitchChannelsService', () => {
   describe('create', () => {
     it('should create a twitch channel', async () => {
       const dto: CreateTwitchChannelDto = {
-        username: 'newstreamer',
+        twitchUsername: 'newstreamer',
         displayName: 'New Streamer',
-        active: true,
+        isActive: true,
       };
 
+      // Le mock Prisma retourne une entité avec les noms Prisma (username/active)
       mockPrisma.twitchChannel.aggregate.mockResolvedValue({ _max: { position: 2 } });
-      mockPrisma.twitchChannel.create.mockResolvedValue({ ...sampleChannel, ...dto, id: 5 });
+      mockPrisma.twitchChannel.create.mockResolvedValue({
+        ...sampleChannel,
+        username: 'newstreamer',
+        active: true,
+        id: 5,
+      });
 
       const result: Awaited<ReturnType<typeof service.create>> = await service.create(dto);
       expect(result).toBeDefined();
+      // Le service passe `username` (nom Prisma) à la BDD
       const createCall1 = mockPrisma.twitchChannel.create.mock.calls[0] as [
         { data: { username: string } },
       ];
       expect(createCall1[0].data.username).toBe('newstreamer');
+      // Le résultat est mappé vers twitchUsername/isActive
+      expect(result).toMatchObject({ twitchUsername: 'newstreamer', isActive: true });
     });
 
     it('should handle position auto-assignment when no channels exist', async () => {
-      const dto: CreateTwitchChannelDto = { username: 'first' };
+      const dto: CreateTwitchChannelDto = { twitchUsername: 'first' };
       mockPrisma.twitchChannel.aggregate.mockResolvedValue({ _max: { position: null } });
-      mockPrisma.twitchChannel.create.mockResolvedValue({ ...sampleChannel, ...dto });
+      mockPrisma.twitchChannel.create.mockResolvedValue({ ...sampleChannel, username: 'first' });
 
       await service.create(dto);
       const createCall2 = mockPrisma.twitchChannel.create.mock.calls[0] as [
@@ -167,7 +184,7 @@ describe('TwitchChannelsService', () => {
     });
 
     it('should throw ConflictException when username already exists', async () => {
-      const dto: CreateTwitchChannelDto = { username: 'scyphoz' };
+      const dto: CreateTwitchChannelDto = { twitchUsername: 'pendulelapin7' };
       mockPrisma.twitchChannel.aggregate.mockResolvedValue({ _max: { position: 0 } });
       // Utilise un plain object (pas une Error) pour éviter le crash Node v24 sur les Error avec .code
       mockPrisma.twitchChannel.create.mockRejectedValue({
@@ -179,7 +196,7 @@ describe('TwitchChannelsService', () => {
     });
 
     it('should re-throw non-P2002 errors from create', async () => {
-      const dto: CreateTwitchChannelDto = { username: 'valid1' };
+      const dto: CreateTwitchChannelDto = { twitchUsername: 'valid1' };
       mockPrisma.twitchChannel.aggregate.mockResolvedValue({ _max: { position: 0 } });
       const dbError = new Error('Connection lost');
       mockPrisma.twitchChannel.create.mockRejectedValue(dbError);
@@ -212,7 +229,9 @@ describe('TwitchChannelsService', () => {
         message: 'Unique constraint',
       });
 
-      await expect(service.update(1, { username: 'existing' })).rejects.toThrow(ConflictException);
+      await expect(service.update(1, { twitchUsername: 'existing' })).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('should throw NotFoundException on P2025 in update catch', async () => {
