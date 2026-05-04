@@ -173,6 +173,8 @@ jobs:
 
   # Fast job: unit tests only (Jest, no E2E).
   # Runs on every push/PR (except github_actions bumps) — gating job for Docker and deployments.
+  # No PostgreSQL service needed: all specs mock PrismaService (no real DB connection).
+  # Schema drift validation is done by the Husky pre-push hook (backend/prisma/* changes).
   test-unit:
     runs-on: [self-hosted, linux, docker]
     needs: build
@@ -183,93 +185,9 @@ jobs:
       contents: read
       pull-requests: write
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: testpass
-          POSTGRES_DB: testdb
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        # Runner-in-Docker topology: the runner process runs inside a container
-        # that mounts the Docker socket. Service containers land on github_network_*
-        # with the alias "postgres". The "Resolve postgres host" step below connects
-        # the runner container to that network so "postgres:5432" becomes reachable.
-        # The random host port (-p 5432) is kept for compat but no longer used.
-        ports:
-          - 5432
-
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Resolve postgres host
-        # Runner-in-Docker topology (myoung34/github-runner with Docker socket mount):
-        # - The runner process runs inside a container on the "bridge" network.
-        # - Service containers (postgres) are created on a per-job "github_network_*"
-        #   bridge network.
-        #
-        # Root cause (PRs #91/#92): `docker network connect` attaches the runner to
-        #   the overlay network at the kernel level but does NOT update the in-container
-        #   DNS resolver (127.0.0.11). The "postgres" alias therefore never resolves
-        #   even though the network is reachable, causing Prisma P1001 timeout.
-        #
-        # Fix: bypass DNS entirely. Inspect the postgres container's IP on the
-        #   github_network_* via `docker inspect` and export it as PGHOST.
-        #   TCP routing to the IP works as soon as the runner is connected to the
-        #   network — no DNS resolution required.
-        #
-        # Fallback: native VPS runner (no runner container) falls back to
-        #   localhost + host-mapped port (pre-#90 behaviour).
-        id: pg-host
-        run: |
-          RUNNER_ID=$(hostname)
-          # Find the github_network_* created for this job
-          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
-          if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found" >&2
-            exit 1
-          fi
-          echo "Found service network: ${PG_NETWORK}"
-
-          # Locate the postgres service container on the github_network_*
-          PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
-          if [ -z "$PG_CONTAINER" ]; then
-            echo "ERROR: No container found on ${PG_NETWORK}" >&2
-            exit 1
-          fi
-
-          # Get the postgres container IP directly (avoids DNS resolver entirely)
-          PG_IP=$(docker inspect "${PG_CONTAINER}" \
-            --format "{{(index .NetworkSettings.Networks \"${PG_NETWORK}\").IPAddress}}")
-          echo "Postgres container IP on ${PG_NETWORK}: ${PG_IP}"
-
-          # Connect the runner container to the network so TCP routing works.
-          # Tolerate "already connected" (re-run) and fall back for native runners.
-          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
-          if [ $CONNECT_RC -eq 0 ]; then
-            echo "Runner container connected to ${PG_NETWORK}"
-          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
-            echo "Runner container already connected (re-run)"
-          else
-            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
-            echo "Falling back to localhost + host-mapped port"
-            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
-              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
-            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
-            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
-            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
-            exit 0
-          fi
-
-          # Export the direct IP — no DNS dependency
-          echo "PGHOST=${PG_IP}" >> $GITHUB_OUTPUT
-          echo "PGPORT=5432" >> $GITHUB_OUTPUT
-          echo "DATABASE_URL will use ${PG_IP}:5432 (direct IP, no DNS)"
 
       - name: Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -291,27 +209,8 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Run Prisma migrations
-        env:
-          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
-        run: npx prisma migrate deploy
-
-      - name: Validate schema drift (replaces validate-migrations job)
-        # Compares the live schema (after migrate deploy) with prisma/schema.prisma.
-        # Catches schema drift without needing a separate job + service postgres.
-        # Local equivalent: pre-push Husky hook on backend/prisma/* changes.
-        # --to-url reads the live database directly (no shadow DB needed).
-        run: |
-          npx prisma migrate diff \
-            --from-schema-datamodel prisma/schema.prisma \
-            --to-url "$DATABASE_URL" \
-            --exit-code
-        env:
-          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
-
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
@@ -593,9 +492,10 @@ jobs:
             echo "Full HTML report : artifact \`stryker-mutation-report\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Note: the `validate-migrations` job has been removed in favor of
-  # an inline `Validate schema drift` step in `test-unit` (uses the same
-  # postgres service), and a Husky pre-push hook on backend/prisma/* changes.
+  # Note: schema drift validation (formerly `validate-migrations` job, then an
+  # inline step in `test-unit`) is now handled by the Husky pre-push hook on
+  # backend/prisma/* changes. test-unit no longer spins up a postgres service
+  # because all unit tests mock PrismaService and need no real DB connection.
 
   semgrep:
     runs-on: [self-hosted, linux, docker]
