@@ -38,7 +38,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
     outputs:
@@ -136,7 +136,7 @@ jobs:
         run: echo "Skipping build — github_actions Dependabot bump, no application code changed."
 
   lint:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: build
     # Skip for github_actions bumps (no code changed)
     if: |
@@ -174,7 +174,7 @@ jobs:
   # Fast job: unit tests only (Jest, no E2E).
   # Runs on every push/PR (except github_actions bumps) — gating job for Docker and deployments.
   test-unit:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: build
     if: |
       needs.build.result == 'success' &&
@@ -331,7 +331,7 @@ jobs:
   # NOT triggered for Dependabot action bumps or dev dep bumps.
   # Note: github.event.comment.body is used only in if: expression context (not in run:) - safe.
   test-e2e:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: build
     if: |
       needs.build.outputs.is-dependabot-actions != 'true' &&
@@ -441,7 +441,7 @@ jobs:
   # NOT triggered for Dependabot PRs (no new application code to mutate).
   # Non-blocking — reports mutation score as artifact.
   mutation-test:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: build
     if: |
       needs.build.outputs.is-dependabot-actions != 'true' &&
@@ -598,7 +598,7 @@ jobs:
   # postgres service), and a Husky pre-push hook on backend/prisma/* changes.
 
   semgrep:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: build
     # SAST: main/tag/dispatch only — saves ~3 min per PR push.
     # Never runs for Dependabot (no new application code to scan).
@@ -629,7 +629,7 @@ jobs:
   # <=3% new duplicated lines, 100% new security hotspots reviewed.
   # See docs/SONARQUBE.md for details.
   sonarqube:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: [build, test-unit]
     if: |
       needs.build.outputs.is-dependabot-actions != 'true' &&
@@ -673,7 +673,7 @@ jobs:
   # Sonar QG blocks Docker build -> no image is published if quality fails.
   # Skipped for Dependabot dev-dep and action bumps (no production code changed).
   docker:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: [build, lint, test-unit, semgrep, sonarqube]
     if: |
       !cancelled() &&
@@ -797,7 +797,7 @@ jobs:
           cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && format('type=registry,ref={0}:buildcache,mode=max', steps.tags.outputs.image-name) || '' }}
 
   scan-image:
-    runs-on: [self-hosted, linux, vps, docker]
+    runs-on: [self-hosted, linux, docker]
     needs: [docker]
     if: ${{ !cancelled() && needs.docker.result == 'success' }}
     permissions:
