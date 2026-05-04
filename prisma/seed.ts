@@ -452,8 +452,8 @@ async function main() {
   // Create sample TwitchChannels
   const twitchChannels = [
     {
-      username: 'scyphoz',
-      displayName: 'Scyphoz',
+      username: 'pendulelapin7',
+      displayName: 'Pendulelapin7',
       gameLabel: 'League of Legends',
       description: 'Joueur pro DVG LoL',
       active: true,
@@ -471,7 +471,7 @@ async function main() {
     },
   ];
 
-  // Chercher un TeamMember existant pour lier scyphoz (premier membre trouvé)
+  // Chercher un TeamMember existant pour lier pendulelapin7 (premier membre trouvé)
   const firstMember = await prisma.teamMember.findFirst({ orderBy: { id: 'asc' } });
 
   for (const [i, ch] of twitchChannels.entries()) {
