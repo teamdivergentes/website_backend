@@ -28,7 +28,7 @@ export class ApplicationNotifierService {
 
     const transporter = nodemailer.createTransport({
       host: smtpHost,
-      port: parseInt(smtpPort || '587', 10),
+      port: Number.parseInt(smtpPort || '587', 10),
       secure: smtpPort === '465',
       auth: { user: smtpUser, pass: smtpPass },
     });
@@ -126,11 +126,11 @@ export class ApplicationNotifierService {
 
 export function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 export function buildEmailHtml(
@@ -199,7 +199,7 @@ export function buildEmailHtml(
             dto.message
               ? `<div class="field">
             <div class="label">Message :</div>
-            <div class="message">${escapeHtml(dto.message).replace(/\n/g, '<br>')}</div>
+            <div class="message">${escapeHtml(dto.message).replaceAll('\n', '<br>')}</div>
           </div>`
               : ''
           }

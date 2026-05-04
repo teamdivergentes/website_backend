@@ -76,7 +76,9 @@ export class AnalyticsTrafficService {
               sessions: v.sessions,
               totalUsers: v.totalUsers,
               bounceRate:
-                v.sessions > 0 ? parseFloat((v.bounceRateWeightedSum / v.sessions).toFixed(4)) : 0,
+                v.sessions > 0
+                  ? Number.parseFloat((v.bounceRateWeightedSum / v.sessions).toFixed(4))
+                  : 0,
             }))
             .sort((a, b) => b.sessions - a.sessions);
 
@@ -212,7 +214,7 @@ export class AnalyticsTrafficService {
           ...r,
           percentage:
             totalCategoryUsers > 0
-              ? parseFloat(((r.totalUsers / totalCategoryUsers) * 100).toFixed(2))
+              ? Number.parseFloat(((r.totalUsers / totalCategoryUsers) * 100).toFixed(2))
               : 0,
         }));
 
@@ -230,7 +232,7 @@ export class AnalyticsTrafficService {
           ...r,
           percentage:
             totalBrowserUsers > 0
-              ? parseFloat(((r.totalUsers / totalBrowserUsers) * 100).toFixed(2))
+              ? Number.parseFloat(((r.totalUsers / totalBrowserUsers) * 100).toFixed(2))
               : 0,
         }));
 
