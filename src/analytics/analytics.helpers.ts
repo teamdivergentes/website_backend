@@ -35,16 +35,16 @@ export interface BrowserRow {
 }
 
 export function gaParseFloat(value: string | undefined): number {
-  return parseFloat(value ?? '0') || 0;
+  return Number.parseFloat(value ?? '0') || 0;
 }
 
 export function gaParseInt(value: string | undefined): number {
-  return parseInt(value ?? '0', 10) || 0;
+  return Number.parseInt(value ?? '0', 10) || 0;
 }
 
 export function calcChangePercent(current: number, previous: number): number {
   if (previous === 0) return current > 0 ? 100 : 0;
-  return parseFloat((((current - previous) / previous) * 100).toFixed(2));
+  return Number.parseFloat((((current - previous) / previous) * 100).toFixed(2));
 }
 
 export function buildComparison(current: number, previous: number): MetricWithComparison {
@@ -61,7 +61,7 @@ export function computePreviousPeriod(
 ): { prevStart: string; prevEnd: string } {
   const start = new Date(startDate);
   const end = new Date(endDate);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     throw new BadGatewayException('Dates de période invalides');
   }
   const durationMs = end.getTime() - start.getTime();

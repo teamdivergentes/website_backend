@@ -6,7 +6,7 @@ import { UpdateLinkDto } from './dto/update-link.dto';
 
 @Injectable()
 export class SponsorLinksService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Add link to sponsor

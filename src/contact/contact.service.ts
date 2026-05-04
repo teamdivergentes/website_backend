@@ -88,11 +88,11 @@ export class ContactService {
 
   private escapeHtml(str: string): string {
     return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
   }
 
   private buildEmailHtml(contactDto: ContactDto): string {
@@ -132,7 +132,7 @@ export class ContactService {
             </div>
             <div class="field">
               <div class="label">Message :</div>
-              <div class="message">${this.escapeHtml(contactDto.message).replace(/\n/g, '<br>')}</div>
+              <div class="message">${this.escapeHtml(contactDto.message).replaceAll('\n', '<br>')}</div>
             </div>
           </div>
           <div class="footer">

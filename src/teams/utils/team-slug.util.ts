@@ -6,11 +6,11 @@ export function generateTeamSlug(name: string): string {
   return name
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // Supprime les accents
-    .replace(/[^a-z0-9\s-]/g, '') // Supprime les caractères spéciaux
+    .replaceAll(/[̀-ͯ]/g, '') // Supprime les accents
+    .replaceAll(/[^a-z0-9\s-]/g, '') // Supprime les caractères spéciaux
     .trim()
-    .replace(/\s+/g, '-') // Remplace les espaces par des tirets
-    .replace(/-+/g, '-'); // Supprime les tirets consécutifs
+    .replaceAll(/\s+/g, '-') // Remplace les espaces par des tirets
+    .replaceAll(/-+/g, '-'); // Supprime les tirets consécutifs
 }
 
 /**
@@ -21,9 +21,9 @@ export function generateMemberSlug(name: string): string {
   return name
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // Supprime les accents
-    .replace(/[^a-z0-9]+/g, '-') // Remplace les non-alphanumériques par des tirets
-    .replace(/(^-|-$)/g, ''); // Supprime les tirets en début/fin
+    .replaceAll(/[̀-ͯ]/g, '') // Supprime les accents
+    .replaceAll(/[^a-z0-9]+/g, '-') // Remplace les non-alphanumériques par des tirets
+    .replaceAll(/(^-|-$)/g, ''); // Supprime les tirets en début/fin
 }
 
 /**
@@ -33,5 +33,5 @@ export function generateMemberSlug(name: string): string {
 export function extractFilenameFromUrl(url: string | null): string | null {
   if (!url) return null;
   const parts = url.split('/');
-  return parts[parts.length - 1] || null;
+  return parts.at(-1) || null;
 }

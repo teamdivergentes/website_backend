@@ -26,7 +26,7 @@ export type ArticleWithFullUser = Prisma.ArticleGetPayload<{
 
 @Injectable()
 export class ArticlesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private async generateUniqueSlug(title: string, excludeId?: number): Promise<string> {
     const baseSlug = slugify(title, { lower: true, strict: true, locale: 'fr' });

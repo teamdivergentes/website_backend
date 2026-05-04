@@ -9,8 +9,8 @@ import { ReorderSponsorsDto } from './dto/reorder.dto';
 @Injectable()
 export class SponsorsService {
   constructor(
-    private prisma: PrismaService,
-    private sponsorImagesService: SponsorImagesService,
+    private readonly prisma: PrismaService,
+    private readonly sponsorImagesService: SponsorImagesService,
   ) {}
 
   /**
@@ -20,9 +20,9 @@ export class SponsorsService {
     return name
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replaceAll(/[̀-ͯ]/g, '')
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replaceAll(/^-+|-+$/g, '');
   }
 
   /**

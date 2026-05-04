@@ -6,12 +6,12 @@ import { GA_API_TIMEOUT_MS } from './analytics.helpers';
 @Injectable()
 export class AnalyticsCacheService {
   private readonly logger = new Logger(AnalyticsCacheService.name);
-  private inflightRequests = new Map<string, Promise<unknown>>();
+  private readonly inflightRequests = new Map<string, Promise<unknown>>();
 
-  constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
+  constructor(@Inject(CACHE_MANAGER) private readonly cacheManager: Cache) {}
 
   sanitizeCacheKey(key: string): string {
-    return key.replace(/[^a-zA-Z0-9:\-_]/g, '_');
+    return key.replaceAll(/[^a-zA-Z0-9:\-_]/gu, '_');
   }
 
   async withCache<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {

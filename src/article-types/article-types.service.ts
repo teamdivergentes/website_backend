@@ -11,7 +11,7 @@ import { UpdateArticleTypeDto } from './dto/update-article-type.dto';
 
 @Injectable()
 export class ArticleTypesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Lister tous les types d'articles ordonnés par nom
