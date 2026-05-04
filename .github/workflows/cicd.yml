@@ -660,14 +660,14 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@aa494459d7c39c106cc77b166de8b4250a32bb97 # v5.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
-          SONAR_HOST_URL: https://sonarqube.tellebma.fr
+          SONAR_HOST_URL: ${{ vars.SONAR_URI }}
 
       - name: Check SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
-          SONAR_HOST_URL: https://sonarqube.tellebma.fr
+          SONAR_HOST_URL: ${{ vars.SONAR_URI }}
 
   # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
   # Sonar QG blocks Docker build -> no image is published if quality fails.
