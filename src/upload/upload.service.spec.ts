@@ -171,6 +171,7 @@ describe('UploadService', () => {
       await service.deleteImage('../secret.env');
 
       // Le slash est remplacé par _ donc le chemin ne peut pas sortir du répertoire uploads
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const calledPath = (unlink as jest.Mock).mock.calls[0][0] as string;
       // La traversée de répertoire via '/' est neutralisée (remplacé par '_')
       expect(calledPath).not.toContain('../');

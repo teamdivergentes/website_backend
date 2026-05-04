@@ -152,6 +152,7 @@ describe('RecruitmentService', () => {
 
       expect(prismaMock.recruitmentPost.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           data: expect.objectContaining({
             title: dto.title,
             slug: 'joueur-valorant',
@@ -197,6 +198,7 @@ describe('RecruitmentService', () => {
 
       expect(prismaMock.recruitmentPost.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           data: expect.objectContaining({ position: 0 }),
         }),
       );
@@ -238,6 +240,7 @@ describe('RecruitmentService', () => {
 
       expect(prismaMock.recruitmentPost.update).toHaveBeenCalledWith(
         expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           data: expect.objectContaining({ slug: 'nouveau-titre' }),
         }),
       );
@@ -317,7 +320,7 @@ describe('RecruitmentService', () => {
   // ---------------------------------------------------------------------------
   describe('reorder', () => {
     it('devrait réordonner les postes via une transaction', async () => {
-      prismaMock.$transaction.mockResolvedValue([]);
+      (prismaMock.$transaction as jest.Mock).mockResolvedValue([]);
       // Les appels update dans la transaction sont mockés ici via $transaction
       prismaMock.recruitmentPost.update.mockResolvedValue(mockPost);
 

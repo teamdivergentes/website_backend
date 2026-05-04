@@ -4,7 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RolesGuard } from './roles.guard';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
-const buildContext = (user?: unknown, requiredRoles?: string[]): ExecutionContext => {
+const buildContext = (user?: unknown, _requiredRoles?: string[]): ExecutionContext => {
   const mockRequest = { user };
   const handler = jest.fn();
   const classRef = jest.fn();
@@ -105,12 +105,12 @@ describe('RolesGuard', () => {
     });
 
     it('devrait vérifier le metadata via la clé ROLES_KEY', () => {
-      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
+      const spy = jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
       const context = buildContext({ id: 1, email: 'a@a.fr', role: { name: 'Admin' } });
 
       guard.canActivate(context);
 
-      expect(reflector.getAllAndOverride).toHaveBeenCalledWith(ROLES_KEY, expect.any(Array));
+      expect(spy).toHaveBeenCalledWith(ROLES_KEY, expect.any(Array));
     });
   });
 });

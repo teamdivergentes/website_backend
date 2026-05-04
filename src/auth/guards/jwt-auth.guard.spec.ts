@@ -48,24 +48,24 @@ describe('JwtAuthGuard', () => {
     };
 
     it('devrait retourner true directement pour un endpoint @Public()', () => {
-      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      const spy = jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
 
       const context = buildContext();
       const result = guard.canActivate(context);
 
       expect(result).toBe(true);
-      expect(reflector.getAllAndOverride).toHaveBeenCalledWith(IS_PUBLIC_KEY, expect.any(Array));
+      expect(spy).toHaveBeenCalledWith(IS_PUBLIC_KEY, expect.any(Array));
     });
 
     it('devrait déléguer à super.canActivate() pour un endpoint protégé', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
       // Spy sur la méthode parente — on vérifie que super est invoqué
-      const superActivate = jest
-        .spyOn(Object.getPrototypeOf(JwtAuthGuard).prototype, 'canActivate')
-        .mockReturnValue(true);
+
+      const parentClass = Object.getPrototypeOf(JwtAuthGuard) as typeof JwtAuthGuard;
+      const superActivate = jest.spyOn(parentClass.prototype, 'canActivate').mockReturnValue(true);
 
       const context = buildContext();
-      guard.canActivate(context);
+      void guard.canActivate(context);
 
       expect(superActivate).toHaveBeenCalledWith(context);
 
