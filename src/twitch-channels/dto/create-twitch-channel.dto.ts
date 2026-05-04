@@ -6,7 +6,7 @@ export class CreateTwitchChannelDto {
   @Matches(/^[a-zA-Z0-9_]{4,25}$/, {
     message: 'Le pseudo Twitch doit contenir entre 4 et 25 caractères alphanumériques ou _',
   })
-  username: string;
+  twitchUsername: string;
 
   @IsString()
   @IsOptional()
@@ -22,7 +22,7 @@ export class CreateTwitchChannelDto {
 
   @IsBoolean()
   @IsOptional()
-  active?: boolean;
+  isActive?: boolean;
 
   @IsInt()
   @Min(0)

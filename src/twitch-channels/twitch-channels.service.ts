@@ -10,7 +10,25 @@ type TwitchChannelWithMember = Prisma.TwitchChannelGetPayload<{
   include: { teamMember: true };
 }>;
 
-export interface TwitchChannelLiveDto extends TwitchChannelWithMember {
+/**
+ * Représentation publique d'une chaîne Twitch avec nommage aligné sur le frontend.
+ * Mappe `username` -> `twitchUsername` et `active` -> `isActive`.
+ */
+export interface TwitchChannelDto {
+  id: number;
+  twitchUsername: string;
+  displayName: string | null;
+  gameLabel: string | null;
+  description: string | null;
+  isActive: boolean;
+  position: number;
+  teamMemberId: number | null;
+  teamMember: TwitchChannelWithMember['teamMember'];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TwitchChannelLiveDto extends TwitchChannelDto {
   isLive: boolean;
   viewerCount?: number;
   streamTitle?: string;
@@ -25,6 +43,25 @@ export class TwitchChannelsService {
     private readonly prisma: PrismaService,
     private readonly helixService: TwitchHelixService,
   ) {}
+
+  /**
+   * Mappe une entité Prisma vers le DTO public (nommage frontend).
+   */
+  private mapToDto(channel: TwitchChannelWithMember): TwitchChannelDto {
+    return {
+      id: channel.id,
+      twitchUsername: channel.username,
+      displayName: channel.displayName,
+      gameLabel: channel.gameLabel,
+      description: channel.description,
+      isActive: channel.active,
+      position: channel.position,
+      teamMemberId: channel.teamMemberId,
+      teamMember: channel.teamMember,
+      createdAt: channel.createdAt,
+      updatedAt: channel.updatedAt,
+    };
+  }
 
   /**
    * Vérifie si une erreur est une contrainte unique Prisma (P2002).
@@ -52,10 +89,10 @@ export class TwitchChannelsService {
   }
 
   /**
-   * Enrichit une liste de chaînes avec le statut live Twitch Helix.
+   * Enrichit une liste de chaînes (déjà mappées) avec le statut live Twitch Helix.
    */
   private enrichWithLiveStatus(
-    channels: TwitchChannelWithMember[],
+    channels: TwitchChannelDto[],
     liveStreams: TwitchLiveStream[],
   ): TwitchChannelLiveDto[] {
     const liveMap = new Map<string, TwitchLiveStream>(
@@ -63,7 +100,7 @@ export class TwitchChannelsService {
     );
 
     return channels.map((channel) => {
-      const stream = liveMap.get(channel.username.toLowerCase());
+      const stream = liveMap.get(channel.twitchUsername.toLowerCase());
       if (stream) {
         return {
           ...channel,
@@ -90,10 +127,11 @@ export class TwitchChannelsService {
 
     if (channels.length === 0) return [];
 
+    const mapped = channels.map((c) => this.mapToDto(c));
     const usernames = channels.map((c) => c.username);
     const liveStreams = await this.helixService.getLiveStreams(usernames);
 
-    return this.enrichWithLiveStatus(channels, liveStreams);
+    return this.enrichWithLiveStatus(mapped, liveStreams);
   }
 
   /**
@@ -108,16 +146,17 @@ export class TwitchChannelsService {
 
     if (channels.length === 0) return [];
 
+    const mapped = channels.map((c) => this.mapToDto(c));
     const usernames = channels.map((c) => c.username);
     const liveStreams = await this.helixService.getLiveStreams(usernames);
 
-    return this.enrichWithLiveStatus(channels, liveStreams);
+    return this.enrichWithLiveStatus(mapped, liveStreams);
   }
 
   /**
    * Retourne une chaîne par ID.
    */
-  async findOne(id: number): Promise<TwitchChannelWithMember> {
+  async findOne(id: number): Promise<TwitchChannelDto> {
     const channel = await this.prisma.twitchChannel.findUnique({
       where: { id },
       include: { teamMember: true },
@@ -127,13 +166,13 @@ export class TwitchChannelsService {
       throw new NotFoundException(`Chaîne Twitch #${id} non trouvée`);
     }
 
-    return channel;
+    return this.mapToDto(channel);
   }
 
   /**
    * Crée une nouvelle chaîne Twitch.
    */
-  async create(dto: CreateTwitchChannelDto): Promise<TwitchChannelWithMember> {
+  async create(dto: CreateTwitchChannelDto): Promise<TwitchChannelDto> {
     const maxPosition = await this.prisma.twitchChannel.aggregate({
       _max: { position: true },
     });
@@ -141,22 +180,23 @@ export class TwitchChannelsService {
     const position = dto.position ?? (maxPosition._max.position ?? -1) + 1;
 
     try {
-      return await this.prisma.twitchChannel.create({
+      const channel = await this.prisma.twitchChannel.create({
         data: {
-          username: dto.username,
+          username: dto.twitchUsername,
           displayName: dto.displayName,
           gameLabel: dto.gameLabel,
           description: dto.description,
-          active: dto.active ?? true,
+          active: dto.isActive ?? true,
           position,
           teamMemberId: dto.teamMemberId ?? null,
         },
         include: { teamMember: true },
       });
+      return this.mapToDto(channel);
     } catch (error) {
       if (this.isPrismaUniqueError(error)) {
         throw new ConflictException(
-          `La chaîne Twitch avec le pseudo "${dto.username}" existe déjà`,
+          `La chaîne Twitch avec le pseudo "${dto.twitchUsername}" existe déjà`,
         );
       }
       throw error;
@@ -166,7 +206,7 @@ export class TwitchChannelsService {
   /**
    * Met à jour une chaîne Twitch.
    */
-  async update(id: number, dto: UpdateTwitchChannelDto): Promise<TwitchChannelWithMember> {
+  async update(id: number, dto: UpdateTwitchChannelDto): Promise<TwitchChannelDto> {
     const existing = await this.prisma.twitchChannel.findUnique({ where: { id } });
 
     if (!existing) {
@@ -176,11 +216,11 @@ export class TwitchChannelsService {
     try {
       const updateData: Prisma.TwitchChannelUpdateInput = {};
 
-      if (dto.username !== undefined) updateData.username = dto.username;
+      if (dto.twitchUsername !== undefined) updateData.username = dto.twitchUsername;
       if (dto.displayName !== undefined) updateData.displayName = dto.displayName;
       if (dto.gameLabel !== undefined) updateData.gameLabel = dto.gameLabel;
       if (dto.description !== undefined) updateData.description = dto.description;
-      if (dto.active !== undefined) updateData.active = dto.active;
+      if (dto.isActive !== undefined) updateData.active = dto.isActive;
       if (dto.position !== undefined) updateData.position = dto.position;
       if (dto.teamMemberId !== undefined) {
         updateData.teamMember = dto.teamMemberId
@@ -188,11 +228,12 @@ export class TwitchChannelsService {
           : { disconnect: true };
       }
 
-      return await this.prisma.twitchChannel.update({
+      const channel = await this.prisma.twitchChannel.update({
         where: { id },
         data: updateData,
         include: { teamMember: true },
       });
+      return this.mapToDto(channel);
     } catch (error) {
       if (this.isPrismaUniqueError(error)) {
         throw new ConflictException(`La chaîne Twitch avec ce pseudo existe déjà`);
