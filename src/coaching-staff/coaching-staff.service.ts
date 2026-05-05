@@ -49,7 +49,7 @@ export class CoachingStaffService {
       .normalize('NFD')
       .replaceAll(/[̀-ͯ]/g, '')
       .replaceAll(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replaceAll(/^-|-$/g, '');
   }
 
   /**
