@@ -44,7 +44,9 @@ describe('TwitchChannelsController', () => {
 
   describe('findLive', () => {
     it('devrait appeler twitchChannelsService.findLive et retourner le résultat', async () => {
-      const liveChannels = [{ id: 1, username: 'pendulelapin7', displayName: 'Pendulelapin7', isLive: true }];
+      const liveChannels = [
+        { id: 1, username: 'pendulelapin7', displayName: 'Pendulelapin7', isLive: true },
+      ];
       mockTwitchChannelsService.findLive.mockResolvedValue(liveChannels);
 
       const result = await controller.findLive();
@@ -59,7 +61,13 @@ describe('TwitchChannelsController', () => {
   describe('findAll', () => {
     it('devrait appeler twitchChannelsService.findAll et retourner la liste', async () => {
       const channels = [
-        { id: 1, username: 'pendulelapin7', displayName: 'Pendulelapin7', active: true, position: 0 },
+        {
+          id: 1,
+          username: 'pendulelapin7',
+          displayName: 'Pendulelapin7',
+          active: true,
+          position: 0,
+        },
         {
           id: 2,
           username: 'teamdivergentes',
