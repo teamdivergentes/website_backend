@@ -2,7 +2,7 @@ name: CICD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
     tags: [ "v*" ]  # Format: vXX.YY.ZZ
   pull_request:
     paths-ignore:
@@ -698,7 +698,7 @@ jobs:
           # dans GHCR sous un tag dedie) qui ne depend pas du backend GHA
           # interne et profite a tous les runners.
           cache-from: type=registry,ref=${{ steps.tags.outputs.image-name }}:buildcache
-          cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && format('type=registry,ref={0}:buildcache,mode=max', steps.tags.outputs.image-name) || '' }}
+          cache-to: ${{ (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && format('type=registry,ref={0}:buildcache,mode=max', steps.tags.outputs.image-name) || '' }}
 
   scan-image:
     runs-on: [self-hosted, linux, docker]
@@ -747,13 +747,17 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-  # Deploiement PREPROD (push sur main ou PR avec [DEPLOY])
+  # Deploiement PREPROD (push sur develop ou PR avec [DEPLOY]).
+  # GitFlow refonte : PREPROD est branchee sur develop pour valider en
+  # continu chaque integration. Un merge sur main ne deploie plus PREPROD ;
+  # il declenche uniquement la creation du tag vX.Y.Z qui partira en PROD
+  # apres smoke-release (cf. job du meme nom).
   deploy-preprod:
     runs-on: ubuntu-latest
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       !cancelled() &&
-      (github.ref == 'refs/heads/main' ||
+      (github.ref == 'refs/heads/develop' ||
        (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[DEPLOY]'))) &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
@@ -788,10 +792,115 @@ jobs:
         if: always()
         run: echo "deploy-status=${{ steps.deploy.outcome }}" >> $GITHUB_OUTPUT
 
-  # Deploiement PROD (tag vX.Y.Z)
+  # Smoke-release : boot le binaire RELEASE qui sera deploye en PROD pour
+  # valider que l'image demarre, applique les migrations et repond 200 sur
+  # /health avant de declencher le deploiement. Garde-fou final apres le
+  # workflow re-trigger declenche par le tag vX.Y.Z (cree par semantic-release
+  # sur main). Ne s'execute que sur les tags v*.
+  smoke-release:
+    runs-on: [self-hosted, linux, docker]
+    needs: [docker, scan-image]
+    if: |
+      !cancelled() &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.docker.result == 'success' &&
+      needs.scan-image.result == 'success'
+    permissions:
+      contents: read
+      packages: read
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: smokeuser
+          POSTGRES_PASSWORD: smokepass
+          POSTGRES_DB: smokedb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432
+
+    steps:
+      - name: Resolve service network and connect runner
+        id: pg-net
+        # Memes mecaniques que test-e2e : le runner self-hosted est lui-meme
+        # un conteneur, on le rejoint au reseau github_network_* cree pour le
+        # service postgres puis on lance le conteneur de smoke sur ce meme
+        # reseau pour qu'il puisse contacter postgres via son alias.
+        run: |
+          set -euo pipefail
+          RUNNER_ID=$(hostname)
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found" >&2
+            exit 1
+          fi
+          echo "Service network: ${PG_NETWORK}"
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner already on ${PG_NETWORK}"
+          else
+            echo "Network connect failed: ${CONNECT_OUT}" >&2
+            exit 1
+          fi
+          echo "network=${PG_NETWORK}" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and boot release image
+        env:
+          IMAGE: ${{ needs.docker.outputs.image-tag }}
+          PG_NETWORK: ${{ steps.pg-net.outputs.network }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          # L'entrypoint applique les migrations (npx prisma migrate deploy)
+          # puis lance node — d'ou la presence d'un postgres ephemere. Le
+          # conteneur smoke rejoint le reseau de service pour resoudre
+          # l'alias "postgres".
+          docker run -d --name backend-smoke \
+            --network "$PG_NETWORK" \
+            -e NODE_ENV=production \
+            -e DATABASE_URL="postgresql://smokeuser:smokepass@postgres:5432/smokedb" \
+            -e JWT_SECRET=smoke-release-secret-key \
+            -e JWT_EXPIRES_IN=1h \
+            "$IMAGE"
+          # Boot peut prendre 20-30s (migrate deploy + bootstrap NestJS).
+          # 60s laisse une marge confortable avant d'echouer.
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://backend-smoke:3000/health || echo "0")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "Smoke OK (HTTP 200) apres ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Smoke release KO - /health n'a jamais repondu 200 apres 60s"
+          docker logs backend-smoke || true
+          exit 1
+
+      - name: Cleanup smoke container
+        if: always()
+        run: docker rm -f backend-smoke || true
+
+  # Deploiement PROD (tag vX.Y.Z apres smoke-release).
+  # On passe DEPLOY_IMAGE_TAG=:SHA pour deployer le binaire EXACT qui vient
+  # d'etre smoke-teste, sans dependre de la resolution du tag flottant
+  # :RELEASE qui pourrait etre repointe par un autre run concurrent.
   deploy-prod:
     runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, semgrep, docker, scan-image]
+    needs: [build, lint, test-unit, semgrep, docker, scan-image, smoke-release]
     if: |
       !cancelled() &&
       startsWith(github.ref, 'refs/tags/v') &&
@@ -800,7 +909,8 @@ jobs:
       needs.test-unit.result == 'success' &&
       (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success' &&
-      needs.scan-image.result == 'success'
+      needs.scan-image.result == 'success' &&
+      needs.smoke-release.result == 'success'
     environment:
       name: production
       url: https://api.teamdivergentes.fr
@@ -818,6 +928,7 @@ jobs:
           DEPLOY_REPO: ${{ secrets.DEPLOY_REPO }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
           IMAGE_REPO: ${{ needs.docker.outputs.image-name }}
+          DEPLOY_IMAGE_TAG: ${{ needs.docker.outputs.image-tag }}
         run: |
           chmod +x ./.github/scripts/deploy.sh
           ./.github/scripts/deploy.sh "PROD" "website"
@@ -939,7 +1050,7 @@ jobs:
   # Job final pour determiner le statut global du workflow
   workflow-status:
     runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
+    needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, smoke-release, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
     if: always()
     permissions: {}
     steps:
@@ -952,6 +1063,7 @@ jobs:
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
+          SMOKE_RELEASE_RESULT: ${{ needs.smoke-release.result }}
           DEPLOY_PREPROD_RESULT: ${{ needs.deploy-preprod.result }}
           DEPLOY_PROD_RESULT: ${{ needs.deploy-prod.result }}
           MUTATION_RESULT: ${{ needs.mutation-test.result }}
@@ -1005,6 +1117,17 @@ jobs:
             echo "Test (e2e) skipped (not triggered - will run on PR approval or push to main)"
           elif [[ "$TEST_E2E_RESULT" == "success" ]]; then
             echo "Test (e2e) passed"
+          fi
+
+          # Smoke-release: blocking on tag pushes only. Skipped is acceptable
+          # outside that context (PR/develop/main pushes never trigger it).
+          if [[ "$SMOKE_RELEASE_RESULT" == "failure" || "$SMOKE_RELEASE_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Smoke release job failed"
+            exit 1
+          elif [[ "$SMOKE_RELEASE_RESULT" == "skipped" ]]; then
+            echo "Smoke release skipped (runs on tag v* push only)"
+          elif [[ "$SMOKE_RELEASE_RESULT" == "success" ]]; then
+            echo "Smoke release passed"
           fi
 
           # Deployments: fail the workflow only if they actually ran and failed.
