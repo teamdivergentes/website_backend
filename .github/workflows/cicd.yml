@@ -778,6 +778,7 @@ jobs:
           DEPLOY_REPO: ${{ secrets.DEPLOY_REPO }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
           IMAGE_REPO: ${{ needs.docker.outputs.image-name }}
+          DEPLOY_IMAGE_TAG: ${{ needs.docker.outputs.image-tag }}
         run: |
           chmod +x ./.github/scripts/deploy.sh
           ./.github/scripts/deploy.sh "PREPROD" "website"
