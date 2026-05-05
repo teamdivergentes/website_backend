@@ -513,17 +513,28 @@ jobs:
     permissions:
       contents: read
 
-    container:
-      image: semgrep/semgrep:latest
-
+    # On NE LANCE PAS le job entier dans `container: semgrep/semgrep:latest` :
+    # le runner self-hosted ne mount pas correctement son bundle node20_alpine
+    # dans le container alpine pour les post-steps de actions/checkout, ce
+    # qui fait planter "Post job cleanup" avec :
+    #   exec: "/__e/node20_alpine/bin/node": no such file or directory
+    # On checkout sur l'host (node20 natif dispo) puis on lance semgrep
+    # via un `docker run` explicite : aucune action GitHub ne s'execute
+    # dans le container, le probleme disparait.
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Run Semgrep
-        run: semgrep ci
+      - name: Run Semgrep (containerized CLI)
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            -e SEMGREP_APP_TOKEN \
+            semgrep/semgrep:latest \
+            semgrep ci
 
   # SonarQube analysis — BLOCKING. Quality Gate (Sonar way) must pass.
   # Runs after unit tests to include coverage from the test-unit artifact.
