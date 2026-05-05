@@ -513,17 +513,28 @@ jobs:
     permissions:
       contents: read
 
-    container:
-      image: semgrep/semgrep:latest
-
+    # On NE LANCE PAS le job entier dans `container: semgrep/semgrep:latest` :
+    # le runner self-hosted ne mount pas correctement son bundle node20_alpine
+    # dans le container alpine pour les post-steps de actions/checkout, ce
+    # qui fait planter "Post job cleanup" avec :
+    #   exec: "/__e/node20_alpine/bin/node": no such file or directory
+    # On checkout sur l'host (node20 natif dispo) puis on lance semgrep
+    # via un `docker run` explicite : aucune action GitHub ne s'execute
+    # dans le container, le probleme disparait.
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Run Semgrep
-        run: semgrep ci
+      - name: Run Semgrep (containerized CLI)
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            -e SEMGREP_APP_TOKEN \
+            semgrep/semgrep:latest \
+            semgrep ci
 
   # SonarQube analysis — BLOCKING. Quality Gate (Sonar way) must pass.
   # Runs after unit tests to include coverage from the test-unit artifact.
@@ -719,9 +730,16 @@ jobs:
       # SECURITY: Trivy was compromised in a supply chain attack (March 2026).
       # Only SHA 57a97c7 (v0.35.0) is verified safe. Do NOT update without verification.
       # See: https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23
-      # Informational scan — table output visible in job logs
+      #
+      # Informational scan — table output visible in job logs. Steps are
+      # non-blocking : `exit-code: 0` neutralise les findings, et
+      # `continue-on-error: true` evite qu'un crash interne de Trivy
+      # (DB schema obsolete, network, registry) bloque la chaine de deploy.
+      # La detection reelle des CVE reste en place (visible dans les logs et
+      # dans l'onglet Security quand l'upload SARIF reussit).
       - name: Run Trivy vulnerability scanner (table)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
+        continue-on-error: true
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
           format: table
@@ -732,6 +750,7 @@ jobs:
       # SARIF report for GitHub Security tab
       - name: Run Trivy vulnerability scanner (SARIF)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
+        continue-on-error: true
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
           format: sarif
