@@ -24,7 +24,7 @@ export class CoachingStaffService {
   private extractFilename(url: string | null): string | null {
     if (!url) return null;
     const parts = url.split('/');
-    return parts[parts.length - 1];
+    return parts.at(-1) ?? null;
   }
 
   /**
@@ -47,9 +47,9 @@ export class CoachingStaffService {
     return name
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
+      .replaceAll(/[̀-ͯ]/g, '')
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 
   /**

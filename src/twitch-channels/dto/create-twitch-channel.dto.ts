@@ -3,7 +3,7 @@ import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsInt, Min, Matches } from
 export class CreateTwitchChannelDto {
   @IsString()
   @IsNotEmpty({ message: 'Le pseudo Twitch est obligatoire' })
-  @Matches(/^[a-zA-Z0-9_]{4,25}$/, {
+  @Matches(/^\w{4,25}$/, {
     message: 'Le pseudo Twitch doit contenir entre 4 et 25 caractères alphanumériques ou _',
   })
   twitchUsername: string;
