@@ -30,11 +30,18 @@ if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
     TAG_SUFFIX="unstable-$VERSION_FROM_BRANCH"
     VERSION_TAG="$PROJECT_VERSION-unstable-$SHORT_SHA"
 elif [[ "$GITHUB_REF" == "refs/heads/develop" ]]; then
-    TAG_SUFFIX="dev"
-    VERSION_TAG="$PROJECT_VERSION-dev-$SHORT_SHA"
-elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+    # GitFlow refonte : develop deploie en PREPROD (validation continue).
+    # Le merge sur main ne deploie plus PREPROD ; il declenche uniquement la
+    # release qui cree le tag vX.Y.Z destine a la PROD.
     TAG_SUFFIX="PREPROD"
     VERSION_TAG="$PROJECT_VERSION-PREPROD-$SHORT_SHA"
+elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+    # Aucun tag flottant sur main : main ne pousse que les tags immuables
+    # (SHA + version-rc-SHA) comme garde-fou avant que semantic-release ne
+    # cree vX.Y.Z. Le tag re-trigger un workflow complet qui produira
+    # l'image :RELEASE et deploiera en PROD apres smoke-release.
+    TAG_SUFFIX=""
+    VERSION_TAG="$PROJECT_VERSION-rc-$SHORT_SHA"
 elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then  # Format: vXX.YY.ZZ
     TAG_SUFFIX="RELEASE"
     # Extraire la version du tag (ex: v1.2.3 -> 1.2.3)
@@ -52,7 +59,14 @@ VERSION_TAG=$(echo "$VERSION_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
 
 # Construire les tags
 IMAGE_TAG="$REGISTRY/$ORGANIZATION/$REPOSITORY/$IMAGE_NAME:$GITHUB_SHA"
-WORKFLOW_TAG="$REGISTRY/$ORGANIZATION/$REPOSITORY/$IMAGE_NAME:$TAG_SUFFIX"
+# Si TAG_SUFFIX est vide (cas push main), pas de tag flottant : on n'emet
+# qu'une chaine vide. docker/build-push-action ignore les lignes vides du
+# champ tags:, le push se contente alors du tag SHA + version-rc-SHA.
+if [[ -n "$TAG_SUFFIX" ]]; then
+    WORKFLOW_TAG="$REGISTRY/$ORGANIZATION/$REPOSITORY/$IMAGE_NAME:$TAG_SUFFIX"
+else
+    WORKFLOW_TAG=""
+fi
 VERSION_TAG_FULL="$REGISTRY/$ORGANIZATION/$REPOSITORY/$IMAGE_NAME:$VERSION_TAG"
 
 # Construire les noms d'image et tag de déploiement
