@@ -738,7 +738,7 @@ jobs:
       # La detection reelle des CVE reste en place (visible dans les logs et
       # dans l'onglet Security quand l'upload SARIF reussit).
       - name: Run Trivy vulnerability scanner (table)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.35.0 (verified safe)
         continue-on-error: true
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
@@ -749,7 +749,7 @@ jobs:
 
       # SARIF report for GitHub Security tab
       - name: Run Trivy vulnerability scanner (SARIF)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.35.0 (verified safe)
         continue-on-error: true
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
