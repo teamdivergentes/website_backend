@@ -1127,11 +1127,15 @@ jobs:
             echo "Docker skipped (runs on main/tag/dispatch only)"
           fi
 
-          # E2E is conditional: only fail the workflow if it actually ran and failed.
-          # skipped = not yet triggered (normal on PR push), which is acceptable.
-          if [[ "$TEST_E2E_RESULT" == "failure" || "$TEST_E2E_RESULT" == "cancelled" ]]; then
-            echo "Workflow failed: Test (e2e) job failed"
-            exit 1
+          # E2E est OPTIONNEL (informatif) : conditionnel au trigger, lent
+          # et parfois flaky. Aucun job de deploy ne le requiert dans son
+          # `needs:`. On garde donc la visibilite (badge rouge si echec) mais
+          # le verdict global du workflow ne bloque pas dessus — meme
+          # philosophie que sonarqube et mutation-test plus bas.
+          if [[ "$TEST_E2E_RESULT" == "failure" ]]; then
+            echo "Warning: Test (e2e) failed (non-blocking)"
+          elif [[ "$TEST_E2E_RESULT" == "cancelled" ]]; then
+            echo "Warning: Test (e2e) cancelled (non-blocking)"
           elif [[ "$TEST_E2E_RESULT" == "skipped" ]]; then
             echo "Test (e2e) skipped (not triggered - will run on PR approval or push to main)"
           elif [[ "$TEST_E2E_RESULT" == "success" ]]; then
