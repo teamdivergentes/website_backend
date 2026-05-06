@@ -359,7 +359,13 @@ jobs:
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
-        run: npm run test:e2e
+          NODE_OPTIONS: --max-old-space-size=2048
+        # --runInBand : execute les specs e2e en serie pour eviter de saturer
+        # la limite de connexions Postgres (default 100). Avec ~10 specs en
+        # parallele x N workers x pool size Prisma, on hit "sorry, too many
+        # clients already" (cf. run #25426880283). Les e2e partagent une DB,
+        # le parallelisme apporte peu et cause des collisions de fixtures.
+        run: npm run test:e2e -- --runInBand
 
   # Mutation testing with Stryker Mutator
   # Triggers: push to main, PR approval, /run-mutation comment, workflow_dispatch.
