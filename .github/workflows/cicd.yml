@@ -280,9 +280,27 @@ jobs:
             exit 1
           fi
           echo "Found service network: ${PG_NETWORK}"
-          PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          # Race condition observee : sur certaines versions de Docker (cf. run
+          # 25424206993, regression entre le 5 et le 6 mai 2026), le service
+          # postgres tout juste demarre n'est pas immediatement visible via
+          # `docker ps --filter "network=..."` — le tag de network se propage
+          # avec un delai. On retry 5 fois avec backoff de 3s avant de bailler.
+          PG_CONTAINER=""
+          for attempt in 1 2 3 4 5; do
+            PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+            if [ -n "$PG_CONTAINER" ]; then
+              echo "Postgres container resolved on attempt ${attempt}"
+              break
+            fi
+            echo "[${attempt}/5] No container on ${PG_NETWORK} yet, retry in 3s..."
+            sleep 3
+          done
           if [ -z "$PG_CONTAINER" ]; then
-            echo "ERROR: No container found on ${PG_NETWORK}" >&2
+            echo "ERROR: No container found on ${PG_NETWORK} after 5 attempts" >&2
+            echo "--- docker ps --all ---" >&2
+            docker ps --all >&2 || true
+            echo "--- docker network inspect ${PG_NETWORK} ---" >&2
+            docker network inspect "${PG_NETWORK}" >&2 || true
             exit 1
           fi
           PG_IP=$(docker inspect "${PG_CONTAINER}" \
@@ -396,9 +414,27 @@ jobs:
             exit 1
           fi
           echo "Found service network: ${PG_NETWORK}"
-          PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          # Race condition observee : sur certaines versions de Docker (cf. run
+          # 25424206993, regression entre le 5 et le 6 mai 2026), le service
+          # postgres tout juste demarre n'est pas immediatement visible via
+          # `docker ps --filter "network=..."` — le tag de network se propage
+          # avec un delai. On retry 5 fois avec backoff de 3s avant de bailler.
+          PG_CONTAINER=""
+          for attempt in 1 2 3 4 5; do
+            PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+            if [ -n "$PG_CONTAINER" ]; then
+              echo "Postgres container resolved on attempt ${attempt}"
+              break
+            fi
+            echo "[${attempt}/5] No container on ${PG_NETWORK} yet, retry in 3s..."
+            sleep 3
+          done
           if [ -z "$PG_CONTAINER" ]; then
-            echo "ERROR: No container found on ${PG_NETWORK}" >&2
+            echo "ERROR: No container found on ${PG_NETWORK} after 5 attempts" >&2
+            echo "--- docker ps --all ---" >&2
+            docker ps --all >&2 || true
+            echo "--- docker network inspect ${PG_NETWORK} ---" >&2
+            docker network inspect "${PG_NETWORK}" >&2 || true
             exit 1
           fi
           PG_IP=$(docker inspect "${PG_CONTAINER}" \
