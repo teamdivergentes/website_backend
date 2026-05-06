@@ -253,6 +253,35 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
+### Data migrations (permissions de roles systeme)
+
+Certaines EPICs ajoutent de nouvelles permissions sur les roles systeme (`Admin`, `Gestionnaire`, `CM`). Le `seed.ts` couvre les bases vierges, mais les bases deja deploiees ne sont pas re-seedees. Pour ces cas, une migration Prisma de type "data migration" est creee.
+
+**Pattern utilise :**
+
+```sql
+-- Idempotente : ARRAY(SELECT DISTINCT unnest(...)) evite les doublons au re-run.
+-- Les permissions custom ajoutees par un admin sont preservees (union, pas remplacement).
+UPDATE "roles"
+SET "permissions" = (
+  SELECT ARRAY(
+    SELECT DISTINCT unnest(
+      "permissions" || ARRAY['permission:action', ...]::text[]
+    )
+  )
+)
+WHERE "name" IN ('Admin', 'Gestionnaire')
+  AND "isSystem" = true;
+```
+
+**Regles :**
+- Toujours cibler `"isSystem" = true` pour ne jamais toucher les roles custom crees par un admin.
+- Utiliser `ARRAY(SELECT DISTINCT unnest(...))` pour garantir l'idempotence (re-run = no-op).
+- Ne jamais faire de remplacement complet du tableau : concatener avec `||` pour preserver les permissions existantes.
+- Creer via `npx prisma migrate dev --create-only --name <nom_descriptif>` puis editer le SQL manuellement.
+
+**Exemple :** migration `20260506220928_sync_system_roles_twitch_coaching_permissions` (EPIC-17) — ajoute `twitch_channels:*` et `coaching_staff:*` sur `Admin` et `Gestionnaire`.
+
 ### Prisma Studio (développement)
 
 ```bash
