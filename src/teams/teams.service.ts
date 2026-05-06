@@ -56,13 +56,16 @@ export class TeamsService {
   }
 
   /**
-   * Get team by slug with members
+   * Get team by slug with members and coaching staff
    */
   async findBySlug(slug: string) {
     const team = await this.prisma.team.findUnique({
       where: { slug },
       include: {
         members: {
+          orderBy: { position: 'asc' },
+        },
+        coachingStaff: {
           orderBy: { position: 'asc' },
         },
       },

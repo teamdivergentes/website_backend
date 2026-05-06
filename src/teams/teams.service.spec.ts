@@ -39,6 +39,80 @@ describe('TeamsService', () => {
     jest.clearAllMocks();
   });
 
+  describe('findBySlug', () => {
+    it('should return team with members and coachingStaff ordered by position', async () => {
+      const mockTeam = {
+        id: 1,
+        name: 'Team A',
+        slug: 'team-a',
+        game: 'lol',
+        image: null,
+        banner: null,
+        description: null,
+        position: 0,
+        active: true,
+        memberFieldsConfig: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        members: [
+          { id: 1, name: 'Player 1', position: 0 },
+          { id: 2, name: 'Player 2', position: 1 },
+        ],
+        coachingStaff: [
+          { id: 1, name: 'Coach A', role: 'Head Coach', position: 0 },
+          { id: 2, name: 'Coach B', role: 'Analyst', position: 1 },
+        ],
+      };
+
+      mockPrismaService.team.findUnique.mockResolvedValue(mockTeam);
+
+      const result = await service.findBySlug('team-a');
+
+      expect(mockPrismaService.team.findUnique).toHaveBeenCalledWith({
+        where: { slug: 'team-a' },
+        include: {
+          members: { orderBy: { position: 'asc' } },
+          coachingStaff: { orderBy: { position: 'asc' } },
+        },
+      });
+      expect(result.coachingStaff).toHaveLength(2);
+      expect(result.coachingStaff[0].name).toBe('Coach A');
+      expect(result.membersCount).toBe(2);
+    });
+
+    it('should return coachingStaff as empty array when team has no coaches', async () => {
+      const mockTeam = {
+        id: 2,
+        name: 'Team B',
+        slug: 'team-b',
+        game: 'valorant',
+        image: null,
+        banner: null,
+        description: null,
+        position: 1,
+        active: true,
+        memberFieldsConfig: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        members: [],
+        coachingStaff: [],
+      };
+
+      mockPrismaService.team.findUnique.mockResolvedValue(mockTeam);
+
+      const result = await service.findBySlug('team-b');
+
+      expect(result.coachingStaff).toEqual([]);
+      expect(result.membersCount).toBe(0);
+    });
+
+    it('should throw NotFoundException when slug does not exist', async () => {
+      mockPrismaService.team.findUnique.mockResolvedValue(null);
+
+      await expect(service.findBySlug('slug-inconnu')).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('update', () => {
     it('should delete old image and banner when updating with new ones', async () => {
       const mockTeam = {
