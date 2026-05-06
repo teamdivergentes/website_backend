@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { loginAsAdmin } from './helpers/login';
 
 /**
  * Tests E2E du module Upload.
@@ -158,16 +159,9 @@ describe('UploadController (e2e)', () => {
       },
     });
 
-    // Login admin
-    const adminLogin = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
-
-    const adminBody = adminLogin.body as { access_token?: string };
-    if (!adminBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin pour les tests upload");
-    }
-    adminToken = adminBody.access_token;
+    // Login admin via cookie
+    const { token: adminTok } = await loginAsAdmin(server);
+    adminToken = adminTok;
 
     // Créer un rôle non-admin
     const existingNonAdmin = await prisma.role.findFirst({
@@ -198,16 +192,13 @@ describe('UploadController (e2e)', () => {
     });
     nonAdminUserId = nonAdminUser.id;
 
-    // Login non-admin
-    const nonAdminLogin = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'e2e_upload_nonadmin@teamdivergentes.fr', password: 'password_e2e_upload' });
-
-    const nonAdminBody = nonAdminLogin.body as { access_token?: string };
-    if (!nonAdminBody.access_token) {
-      throw new Error("Impossible d'obtenir le token non-admin pour les tests upload");
-    }
-    nonAdminToken = nonAdminBody.access_token;
+    // Login non-admin via cookie
+    const { token: nonAdminTok } = await loginAsAdmin(
+      server,
+      'e2e_upload_nonadmin@teamdivergentes.fr',
+      'password_e2e_upload',
+    );
+    nonAdminToken = nonAdminTok;
   });
 
   afterAll(async () => {

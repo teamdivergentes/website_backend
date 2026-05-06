@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 import { TwitchHelixService } from '../src/twitch-helix/twitch-helix.service';
+import { loginAsAdmin } from './helpers/login';
 
 /**
  * Tests E2E — TwitchChannels CRUD admin + endpoint public.
@@ -65,15 +66,8 @@ describe('TwitchChannelsController (e2e)', () => {
       },
     });
 
-    const loginRes = await request(app.getHttpServer() as Parameters<typeof request>[0])
-      .post('/api/auth/login')
-      .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
-
-    const loginBody = loginRes.body as { access_token?: string };
-    if (!loginBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin pour les tests twitch");
-    }
-    adminToken = loginBody.access_token;
+    const { token } = await loginAsAdmin(app.getHttpServer() as Parameters<typeof request>[0]);
+    adminToken = token;
 
     // Nettoyage résiduel
     await prisma.twitchChannel

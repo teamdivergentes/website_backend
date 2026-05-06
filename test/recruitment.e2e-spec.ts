@@ -4,6 +4,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { loginAsAdmin } from './helpers/login';
 
 /**
  * Tests E2E du module Recruitment (offres de recrutement).
@@ -94,16 +95,9 @@ describe('RecruitmentController (e2e)', () => {
       },
     });
 
-    // Login admin
-    const loginRes = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
-
-    const loginBody = loginRes.body as { access_token?: string };
-    if (!loginBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin pour les tests recruitment");
-    }
-    adminToken = loginBody.access_token;
+    // Login admin via cookie
+    const { token } = await loginAsAdmin(server);
+    adminToken = token;
 
     // Nettoyer les posts E2E résiduels
     await prisma.recruitmentPost

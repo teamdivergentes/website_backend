@@ -4,6 +4,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { loginAsAdmin } from './helpers/login';
 
 describe('RolesController (e2e)', () => {
   let app: INestApplication;
@@ -85,23 +86,10 @@ describe('RolesController (e2e)', () => {
       },
     });
 
-    // Login as admin to get token
+    // Login as admin to get token via cookie
     const server = app.getHttpServer() as Parameters<typeof request>[0];
-    const loginResponse = await request(server).post('/api/auth/login').send({
-      email: 'admin@teamdivergentes.fr',
-      password: 'admin123',
-    });
-
-    if (!loginResponse.body || typeof loginResponse.body !== 'object') {
-      throw new Error('Invalid login response');
-    }
-
-    const body = loginResponse.body as { access_token?: string };
-    if (!body.access_token) {
-      throw new Error('No access token in login response');
-    }
-
-    authToken = body.access_token;
+    const { token } = await loginAsAdmin(server);
+    authToken = token;
   });
 
   afterAll(async () => {
