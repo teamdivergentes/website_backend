@@ -113,7 +113,7 @@ describe('TwitchChannelsController (e2e)', () => {
     it('sans token → 401', async () => {
       await request(server())
         .post('/api/admin/twitch-channels')
-        .send({ username: 'teststreamer' })
+        .send({ twitchUsername: 'teststreamer' })
         .expect(401);
     });
 
@@ -121,7 +121,7 @@ describe('TwitchChannelsController (e2e)', () => {
       await request(server())
         .post('/api/admin/twitch-channels')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ username: 'ab' })
+        .send({ twitchUsername: 'ab' })
         .expect(400);
     });
 
@@ -129,7 +129,7 @@ describe('TwitchChannelsController (e2e)', () => {
       await request(server())
         .post('/api/admin/twitch-channels')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ username: 'test user!' })
+        .send({ twitchUsername: 'test user!' })
         .expect(400);
     });
 
@@ -145,11 +145,11 @@ describe('TwitchChannelsController (e2e)', () => {
       const res = await request(server())
         .post('/api/admin/twitch-channels')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ username: 'e2e_test_dvg', displayName: 'DVG Streamer', active: true })
+        .send({ twitchUsername: 'e2e_test_dvg', displayName: 'DVG Streamer', isActive: true })
         .expect(201);
 
-      const body = res.body as { id: number; username: string };
-      expect(body.username).toBe('e2e_test_dvg');
+      const body = res.body as { id: number; twitchUsername: string };
+      expect(body.twitchUsername).toBe('e2e_test_dvg');
       createdChannelId = body.id;
     });
 
@@ -157,7 +157,7 @@ describe('TwitchChannelsController (e2e)', () => {
       await request(server())
         .post('/api/admin/twitch-channels')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ username: 'e2e_test_dvg' })
+        .send({ twitchUsername: 'e2e_test_dvg' })
         .expect(409);
     });
   });
