@@ -274,33 +274,37 @@ jobs:
         id: pg-host
         run: |
           RUNNER_ID=$(hostname)
-          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
-          if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found" >&2
-            exit 1
-          fi
-          echo "Found service network: ${PG_NETWORK}"
-          # Race condition observee : sur certaines versions de Docker (cf. run
-          # 25424206993, regression entre le 5 et le 6 mai 2026), le service
-          # postgres tout juste demarre n'est pas immediatement visible via
-          # `docker ps --filter "network=..."` — le tag de network se propage
-          # avec un delai. On retry 5 fois avec backoff de 3s avant de bailler.
+          # Sur le runner self-hosted, plusieurs networks `github_network_*`
+          # peuvent coexister (orphelins de jobs precedents pas nettoyes ou
+          # jobs paralleles). Le `head -1` naif pouvait pointer sur un network
+          # orphelin sans postgres (cf. run 25426436114). On itere et on garde
+          # celui qui contient effectivement un container postgres.
+          # On retry car le tag de network du service postgres peut etre propage
+          # avec un delai apres `Starting postgres service container`.
+          PG_NETWORK=""
           PG_CONTAINER=""
-          for attempt in 1 2 3 4 5; do
-            PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          for attempt in 1 2 3 4 5 6 7 8; do
+            for net in $(docker network ls --format '{{.Name}}' | grep '^github_network_'); do
+              c=$(docker ps --filter "network=${net}" --format '{{.ID}}\t{{.Image}}' | grep -i 'postgres' | awk '{print $1}' | head -1)
+              if [ -n "$c" ]; then
+                PG_NETWORK="$net"
+                PG_CONTAINER="$c"
+                break
+              fi
+            done
             if [ -n "$PG_CONTAINER" ]; then
-              echo "Postgres container resolved on attempt ${attempt}"
+              echo "Postgres resolved on attempt ${attempt}: container=${PG_CONTAINER} network=${PG_NETWORK}"
               break
             fi
-            echo "[${attempt}/5] No container on ${PG_NETWORK} yet, retry in 3s..."
+            echo "[${attempt}/8] Postgres container not yet visible on any github_network_*, retry in 3s..."
             sleep 3
           done
           if [ -z "$PG_CONTAINER" ]; then
-            echo "ERROR: No container found on ${PG_NETWORK} after 5 attempts" >&2
+            echo "ERROR: No postgres container found on any github_network_* after 8 attempts" >&2
+            echo "--- docker network ls ---" >&2
+            docker network ls >&2 || true
             echo "--- docker ps --all ---" >&2
             docker ps --all >&2 || true
-            echo "--- docker network inspect ${PG_NETWORK} ---" >&2
-            docker network inspect "${PG_NETWORK}" >&2 || true
             exit 1
           fi
           PG_IP=$(docker inspect "${PG_CONTAINER}" \
@@ -408,33 +412,37 @@ jobs:
         id: pg-host
         run: |
           RUNNER_ID=$(hostname)
-          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
-          if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found" >&2
-            exit 1
-          fi
-          echo "Found service network: ${PG_NETWORK}"
-          # Race condition observee : sur certaines versions de Docker (cf. run
-          # 25424206993, regression entre le 5 et le 6 mai 2026), le service
-          # postgres tout juste demarre n'est pas immediatement visible via
-          # `docker ps --filter "network=..."` — le tag de network se propage
-          # avec un delai. On retry 5 fois avec backoff de 3s avant de bailler.
+          # Sur le runner self-hosted, plusieurs networks `github_network_*`
+          # peuvent coexister (orphelins de jobs precedents pas nettoyes ou
+          # jobs paralleles). Le `head -1` naif pouvait pointer sur un network
+          # orphelin sans postgres (cf. run 25426436114). On itere et on garde
+          # celui qui contient effectivement un container postgres.
+          # On retry car le tag de network du service postgres peut etre propage
+          # avec un delai apres `Starting postgres service container`.
+          PG_NETWORK=""
           PG_CONTAINER=""
-          for attempt in 1 2 3 4 5; do
-            PG_CONTAINER=$(docker ps --filter "network=${PG_NETWORK}" --format '{{.ID}}' | head -1)
+          for attempt in 1 2 3 4 5 6 7 8; do
+            for net in $(docker network ls --format '{{.Name}}' | grep '^github_network_'); do
+              c=$(docker ps --filter "network=${net}" --format '{{.ID}}\t{{.Image}}' | grep -i 'postgres' | awk '{print $1}' | head -1)
+              if [ -n "$c" ]; then
+                PG_NETWORK="$net"
+                PG_CONTAINER="$c"
+                break
+              fi
+            done
             if [ -n "$PG_CONTAINER" ]; then
-              echo "Postgres container resolved on attempt ${attempt}"
+              echo "Postgres resolved on attempt ${attempt}: container=${PG_CONTAINER} network=${PG_NETWORK}"
               break
             fi
-            echo "[${attempt}/5] No container on ${PG_NETWORK} yet, retry in 3s..."
+            echo "[${attempt}/8] Postgres container not yet visible on any github_network_*, retry in 3s..."
             sleep 3
           done
           if [ -z "$PG_CONTAINER" ]; then
-            echo "ERROR: No container found on ${PG_NETWORK} after 5 attempts" >&2
+            echo "ERROR: No postgres container found on any github_network_* after 8 attempts" >&2
+            echo "--- docker network ls ---" >&2
+            docker network ls >&2 || true
             echo "--- docker ps --all ---" >&2
             docker ps --all >&2 || true
-            echo "--- docker network inspect ${PG_NETWORK} ---" >&2
-            docker network inspect "${PG_NETWORK}" >&2 || true
             exit 1
           fi
           PG_IP=$(docker inspect "${PG_CONTAINER}" \
