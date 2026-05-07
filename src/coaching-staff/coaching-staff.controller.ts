@@ -14,8 +14,9 @@ import { CoachingStaffService } from './coaching-staff.service';
 import { CreateCoachingStaffDto } from './dto/create-coaching-staff.dto';
 import { UpdateCoachingStaffDto } from './dto/update-coaching-staff.dto';
 import { ReorderCoachingStaffDto } from './dto/reorder-coaching-staff.dto';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermission } from '../auth/decorators/permissions.decorator';
+import { PERMISSIONS } from '../common/constants/permissions';
 import { Public } from '../auth/decorators/public.decorator';
 
 @Controller()
@@ -34,37 +35,44 @@ export class CoachingStaffController {
   // ─── Routes admin ──────────────────────────────────────────────────────────
 
   @Get('api/admin/teams/:teamId/coaching-staff')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'gestionnaire')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COACHING_STAFF_READ)
   findByTeamAdmin(@Param('teamId', ParseIntPipe) teamId: number) {
     return this.coachingStaffService.findByTeam(teamId);
   }
 
   @Post('api/admin/teams/:teamId/coaching-staff')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'gestionnaire')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COACHING_STAFF_WRITE)
   create(@Param('teamId', ParseIntPipe) teamId: number, @Body() dto: CreateCoachingStaffDto) {
     return this.coachingStaffService.create(teamId, dto);
   }
 
   @Patch('api/admin/teams/:teamId/coaching-staff/reorder')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'gestionnaire')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COACHING_STAFF_WRITE)
   reorder(@Param('teamId', ParseIntPipe) teamId: number, @Body() dto: ReorderCoachingStaffDto) {
     return this.coachingStaffService.reorder(teamId, dto);
   }
 
-  @Patch('api/admin/coaching-staff/:id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'gestionnaire')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCoachingStaffDto) {
-    return this.coachingStaffService.update(id, dto);
+  @Patch('api/admin/teams/:teamId/coaching-staff/:id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COACHING_STAFF_WRITE)
+  update(
+    @Param('teamId', ParseIntPipe) teamId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCoachingStaffDto,
+  ) {
+    return this.coachingStaffService.update(teamId, id, dto);
   }
 
-  @Delete('api/admin/coaching-staff/:id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'gestionnaire')
-  delete(@Param('id', ParseIntPipe) id: number) {
-    return this.coachingStaffService.delete(id);
+  @Delete('api/admin/teams/:teamId/coaching-staff/:id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COACHING_STAFF_DELETE)
+  delete(
+    @Param('teamId', ParseIntPipe) teamId: number,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.coachingStaffService.delete(teamId, id);
   }
 }
