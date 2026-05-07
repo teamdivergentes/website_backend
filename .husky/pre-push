@@ -4,7 +4,11 @@
 #
 # Sans diff Prisma a pousser → exit 0 immediat (zero cout).
 # Avec diff → execute `prisma migrate diff` qui compare schema.prisma
-# au resultat de toutes les migrations. Aucune DB n'est requise.
+# au resultat de toutes les migrations.
+#
+# Prisma 6.x exige une shadow database pour `--to-migrations`.
+# Le hook tente d'en provisionner une via le container Docker `dvg-postgres`
+# si disponible. Sinon il avertit et passe (le check definitif est en CI).
 #
 # Empêche un push qui ferait planter `prisma migrate deploy` en prod.
 
@@ -30,12 +34,47 @@ echo ""
 echo "🔍 Prisma changes detected — validating schema drift…"
 echo ""
 
-# Pas de DB necessaire : compare schema.prisma a l'etat post-migrations
-# directement depuis les fichiers locaux.
-if ! npx --no-install prisma migrate diff \
+# Tenter de provisionner une shadow database temporaire via Docker
+# si le container dvg-postgres tourne. Sinon Prisma 6.x echouera et
+# on saute le check avec un avertissement (le check est rejoue en CI).
+SHADOW_ARG=""
+if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^dvg-postgres$"; then
+  PG_USER=$(docker exec dvg-postgres printenv POSTGRES_USER 2>/dev/null)
+  PG_PASS=$(docker exec dvg-postgres printenv POSTGRES_PASSWORD 2>/dev/null)
+  if [ -n "$PG_USER" ] && [ -n "$PG_PASS" ]; then
+    SHADOW_DB="dvg_prisma_shadow_$$"
+    if docker exec -i dvg-postgres psql -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$SHADOW_DB\";" >/dev/null 2>&1; then
+      SHADOW_ARG="--shadow-database-url postgresql://$PG_USER:$PG_PASS@localhost:5432/$SHADOW_DB"
+      # Cleanup au exit du hook
+      trap "docker exec -i dvg-postgres psql -U \"$PG_USER\" -d postgres -c 'DROP DATABASE IF EXISTS \"$SHADOW_DB\";' >/dev/null 2>&1" EXIT
+    fi
+  fi
+fi
+
+# Si pas de shadow DB possible, avertir et passer
+if [ -z "$SHADOW_ARG" ]; then
+  echo "⚠️  Pas de container 'dvg-postgres' detecte pour la shadow DB."
+  echo "   Le check Prisma drift est saute en local — il sera rejoue en CI."
+  echo "   Pour activer le check local : 'docker compose up -d postgres'"
+  echo ""
+  exit 0
+fi
+
+# Comparer schema.prisma au resultat de toutes les migrations appliquees
+# dans la shadow DB.
+DIFF_OUTPUT=$(npx --no-install prisma migrate diff \
     --from-schema-datamodel prisma/schema.prisma \
     --to-migrations prisma/migrations \
-    --exit-code 2>&1; then
+    $SHADOW_ARG \
+    --exit-code 2>&1)
+DIFF_EXIT=$?
+
+if [ $DIFF_EXIT -ne 0 ]; then
+  if echo "$DIFF_OUTPUT" | grep -q "must pass the --shadow-database-url"; then
+    echo "⚠️  Shadow DB indisponible — check Prisma drift saute (sera valide en CI)."
+    exit 0
+  fi
+  echo "$DIFF_OUTPUT"
   echo ""
   echo "❌ Schema drift detected!"
   echo "   Your prisma/schema.prisma diverges from prisma/migrations/."
