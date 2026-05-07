@@ -145,27 +145,25 @@ describe('CoachingStaffController', () => {
   // l'instance. On y accède via CoachingStaffController.prototype.
 
   describe('PermissionsGuard metadata (SEC-003)', () => {
+    const getPerms = (methodName: keyof typeof CoachingStaffController.prototype): string[] => {
+      const fn = CoachingStaffController.prototype[methodName] as object;
+      return Reflect.getMetadata('permissions', fn) as string[];
+    };
+
     it('devrait avoir RequirePermission coaching_staff:read sur findByTeamAdmin', () => {
-      const metadata = Reflect.getMetadata(
-        'permissions',
-        CoachingStaffController.prototype.findByTeamAdmin,
-      );
-      expect(metadata).toContain('coaching_staff:read');
+      expect(getPerms('findByTeamAdmin')).toContain('coaching_staff:read');
     });
 
     it('devrait avoir RequirePermission coaching_staff:write sur create', () => {
-      const metadata = Reflect.getMetadata('permissions', CoachingStaffController.prototype.create);
-      expect(metadata).toContain('coaching_staff:write');
+      expect(getPerms('create')).toContain('coaching_staff:write');
     });
 
     it('devrait avoir RequirePermission coaching_staff:write sur update', () => {
-      const metadata = Reflect.getMetadata('permissions', CoachingStaffController.prototype.update);
-      expect(metadata).toContain('coaching_staff:write');
+      expect(getPerms('update')).toContain('coaching_staff:write');
     });
 
     it('devrait avoir RequirePermission coaching_staff:delete sur delete', () => {
-      const metadata = Reflect.getMetadata('permissions', CoachingStaffController.prototype.delete);
-      expect(metadata).toContain('coaching_staff:delete');
+      expect(getPerms('delete')).toContain('coaching_staff:delete');
     });
   });
 });

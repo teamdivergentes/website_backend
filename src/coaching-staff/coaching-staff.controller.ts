@@ -69,10 +69,7 @@ export class CoachingStaffController {
   @Delete('api/admin/teams/:teamId/coaching-staff/:id')
   @UseGuards(PermissionsGuard)
   @RequirePermission(PERMISSIONS.COACHING_STAFF_DELETE)
-  delete(
-    @Param('teamId', ParseIntPipe) teamId: number,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('teamId', ParseIntPipe) teamId: number, @Param('id', ParseIntPipe) id: number) {
     return this.coachingStaffService.delete(teamId, id);
   }
 }
