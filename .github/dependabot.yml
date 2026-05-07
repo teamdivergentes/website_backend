@@ -22,3 +22,10 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    # SECURITY: Trivy was compromised in a supply chain attack (March 2026, GHSA-69fq-xp46-6x23).
+    # Pin manuel sur v0.35.0 verified safe (SHA 57a97c7e). Dependabot a deja contourne cette
+    # regle sur le frontend (PR #164, 2026-04-29) en bumpant en v0.36.0 sans verification. On
+    # ignore desormais les bumps automatiques de cette action — toute mise a jour passe par
+    # revue manuelle. Voir aussi frontend/.github/dependabot.yml pour le meme bloc.
+    ignore:
+      - dependency-name: "aquasecurity/trivy-action"
