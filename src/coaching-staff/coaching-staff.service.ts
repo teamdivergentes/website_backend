@@ -184,12 +184,15 @@ export class CoachingStaffService {
 
   /**
    * Met à jour un membre du coaching staff.
+   * Vérifie que l'id appartient bien à teamId pour prévenir l'IDOR (DB-01).
    */
-  async update(id: number, dto: UpdateCoachingStaffDto) {
-    const existing = await this.prisma.coachingStaff.findUnique({ where: { id } });
+  async update(teamId: number, id: number, dto: UpdateCoachingStaffDto) {
+    const existing = await this.prisma.coachingStaff.findFirst({
+      where: { id, teamId },
+    });
 
     if (!existing) {
-      throw new NotFoundException(`Coach #${id} non trouvé`);
+      throw new NotFoundException(`Coach #${id} non trouvé dans l'équipe #${teamId}`);
     }
 
     if (dto.image !== undefined && existing.image && dto.image !== existing.image) {
@@ -219,12 +222,15 @@ export class CoachingStaffService {
 
   /**
    * Supprime un membre du coaching staff.
+   * Vérifie que l'id appartient bien à teamId pour prévenir l'IDOR (DB-01).
    */
-  async delete(id: number): Promise<{ message: string }> {
-    const existing = await this.prisma.coachingStaff.findUnique({ where: { id } });
+  async delete(teamId: number, id: number): Promise<{ message: string }> {
+    const existing = await this.prisma.coachingStaff.findFirst({
+      where: { id, teamId },
+    });
 
     if (!existing) {
-      throw new NotFoundException(`Coach #${id} non trouvé`);
+      throw new NotFoundException(`Coach #${id} non trouvé dans l'équipe #${teamId}`);
     }
 
     await this.prisma.coachingStaff.delete({ where: { id } });

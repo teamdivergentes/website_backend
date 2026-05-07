@@ -182,43 +182,50 @@ describe('CoachingStaffService', () => {
   describe('update', () => {
     it('should update a coaching staff member', async () => {
       const dto: UpdateCoachingStaffDto = { role: 'Manager' };
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(sampleCoach);
       mockPrisma.coachingStaff.update.mockResolvedValue({ ...sampleCoach, role: 'Manager' });
 
-      const result: Awaited<ReturnType<typeof service.update>> = await service.update(1, dto);
+      const result: Awaited<ReturnType<typeof service.update>> = await service.update(1, 1, dto);
       expect(result.role).toBe('Manager');
     });
 
     it('should delete old image when updating with new image', async () => {
       const dto: UpdateCoachingStaffDto = { image: '/uploads/new.jpg' };
       const coachWithImage = { ...sampleCoach, image: '/uploads/old.jpg' };
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(coachWithImage);
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(coachWithImage);
       mockPrisma.coachingStaff.update.mockResolvedValue({
         ...coachWithImage,
         image: '/uploads/new.jpg',
       });
 
-      await service.update(1, dto);
+      await service.update(1, 1, dto);
 
       expect(mockUploadService.deleteImage).toHaveBeenCalledWith('old.jpg');
     });
 
-    it('should throw NotFoundException when coach not found', async () => {
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(null);
-      await expect(service.update(999, {})).rejects.toThrow(NotFoundException);
+    it('should throw NotFoundException when coach not found in team', async () => {
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null);
+      await expect(service.update(1, 999, {})).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException (IDOR) when id belongs to another team (DB-01)', async () => {
+      // teamId=2 demande l'id=1 qui appartient à teamId=1 → findFirst({ id:1, teamId:2 }) = null
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null);
+      await expect(service.update(2, 1, { role: 'Hacker' })).rejects.toThrow(NotFoundException);
     });
 
     it('should regenerate slug when name changes', async () => {
       const dto: UpdateCoachingStaffDto = { name: 'New Name' };
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
-      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null);
+      mockPrisma.coachingStaff.findFirst
+        .mockResolvedValueOnce(sampleCoach) // findFirst({ id, teamId }) → coach trouvé
+        .mockResolvedValueOnce(null); // findFirst pour unicité du slug → libre
       mockPrisma.coachingStaff.update.mockResolvedValue({
         ...sampleCoach,
         name: 'New Name',
         slug: 'new-name',
       });
 
-      await service.update(1, dto);
+      await service.update(1, 1, dto);
 
       const updateCall = mockPrisma.coachingStaff.update.mock.calls[0] as [
         { where: { id: number }; data: { slug: string } },
@@ -228,38 +235,39 @@ describe('CoachingStaffService', () => {
 
     it('should throw ConflictException when slug is already taken on update', async () => {
       const dto: UpdateCoachingStaffDto = { slug: 'existing-slug' };
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
-      // Slug is taken by a different coach
-      mockPrisma.coachingStaff.findFirst.mockResolvedValue({ id: 99, slug: 'existing-slug' });
+      mockPrisma.coachingStaff.findFirst
+        .mockResolvedValueOnce(sampleCoach) // findFirst({ id, teamId }) → coach trouvé
+        .mockResolvedValueOnce({ id: 99, slug: 'existing-slug' }); // slug pris par un autre coach
 
-      await expect(service.update(1, dto)).rejects.toThrow(ConflictException);
+      await expect(service.update(1, 1, dto)).rejects.toThrow(ConflictException);
     });
 
     it('should update with explicit slug when not taken', async () => {
       const dto: UpdateCoachingStaffDto = { slug: 'new-unique-slug' };
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
-      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null); // slug not taken
+      mockPrisma.coachingStaff.findFirst
+        .mockResolvedValueOnce(sampleCoach) // findFirst({ id, teamId }) → coach trouvé
+        .mockResolvedValueOnce(null); // slug libre
       mockPrisma.coachingStaff.update.mockResolvedValue({
         ...sampleCoach,
         slug: 'new-unique-slug',
       });
 
-      const result: Awaited<ReturnType<typeof service.update>> = await service.update(1, dto);
+      const result: Awaited<ReturnType<typeof service.update>> = await service.update(1, 1, dto);
       expect(result.slug).toBe('new-unique-slug');
     });
 
     it('should throw NotFoundException on P2025 in update catch', async () => {
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(sampleCoach);
       mockPrisma.coachingStaff.update.mockRejectedValue({ code: 'P2025', message: 'Not found' });
 
-      await expect(service.update(1, { role: 'X' })).rejects.toThrow(NotFoundException);
+      await expect(service.update(1, 1, { role: 'X' })).rejects.toThrow(NotFoundException);
     });
 
     it('should re-throw non-P2025 errors from update', async () => {
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(sampleCoach);
       mockPrisma.coachingStaff.update.mockRejectedValue(new Error('DB timeout'));
 
-      await expect(service.update(1, { role: 'X' })).rejects.toThrow('DB timeout');
+      await expect(service.update(1, 1, { role: 'X' })).rejects.toThrow('DB timeout');
     });
   });
 
@@ -267,26 +275,32 @@ describe('CoachingStaffService', () => {
 
   describe('delete', () => {
     it('should delete a coaching staff member', async () => {
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(sampleCoach);
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(sampleCoach);
       mockPrisma.coachingStaff.delete.mockResolvedValue(sampleCoach);
 
-      const result = await service.delete(1);
+      const result = await service.delete(1, 1);
       expect(result).toEqual({ message: 'Coach supprimé avec succès' });
     });
 
     it('should delete image when deleting coach with image', async () => {
       const coachWithImage = { ...sampleCoach, image: '/uploads/coach.jpg' };
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(coachWithImage);
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(coachWithImage);
       mockPrisma.coachingStaff.delete.mockResolvedValue(coachWithImage);
 
-      await service.delete(1);
+      await service.delete(1, 1);
 
       expect(mockUploadService.deleteImage).toHaveBeenCalledWith('coach.jpg');
     });
 
-    it('should throw NotFoundException when coach not found', async () => {
-      mockPrisma.coachingStaff.findUnique.mockResolvedValue(null);
-      await expect(service.delete(999)).rejects.toThrow(NotFoundException);
+    it('should throw NotFoundException when coach not found in team', async () => {
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null);
+      await expect(service.delete(1, 999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException (IDOR) when id belongs to another team (DB-01)', async () => {
+      // teamId=2 tente de supprimer id=1 qui appartient à teamId=1
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null);
+      await expect(service.delete(2, 1)).rejects.toThrow(NotFoundException);
     });
   });
 

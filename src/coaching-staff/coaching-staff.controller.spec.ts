@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Reflector } from '@nestjs/core';
 import { CoachingStaffController } from './coaching-staff.controller';
 import { CoachingStaffService } from './coaching-staff.service';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { CreateCoachingStaffDto } from './dto/create-coaching-staff.dto';
 import { UpdateCoachingStaffDto } from './dto/update-coaching-staff.dto';
 import { ReorderCoachingStaffDto } from './dto/reorder-coaching-staff.dto';
@@ -24,6 +26,8 @@ describe('CoachingStaffController', () => {
           provide: CoachingStaffService,
           useValue: mockCoachingStaffService,
         },
+        PermissionsGuard,
+        Reflector,
       ],
     }).compile();
 
@@ -90,14 +94,14 @@ describe('CoachingStaffController', () => {
   // ─── update (admin) ──────────────────────────────────────────────────────────
 
   describe('update', () => {
-    it("devrait appeler coachingStaffService.update avec l'id et le DTO", async () => {
+    it('devrait appeler coachingStaffService.update avec teamId, id et le DTO (DB-01)', async () => {
       const dto: UpdateCoachingStaffDto = { role: 'Head Analyst' };
       const updated = { id: 1, name: 'Head Coach', role: 'Head Analyst', teamId: 1 };
       mockCoachingStaffService.update.mockResolvedValue(updated);
 
-      const result = await controller.update(1, dto);
+      const result = await controller.update(1, 1, dto);
 
-      expect(mockCoachingStaffService.update).toHaveBeenCalledWith(1, dto);
+      expect(mockCoachingStaffService.update).toHaveBeenCalledWith(1, 1, dto);
       expect(result).toEqual(updated);
     });
   });
@@ -106,31 +110,60 @@ describe('CoachingStaffController', () => {
 
   describe('reorder', () => {
     it('devrait appeler coachingStaffService.reorder avec le teamId et le DTO', async () => {
-      const dto: ReorderCoachingStaffDto = { ids: [2, 1, 3] };
-      const reordered = [
-        { id: 2, position: 0 },
-        { id: 1, position: 1 },
-        { id: 3, position: 2 },
-      ];
-      mockCoachingStaffService.reorder.mockResolvedValue(reordered);
+      const dto: ReorderCoachingStaffDto = {
+        items: [
+          { id: 2, position: 0 },
+          { id: 1, position: 1 },
+        ],
+      };
+      mockCoachingStaffService.reorder.mockResolvedValue({
+        message: 'Ordre mis à jour avec succès',
+      });
 
       const result = await controller.reorder(1, dto);
 
       expect(mockCoachingStaffService.reorder).toHaveBeenCalledWith(1, dto);
-      expect(result).toEqual(reordered);
+      expect(result).toEqual({ message: 'Ordre mis à jour avec succès' });
     });
   });
 
   // ─── delete (admin) ──────────────────────────────────────────────────────────
 
   describe('delete', () => {
-    it("devrait appeler coachingStaffService.delete avec l'id", async () => {
-      mockCoachingStaffService.delete.mockResolvedValue({ id: 1 });
+    it('devrait appeler coachingStaffService.delete avec teamId et id (DB-01)', async () => {
+      mockCoachingStaffService.delete.mockResolvedValue({ message: 'Coach supprimé avec succès' });
 
-      const result = await controller.delete(1);
+      const result = await controller.delete(1, 1);
 
-      expect(mockCoachingStaffService.delete).toHaveBeenCalledWith(1);
-      expect(result).toEqual({ id: 1 });
+      expect(mockCoachingStaffService.delete).toHaveBeenCalledWith(1, 1);
+      expect(result).toEqual({ message: 'Coach supprimé avec succès' });
+    });
+  });
+
+  // ─── PermissionsGuard (SEC-003) ───────────────────────────────────────────────
+  // Les métadonnées NestJS sont posées sur le prototype de la classe, pas sur
+  // l'instance. On y accède via CoachingStaffController.prototype.
+
+  describe('PermissionsGuard metadata (SEC-003)', () => {
+    const getPerms = (methodName: keyof typeof CoachingStaffController.prototype): string[] => {
+      const fn = CoachingStaffController.prototype[methodName] as object;
+      return Reflect.getMetadata('permissions', fn) as string[];
+    };
+
+    it('devrait avoir RequirePermission coaching_staff:read sur findByTeamAdmin', () => {
+      expect(getPerms('findByTeamAdmin')).toContain('coaching_staff:read');
+    });
+
+    it('devrait avoir RequirePermission coaching_staff:write sur create', () => {
+      expect(getPerms('create')).toContain('coaching_staff:write');
+    });
+
+    it('devrait avoir RequirePermission coaching_staff:write sur update', () => {
+      expect(getPerms('update')).toContain('coaching_staff:write');
+    });
+
+    it('devrait avoir RequirePermission coaching_staff:delete sur delete', () => {
+      expect(getPerms('delete')).toContain('coaching_staff:delete');
     });
   });
 });
