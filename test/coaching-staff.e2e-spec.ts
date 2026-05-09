@@ -36,13 +36,47 @@ describe('CoachingStaffController (e2e)', () => {
 
     // Garantit admin role + user
     const hashedPassword = await bcrypt.hash('admin123', 10);
-    const requiredPerms = ['coaching_staff:read', 'coaching_staff:write', 'coaching_staff:delete'];
+    // Set complet des permissions Admin attendues par les autres suites e2e
+    // (roles.e2e-spec, teams.e2e-spec, etc.) + les permissions specifiques au
+    // coaching staff. Sur DB fraiche, Admin est cree avec ce set complet pour
+    // ne casser aucune autre suite executee apres celle-ci en --runInBand.
+    const adminPerms = [
+      'users:read',
+      'users:write',
+      'users:delete',
+      'roles:read',
+      'roles:write',
+      'roles:delete',
+      'teams:read',
+      'teams:write',
+      'teams:delete',
+      'games:read',
+      'games:write',
+      'games:delete',
+      'sponsors:read',
+      'sponsors:write',
+      'sponsors:delete',
+      'staff:read',
+      'staff:write',
+      'staff:delete',
+      'config:read',
+      'config:write',
+      'annonces:read',
+      'annonces:write',
+      'annonces:delete',
+      'articles:read',
+      'articles:write',
+      'articles:delete',
+      'coaching_staff:read',
+      'coaching_staff:write',
+      'coaching_staff:delete',
+    ];
     const adminRole = await prisma.role.upsert({
       where: { name: 'Admin' },
       update: {},
       create: {
         name: 'Admin',
-        permissions: requiredPerms,
+        permissions: adminPerms,
         isSystem: true,
       },
     });
@@ -50,6 +84,7 @@ describe('CoachingStaffController (e2e)', () => {
     // Si Admin existait deja (cree par une autre suite e2e en mode --runInBand),
     // l'upsert ci-dessus n'a pas mis a jour les permissions. On force ici l'ajout
     // des permissions coaching_staff:* manquantes pour eviter les 403.
+    const requiredPerms = ['coaching_staff:read', 'coaching_staff:write', 'coaching_staff:delete'];
     const missing = requiredPerms.filter((p) => !adminRole.permissions.includes(p));
     if (missing.length > 0) {
       await prisma.role.update({
