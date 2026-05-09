@@ -8,7 +8,7 @@ export class SitemapController {
 
   @Public()
   @Get('sitemap.xml')
-  @Header('Content-Type', 'application/xml')
+  @Header('Content-Type', 'application/xml; charset=UTF-8')
   async getSitemap(): Promise<string> {
     const rawUrl = process.env.SITE_URL ?? 'https://teamdivergentes.fr';
     try {
