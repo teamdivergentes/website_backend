@@ -17,6 +17,7 @@ describe('SitemapService', () => {
     teamMember: { findMany: jest.Mock };
     recruitmentPost: { findMany: jest.Mock };
     article: { findMany: jest.Mock };
+    config: { findUnique: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -25,6 +26,7 @@ describe('SitemapService', () => {
       teamMember: { findMany: jest.fn() },
       recruitmentPost: { findMany: jest.fn() },
       article: { findMany: jest.fn() },
+      config: { findUnique: jest.fn() },
     };
 
     // Default: all findMany return empty arrays (overridden per test when needed)
@@ -32,6 +34,8 @@ describe('SitemapService', () => {
     prismaService.teamMember.findMany.mockResolvedValue([]);
     prismaService.recruitmentPost.findMany.mockResolvedValue([]);
     prismaService.article.findMany.mockResolvedValue([]);
+    // Default: page_twitch_visible = true
+    prismaService.config.findUnique.mockResolvedValue({ value: 'true' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,7 +55,7 @@ describe('SitemapService', () => {
       const xml = await service.generateSitemapXml(BASE_URL);
 
       expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-      expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
+      expect(xml).toContain('xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"');
       expect(xml).toContain('</urlset>');
     });
 
@@ -69,6 +73,7 @@ describe('SitemapService', () => {
         '/articles',
         '/mentions-legales',
         '/politique-de-confidentialite',
+        '/twitch',
       ];
 
       for (const page of staticPages) {
@@ -140,8 +145,18 @@ describe('SitemapService', () => {
 
     it('devrait inclure les articles publies dans le sitemap', async () => {
       prismaService.article.findMany.mockResolvedValue([
-        { slug: 'mon-premier-article', updatedAt: ARTICLE_DATE },
-        { slug: 'victoire-valorant', updatedAt: ARTICLE_DATE },
+        {
+          slug: 'mon-premier-article',
+          title: 'Premier Article',
+          imageUrl: null,
+          updatedAt: ARTICLE_DATE,
+        },
+        {
+          slug: 'victoire-valorant',
+          title: 'Victoire Valorant',
+          imageUrl: null,
+          updatedAt: ARTICLE_DATE,
+        },
       ]);
 
       const xml = await service.generateSitemapXml(BASE_URL);
@@ -257,7 +272,16 @@ describe('SitemapService', () => {
       expect(mentionsBlock).toContain('<changefreq>yearly</changefreq>');
     });
 
-    it('devrait generer un XML contenant 10 pages statiques quand aucune donnee dynamique', async () => {
+    it('devrait generer un XML contenant 11 pages statiques quand aucune donnee dynamique (twitch visible)', async () => {
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      const urlCount = (xml.match(/<url>/g) ?? []).length;
+      expect(urlCount).toBe(11);
+    });
+
+    it('devrait generer un XML contenant 10 pages statiques quand twitch est masque', async () => {
+      prismaService.config.findUnique.mockResolvedValue({ value: 'false' });
+
       const xml = await service.generateSitemapXml(BASE_URL);
 
       const urlCount = (xml.match(/<url>/g) ?? []).length;
@@ -276,14 +300,157 @@ describe('SitemapService', () => {
         { slug: 'coach', updatedAt: RECRUIT_DATE },
       ]);
       prismaService.article.findMany.mockResolvedValue([
-        { slug: 'article-test', updatedAt: ARTICLE_DATE },
+        {
+          slug: 'article-test',
+          title: 'Article Test',
+          imageUrl: null,
+          updatedAt: ARTICLE_DATE,
+        },
       ]);
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
-      // 10 static + 2 teams + 1 member + 1 recruitment + 1 article = 15
+      // 11 static (twitch visible) + 2 teams + 1 member + 1 recruitment + 1 article = 16
       const urlCount = (xml.match(/<url>/g) ?? []).length;
-      expect(urlCount).toBe(15);
+      expect(urlCount).toBe(16);
+    });
+
+    // --- US: /twitch dans le sitemap ---
+
+    it('devrait inclure /twitch dans le sitemap quand page_twitch_visible est true', async () => {
+      prismaService.config.findUnique.mockResolvedValue({ value: 'true' });
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain(`<loc>${BASE_URL}/twitch</loc>`);
+    });
+
+    it('devrait exclure /twitch du sitemap quand page_twitch_visible est false', async () => {
+      prismaService.config.findUnique.mockResolvedValue({ value: 'false' });
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).not.toContain(`<loc>${BASE_URL}/twitch</loc>`);
+    });
+
+    it('devrait inclure /twitch avec changefreq daily et priority 0.7', async () => {
+      prismaService.config.findUnique.mockResolvedValue({ value: 'true' });
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      const twitchIndex = xml.indexOf(`<loc>${BASE_URL}/twitch</loc>`);
+      expect(twitchIndex).toBeGreaterThan(-1);
+
+      const twitchBlock = xml.substring(twitchIndex - 10, twitchIndex + 300);
+      expect(twitchBlock).toContain('<changefreq>daily</changefreq>');
+      expect(twitchBlock).toContain('<priority>0.7</priority>');
+    });
+
+    it('devrait inclure /twitch par defaut si la config page_twitch_visible est absente', async () => {
+      prismaService.config.findUnique.mockResolvedValue(null);
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain(`<loc>${BASE_URL}/twitch</loc>`);
+    });
+
+    // --- US: namespace image et balises image:image ---
+
+    it('devrait inclure le namespace image dans urlset', async () => {
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain('xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"');
+    });
+
+    it('devrait inclure un bloc image:image pour un article avec imageUrl', async () => {
+      prismaService.article.findMany.mockResolvedValue([
+        {
+          slug: 'article-avec-image',
+          title: 'Mon Super Article',
+          imageUrl: '/uploads/test-image.jpg',
+          updatedAt: ARTICLE_DATE,
+        },
+      ]);
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain('<image:image>');
+      expect(xml).toContain(`<image:loc>${BASE_URL}/uploads/test-image.jpg</image:loc>`);
+      expect(xml).toContain('<image:title>Mon Super Article</image:title>');
+      expect(xml).toContain('</image:image>');
+    });
+
+    it('ne devrait pas inclure de bloc image:image pour un article sans imageUrl', async () => {
+      prismaService.article.findMany.mockResolvedValue([
+        {
+          slug: 'article-sans-image',
+          title: 'Article Sans Image',
+          imageUrl: null,
+          updatedAt: ARTICLE_DATE,
+        },
+      ]);
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      const articleIndex = xml.indexOf(`<loc>${BASE_URL}/articles/article-sans-image</loc>`);
+      expect(articleIndex).toBeGreaterThan(-1);
+
+      // Extraire le bloc <url> de cet article
+      const urlStart = xml.lastIndexOf('<url>', articleIndex);
+      const urlEnd = xml.indexOf('</url>', articleIndex) + '</url>'.length;
+      const urlBlock = xml.substring(urlStart, urlEnd);
+
+      expect(urlBlock).not.toContain('<image:image>');
+    });
+
+    it("devrait echapper les caracteres speciaux XML dans le titre de l'image", async () => {
+      prismaService.article.findMany.mockResolvedValue([
+        {
+          slug: 'article-special',
+          title: 'Article avec & des <balises> et "guillemets"',
+          imageUrl: '/uploads/special.jpg',
+          updatedAt: ARTICLE_DATE,
+        },
+      ]);
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain(
+        '<image:title>Article avec &amp; des &lt;balises&gt; et &quot;guillemets&quot;</image:title>',
+      );
+      expect(xml).not.toContain('<image:title>Article avec & des <balises>');
+    });
+
+    it("devrait construire l'URL absolue de l'image en concatenant siteUrl", async () => {
+      prismaService.article.findMany.mockResolvedValue([
+        {
+          slug: 'article-url-test',
+          title: 'Test URL',
+          imageUrl: '/uploads/mon-image.webp',
+          updatedAt: ARTICLE_DATE,
+        },
+      ]);
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain(
+        `<image:loc>https://teamdivergentes.fr/uploads/mon-image.webp</image:loc>`,
+      );
+    });
+
+    it('devrait inclure les balises image:image pour les articles calls Prisma avec imageUrl dans select', async () => {
+      await service.generateSitemapXml(BASE_URL);
+
+      const calls = prismaService.article.findMany.mock.calls as Array<
+        [
+          {
+            where: { published: boolean };
+            select: { slug: boolean; title: boolean; imageUrl: boolean; updatedAt: boolean };
+          },
+        ]
+      >;
+      expect(calls[0][0].select.imageUrl).toBe(true);
+      expect(calls[0][0].select.title).toBe(true);
     });
   });
 });
