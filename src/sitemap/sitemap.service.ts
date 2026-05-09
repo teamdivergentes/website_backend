@@ -27,6 +27,8 @@ const STATIC_PAGES: StaticPage[] = [
   { path: '/politique-de-confidentialite', changefreq: 'yearly', priority: '0.3' },
 ];
 
+const TWITCH_PAGE: StaticPage = { path: '/twitch', changefreq: 'daily', priority: '0.7' };
+
 @Injectable()
 export class SitemapService {
   private readonly logger = new Logger(SitemapService.name);
@@ -53,28 +55,43 @@ export class SitemapService {
   }
 
   /**
-   * Build a single <url> XML block.
+   * Build a single <url> XML block, with an optional image:image block.
    */
   private buildUrlEntry(
     loc: string,
     changefreq: string,
     priority: string,
     lastmod?: string,
+    imageBlock?: string,
   ): string {
     const lastmodLine = lastmod ? `    <lastmod>${lastmod}</lastmod>\n` : '';
+    const imageSection = imageBlock ? `${imageBlock}\n` : '';
     return (
       `  <url>\n` +
       `    <loc>${this.escapeXml(loc)}</loc>\n` +
       lastmodLine +
       `    <changefreq>${changefreq}</changefreq>\n` +
       `    <priority>${priority}</priority>\n` +
+      imageSection +
       `  </url>`
+    );
+  }
+
+  /**
+   * Build the <image:image> XML block for an article image.
+   */
+  private buildImageBlock(imageAbsoluteUrl: string, title: string): string {
+    return (
+      `    <image:image>\n` +
+      `      <image:loc>${this.escapeXml(imageAbsoluteUrl)}</image:loc>\n` +
+      `      <image:title>${this.escapeXml(title)}</image:title>\n` +
+      `    </image:image>`
     );
   }
 
   async generateSitemapXml(baseUrl: string): Promise<string> {
     try {
-      const [teams, members, recruitmentPosts, articles] = await Promise.all([
+      const [teams, members, recruitmentPosts, articles, twitchConfig] = await Promise.all([
         this.prisma.team.findMany({
           where: { active: true },
           select: {
@@ -111,8 +128,13 @@ export class SitemapService {
           },
           select: {
             slug: true,
+            title: true,
+            imageUrl: true,
             updatedAt: true,
           },
+        }),
+        this.prisma.config.findUnique({
+          where: { key: 'page_twitch_visible' },
         }),
       ]);
 
@@ -124,6 +146,18 @@ export class SitemapService {
       for (const page of STATIC_PAGES) {
         urlEntries.push(
           this.buildUrlEntry(`${normalizedBase}${page.path}`, page.changefreq, page.priority),
+        );
+      }
+
+      // /twitch page — visible sauf si page_twitch_visible explicitement 'false'
+      const isTwitchVisible = twitchConfig?.value !== 'false';
+      if (isTwitchVisible) {
+        urlEntries.push(
+          this.buildUrlEntry(
+            `${normalizedBase}${TWITCH_PAGE.path}`,
+            TWITCH_PAGE.changefreq,
+            TWITCH_PAGE.priority,
+          ),
         );
       }
 
@@ -173,23 +207,26 @@ export class SitemapService {
         );
       }
 
-      // Dynamic article pages
-      const articleEntries: DynamicEntry[] = articles.map((article) => ({
-        loc: `${normalizedBase}/articles/${article.slug}`,
-        changefreq: 'weekly',
-        priority: '0.8',
-        lastmod: this.formatDate(article.updatedAt),
-      }));
+      // Dynamic article pages — avec bloc image:image si imageUrl present
+      for (const article of articles) {
+        const loc = `${normalizedBase}/articles/${article.slug}`;
+        const lastmod = this.formatDate(article.updatedAt);
 
-      for (const entry of articleEntries) {
-        urlEntries.push(
-          this.buildUrlEntry(entry.loc, entry.changefreq, entry.priority, entry.lastmod),
-        );
+        let imageBlock: string | undefined;
+        if (article.imageUrl) {
+          const imageAbsoluteUrl = article.imageUrl.startsWith('http')
+            ? article.imageUrl
+            : `${normalizedBase}${article.imageUrl}`;
+          imageBlock = this.buildImageBlock(imageAbsoluteUrl, article.title);
+        }
+
+        urlEntries.push(this.buildUrlEntry(loc, 'weekly', '0.8', lastmod, imageBlock));
       }
 
       return (
         `<?xml version="1.0" encoding="UTF-8"?>\n` +
-        `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+        `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"` +
+        ` xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n` +
         urlEntries.join('\n') +
         `\n</urlset>`
       );
