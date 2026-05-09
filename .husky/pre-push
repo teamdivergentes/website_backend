@@ -74,6 +74,13 @@ if [ $DIFF_EXIT -ne 0 ]; then
     echo "⚠️  Shadow DB indisponible — check Prisma drift saute (sera valide en CI)."
     exit 0
   fi
+  # P1001 : Prisma ne peut pas atteindre la DB (ex. WSL2 reseau Docker)
+  # Le check est rejoue en CI — on passe avec un avertissement.
+  if echo "$DIFF_OUTPUT" | grep -q "P1001"; then
+    echo "⚠️  Prisma ne peut pas atteindre la DB locale (P1001, probablement WSL2)."
+    echo "   Le check Prisma drift est saute — il sera rejoue en CI."
+    exit 0
+  fi
   echo "$DIFF_OUTPUT"
   echo ""
   echo "❌ Schema drift detected!"

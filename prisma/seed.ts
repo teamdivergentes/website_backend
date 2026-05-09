@@ -239,7 +239,12 @@ async function main() {
     {
       key: 'page_articles_visible',
       value: 'true',
-      description: 'Afficher la page Articles',
+      description: 'Afficher la page Articles/Annonces',
+    },
+    {
+      key: 'page_twitch_visible',
+      value: 'true',
+      description: 'Afficher la page En Live (Twitch)',
     },
   ];
 
