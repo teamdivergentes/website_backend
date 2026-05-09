@@ -169,6 +169,8 @@ jobs:
         run: npx prisma generate
 
       - name: Run ESLint
+        # --max-warnings=0 enforced in package.json lint script (EPIC-19).
+        # CI fails on any ESLint warning, not just errors.
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: npm run lint
