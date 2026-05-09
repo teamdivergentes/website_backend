@@ -57,7 +57,7 @@
     "slugify": "^1.6.8"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.2.0",
+    "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^10.0.1",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
