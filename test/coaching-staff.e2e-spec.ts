@@ -36,15 +36,27 @@ describe('CoachingStaffController (e2e)', () => {
 
     // Garantit admin role + user
     const hashedPassword = await bcrypt.hash('admin123', 10);
+    const requiredPerms = ['coaching_staff:read', 'coaching_staff:write', 'coaching_staff:delete'];
     const adminRole = await prisma.role.upsert({
       where: { name: 'Admin' },
       update: {},
       create: {
         name: 'Admin',
-        permissions: ['coaching_staff:read', 'coaching_staff:write', 'coaching_staff:delete'],
+        permissions: requiredPerms,
         isSystem: true,
       },
     });
+
+    // Si Admin existait deja (cree par une autre suite e2e en mode --runInBand),
+    // l'upsert ci-dessus n'a pas mis a jour les permissions. On force ici l'ajout
+    // des permissions coaching_staff:* manquantes pour eviter les 403.
+    const missing = requiredPerms.filter((p) => !adminRole.permissions.includes(p));
+    if (missing.length > 0) {
+      await prisma.role.update({
+        where: { id: adminRole.id },
+        data: { permissions: [...adminRole.permissions, ...missing] },
+      });
+    }
 
     await prisma.user.upsert({
       where: { email: 'admin@teamdivergentes.fr' },
@@ -172,13 +184,13 @@ describe('CoachingStaffController (e2e)', () => {
     });
   });
 
-  // ─── PATCH /api/admin/coaching-staff/:id ─────────────────────────────────────
+  // ─── PATCH /api/admin/teams/:teamId/coaching-staff/:id ───────────────────────
 
-  describe('PATCH /api/admin/coaching-staff/:id', () => {
+  describe('PATCH /api/admin/teams/:teamId/coaching-staff/:id', () => {
     it('mise à jour du rôle → 200', async () => {
       if (!createdCoachId) return;
       const res = await request(server())
-        .patch(`/api/admin/coaching-staff/${createdCoachId}`)
+        .patch(`/api/admin/teams/${testTeamId}/coaching-staff/${createdCoachId}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'Manager' })
         .expect(200);
@@ -189,7 +201,7 @@ describe('CoachingStaffController (e2e)', () => {
 
     it('id inexistant → 404', async () => {
       await request(server())
-        .patch('/api/admin/coaching-staff/999999')
+        .patch(`/api/admin/teams/${testTeamId}/coaching-staff/999999`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'Coach' })
         .expect(404);
@@ -197,23 +209,23 @@ describe('CoachingStaffController (e2e)', () => {
 
     it('sans token → 401', async () => {
       await request(server())
-        .patch(`/api/admin/coaching-staff/1`)
+        .patch(`/api/admin/teams/${testTeamId}/coaching-staff/1`)
         .send({ role: 'Coach' })
         .expect(401);
     });
   });
 
-  // ─── DELETE /api/admin/coaching-staff/:id ────────────────────────────────────
+  // ─── DELETE /api/admin/teams/:teamId/coaching-staff/:id ──────────────────────
 
-  describe('DELETE /api/admin/coaching-staff/:id', () => {
+  describe('DELETE /api/admin/teams/:teamId/coaching-staff/:id', () => {
     it('sans token → 401', async () => {
-      await request(server()).delete('/api/admin/coaching-staff/1').expect(401);
+      await request(server()).delete(`/api/admin/teams/${testTeamId}/coaching-staff/1`).expect(401);
     });
 
     it('id existant → 200 + message de confirmation', async () => {
       if (!createdCoachId) return;
       const res = await request(server())
-        .delete(`/api/admin/coaching-staff/${createdCoachId}`)
+        .delete(`/api/admin/teams/${testTeamId}/coaching-staff/${createdCoachId}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
@@ -224,7 +236,7 @@ describe('CoachingStaffController (e2e)', () => {
 
     it('id inexistant → 404', async () => {
       await request(server())
-        .delete('/api/admin/coaching-staff/999999')
+        .delete(`/api/admin/teams/${testTeamId}/coaching-staff/999999`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(404);
     });
