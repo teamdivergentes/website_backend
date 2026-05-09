@@ -91,7 +91,9 @@ INSERT INTO configs (key, value, description, "createdAt", "updatedAt") VALUES
   ('page_contact_visible', 'true', 'Afficher la page Contact', NOW(), NOW()),
   ('page_equipes_visible', 'true', 'Afficher la page Equipes/Ambassadeurs', NOW(), NOW()),
   ('page_sponsors_visible', 'true', 'Afficher la page Sponsors', NOW(), NOW()),
-  ('page_recrutement_visible', 'true', 'Afficher la page Recrutement', NOW(), NOW())
+  ('page_recrutement_visible', 'true', 'Afficher la page Recrutement', NOW(), NOW()),
+  ('page_articles_visible', 'true', 'Afficher la page Articles/Annonces', NOW(), NOW()),
+  ('page_twitch_visible', 'true', 'Afficher la page En Live (Twitch)', NOW(), NOW())
 ON CONFLICT (key) DO NOTHING;
 
 -- 4. Creation des membres du staff initiaux
