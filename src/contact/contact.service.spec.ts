@@ -218,9 +218,9 @@ describe('ContactService', () => {
         const config: Record<string, string | null> = {
           contact_smtp_host: 'smtp.example.com',
           contact_smtp_port: '587',
-          contact_smtp_user: null as unknown as string,
+          contact_smtp_user: null,
           contact_smtp_pass: 'secret',
-          contact_discord_webhook: null as unknown as string,
+          contact_discord_webhook: null,
         };
         return Promise.resolve(config[key] ?? null);
       });
