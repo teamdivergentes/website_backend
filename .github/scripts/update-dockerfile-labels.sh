@@ -6,12 +6,12 @@
 set -euo pipefail
 
 IMAGE_TAG="$1"
-WORKFLOW_TAG="$2"
-TAG_SUFFIX="$3"
+WORKFLOW_TAG="${2:-unknown}"
+TAG_SUFFIX="${3:-sha}"
 BUILD_STATUS="$4"
-LINT_STATUS="$5"
-TEST_STATUS="$6"
-SEMGREP_STATUS="$7"
+LINT_STATUS="${5:-unknown}"
+TEST_STATUS="${6:-unknown}"
+SEMGREP_STATUS="${7:-unknown}"
 GITHUB_SHA="$8"
 GITHUB_HEAD_REF="$9"
 GITHUB_ACTOR="${10}"
@@ -23,27 +23,22 @@ if [[ -z "$GITHUB_HEAD_REF" ]]; then
     GITHUB_HEAD_REF="tag-release"
 fi
 
-# Vérifier que tous les paramètres sont fournis
-if [[ -z "$IMAGE_TAG" || -z "$WORKFLOW_TAG" || -z "$TAG_SUFFIX" || -z "$BUILD_STATUS" || -z "$LINT_STATUS" || -z "$TEST_STATUS" || -z "$SEMGREP_STATUS" || -z "$GITHUB_SHA" || -z "$GITHUB_ACTOR" || -z "$BUILD_TIME" || -z "$GITHUB_REPOSITORY" ]]; then
+# Vérifier que les paramètres requis sont fournis (les champs optionnels ont des valeurs par défaut)
+if [[ -z "$IMAGE_TAG" || -z "$BUILD_STATUS" || -z "$GITHUB_SHA" || -z "$GITHUB_ACTOR" || -z "$BUILD_TIME" || -z "$GITHUB_REPOSITORY" ]]; then
     echo "❌ Usage: ./update-dockerfile-labels.sh <image-tag> <workflow-tag> <tag-suffix> <build-status> <lint-status> <test-status> <semgrep-status> <github-sha> <github-head-ref> <github-actor> <build-time> <github-repository>"
     exit 1
 fi
 
-# Vérifier chaque paramètre individuellement
+# Vérifier chaque paramètre requis individuellement
 if [[ -z "$IMAGE_TAG" ]]; then echo "❌ IMAGE_TAG est vide"; fi
-if [[ -z "$WORKFLOW_TAG" ]]; then echo "❌ WORKFLOW_TAG est vide"; fi
-if [[ -z "$TAG_SUFFIX" ]]; then echo "❌ TAG_SUFFIX est vide"; fi
 if [[ -z "$BUILD_STATUS" ]]; then echo "❌ BUILD_STATUS est vide"; fi
-if [[ -z "$LINT_STATUS" ]]; then echo "❌ LINT_STATUS est vide"; fi
-if [[ -z "$TEST_STATUS" ]]; then echo "❌ TEST_STATUS est vide"; fi
-if [[ -z "$SEMGREP_STATUS" ]]; then echo "❌ SEMGREP_STATUS est vide"; fi
 if [[ -z "$GITHUB_SHA" ]]; then echo "❌ GITHUB_SHA est vide"; fi
 if [[ -z "$GITHUB_ACTOR" ]]; then echo "❌ GITHUB_ACTOR est vide"; fi
 if [[ -z "$BUILD_TIME" ]]; then echo "❌ BUILD_TIME est vide"; fi
 if [[ -z "$GITHUB_REPOSITORY" ]]; then echo "❌ GITHUB_REPOSITORY est vide"; fi
 
-if [[ -z "$IMAGE_TAG" || -z "$WORKFLOW_TAG" || -z "$TAG_SUFFIX" || -z "$BUILD_STATUS" || -z "$LINT_STATUS" || -z "$TEST_STATUS" || -z "$SEMGREP_STATUS" || -z "$GITHUB_SHA" || -z "$GITHUB_ACTOR" || -z "$BUILD_TIME" || -z "$GITHUB_REPOSITORY" ]]; then
-    echo "❌ Un ou plusieurs paramètres sont vides"
+if [[ -z "$IMAGE_TAG" || -z "$BUILD_STATUS" || -z "$GITHUB_SHA" || -z "$GITHUB_ACTOR" || -z "$BUILD_TIME" || -z "$GITHUB_REPOSITORY" ]]; then
+    echo "❌ Un ou plusieurs paramètres requis sont vides"
     exit 1
 fi
 
