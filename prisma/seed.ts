@@ -38,6 +38,12 @@ async function main() {
     'recrutement:write',
     'recrutement:delete',
     'analytics:read',
+    'twitch_channels:read',
+    'twitch_channels:write',
+    'twitch_channels:delete',
+    'coaching_staff:read',
+    'coaching_staff:write',
+    'coaching_staff:delete',
   ];
 
   const cmPermissions = [
@@ -68,6 +74,12 @@ async function main() {
     'recrutement:read',
     'recrutement:write',
     'recrutement:delete',
+    'twitch_channels:read',
+    'twitch_channels:write',
+    'twitch_channels:delete',
+    'coaching_staff:read',
+    'coaching_staff:write',
+    'coaching_staff:delete',
   ];
 
   const adminRole = await prisma.role.upsert({
@@ -227,7 +239,12 @@ async function main() {
     {
       key: 'page_articles_visible',
       value: 'true',
-      description: 'Afficher la page Articles',
+      description: 'Afficher la page Articles/Annonces',
+    },
+    {
+      key: 'page_twitch_visible',
+      value: 'true',
+      description: 'Afficher la page En Live (Twitch)',
     },
   ];
 
@@ -436,6 +453,91 @@ async function main() {
   }
 
   console.log('Recruitment posts created:', recruitmentPosts.length);
+
+  // Create sample TwitchChannels
+  const twitchChannels = [
+    {
+      username: 'pendulelapin7',
+      displayName: 'Pendulelapin7',
+      gameLabel: 'League of Legends',
+      description: 'Joueur pro DVG LoL',
+      active: true,
+      position: 0,
+      // teamMemberId : résolu dynamiquement ci-dessous
+    },
+    {
+      username: 'teamdivergentes',
+      displayName: 'Team Divergentes',
+      gameLabel: null,
+      description: 'Chaîne officielle de la structure Team Divergentes',
+      active: true,
+      position: 1,
+      teamMemberId: null,
+    },
+  ];
+
+  // Chercher un TeamMember existant pour lier pendulelapin7 (premier membre trouvé)
+  const firstMember = await prisma.teamMember.findFirst({ orderBy: { id: 'asc' } });
+
+  for (const [i, ch] of twitchChannels.entries()) {
+    await prisma.twitchChannel.upsert({
+      where: { username: ch.username },
+      update: {},
+      create: {
+        ...ch,
+        teamMemberId: i === 0 && firstMember ? firstMember.id : null,
+      },
+    });
+  }
+
+  console.log('TwitchChannels created:', twitchChannels.length);
+
+  // Create sample CoachingStaff (rattachés à la première team si elle existe)
+  const firstTeam = await prisma.team.findFirst({ orderBy: { id: 'asc' } });
+
+  if (firstTeam) {
+    const coachingStaffSeed = [
+      {
+        name: 'DVG Head Coach',
+        realName: null,
+        role: 'Head Coach',
+        position: 0,
+        slug: 'dvg-head-coach',
+      },
+      {
+        name: 'DVG Drafter',
+        realName: null,
+        role: 'Drafter',
+        position: 1,
+        slug: 'dvg-drafter',
+      },
+      {
+        name: 'DVG Manager',
+        realName: null,
+        role: 'Manager',
+        position: 2,
+        slug: null,
+      },
+    ];
+
+    for (const staff of coachingStaffSeed) {
+      const existing = staff.slug
+        ? await prisma.coachingStaff.findUnique({ where: { slug: staff.slug } })
+        : await prisma.coachingStaff.findFirst({
+            where: { name: staff.name, teamId: firstTeam.id },
+          });
+
+      if (!existing) {
+        await prisma.coachingStaff.create({
+          data: { ...staff, teamId: firstTeam.id },
+        });
+      }
+    }
+
+    console.log('CoachingStaff created:', coachingStaffSeed.length);
+  } else {
+    console.log('No team found — CoachingStaff seed skipped');
+  }
 
   console.log('Seed completed successfully!');
 }

@@ -5,6 +5,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { loginAsAdmin } from './helpers/login';
 
 /**
  * Tests E2E du module Users.
@@ -109,16 +110,9 @@ describe('UsersController (e2e)', () => {
       },
     });
 
-    // Login admin
-    const adminLogin = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
-
-    const adminBody = adminLogin.body as { access_token?: string };
-    if (!adminBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin");
-    }
-    adminToken = adminBody.access_token;
+    // Login admin via cookie
+    const { token: adminTok } = await loginAsAdmin(server);
+    adminToken = adminTok;
 
     // Créer un rôle non-admin pour les tests d'autorisation
     const existingNonAdmin = await prisma.role.findFirst({
@@ -150,16 +144,13 @@ describe('UsersController (e2e)', () => {
     });
     nonAdminUserId = nonAdminUser.id;
 
-    // Login non-admin
-    const nonAdminLogin = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'e2e_users_nonadmin@teamdivergentes.fr', password: 'password_e2e_users' });
-
-    const nonAdminBody = nonAdminLogin.body as { access_token?: string };
-    if (!nonAdminBody.access_token) {
-      throw new Error("Impossible d'obtenir le token non-admin");
-    }
-    nonAdminToken = nonAdminBody.access_token;
+    // Login non-admin via cookie
+    const { token: nonAdminTok } = await loginAsAdmin(
+      server,
+      'e2e_users_nonadmin@teamdivergentes.fr',
+      'password_e2e_users',
+    );
+    nonAdminToken = nonAdminTok;
   });
 
   afterAll(async () => {

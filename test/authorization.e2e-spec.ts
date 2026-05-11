@@ -4,6 +4,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { loginAsAdmin } from './helpers/login';
 
 /**
  * Tests E2E d'autorisation par rôle.
@@ -104,16 +105,9 @@ describe('Authorization E2E - Role-Based Access Control', () => {
       },
     });
 
-    // Login admin
-    const adminLogin = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
-
-    const adminBody = adminLogin.body as { access_token?: string };
-    if (!adminBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin pour les tests d'autorisation");
-    }
-    adminToken = adminBody.access_token;
+    // Login admin via cookie
+    const { token: adminTok } = await loginAsAdmin(server);
+    adminToken = adminTok;
 
     // --- Créer un rôle "Viewer" de test avec permissions limitées ---
     // Nettoyer d'abord au cas où un run précédent aurait échoué sans cleanup
@@ -148,17 +142,13 @@ describe('Authorization E2E - Role-Based Access Control', () => {
     });
     viewerUserId = viewerUser.id;
 
-    // Login viewer
-    const viewerLogin = await request(server).post('/api/auth/login').send({
-      email: 'e2e_viewer_test@teamdivergentes.fr',
-      password: 'viewer_password_E2E',
-    });
-
-    const viewerBody = viewerLogin.body as { access_token?: string };
-    if (!viewerBody.access_token) {
-      throw new Error("Impossible d'obtenir le token viewer pour les tests d'autorisation");
-    }
-    viewerToken = viewerBody.access_token;
+    // Login viewer via cookie
+    const { token: viewerTok } = await loginAsAdmin(
+      server,
+      'e2e_viewer_test@teamdivergentes.fr',
+      'viewer_password_E2E',
+    );
+    viewerToken = viewerTok;
   });
 
   afterAll(async () => {

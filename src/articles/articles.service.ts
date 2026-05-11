@@ -12,6 +12,7 @@ import { UpdateArticleDto } from './dto/update-article.dto';
 import { ArticlesQueryDto } from './dto/articles-query.dto';
 import slugify from 'slugify';
 import { PaginatedResponse } from '../common/interfaces/paginated-response.interface';
+import { buildArticleWhere } from './utils/article-where.util';
 
 /** Article avec type et auteur (select minimal) */
 export type ArticleWithRelations = Prisma.ArticleGetPayload<{
@@ -25,7 +26,7 @@ export type ArticleWithFullUser = Prisma.ArticleGetPayload<{
 
 @Injectable()
 export class ArticlesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private async generateUniqueSlug(title: string, excludeId?: number): Promise<string> {
     const baseSlug = slugify(title, { lower: true, strict: true, locale: 'fr' });
@@ -49,25 +50,8 @@ export class ArticlesService {
   }
 
   async findAll(query: ArticlesQueryDto): Promise<PaginatedResponse<ArticleWithRelations>> {
-    const { page = 1, limit = 20, published, featured, typeId, search } = query;
-
-    const where: Prisma.ArticleWhereInput = {};
-
-    if (published !== undefined) {
-      where.published = published;
-    }
-    if (featured !== undefined) {
-      where.featured = featured;
-    }
-    if (typeId !== undefined) {
-      where.typeId = typeId;
-    }
-    if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { excerpt: { contains: search, mode: 'insensitive' } },
-      ];
-    }
+    const { page = 1, limit = 20 } = query;
+    const where = buildArticleWhere(query);
 
     try {
       const [articles, total] = await Promise.all([

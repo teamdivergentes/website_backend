@@ -178,13 +178,15 @@ export class LinkMetaService {
    */
   decodeHtmlEntities(str: string): string {
     return str
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(parseInt(code, 10)));
+      .replaceAll(/&amp;/gi, '&')
+      .replaceAll(/&lt;/gi, '<')
+      .replaceAll(/&gt;/gi, '>')
+      .replaceAll(/&quot;/gi, '"')
+      .replaceAll(/&#39;/gi, "'")
+      .replaceAll(/&nbsp;/gi, ' ')
+      .replaceAll(/&#(\d+);/g, (_, code: string) =>
+        String.fromCodePoint(Number.parseInt(code, 10)),
+      );
   }
 
   /**

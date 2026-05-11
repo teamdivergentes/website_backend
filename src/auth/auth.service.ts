@@ -11,21 +11,29 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
 
+export interface UserInToken {
+  id: number;
+  email: string;
+  role: {
+    id: number;
+    name: string;
+    permissions: string[];
+  };
+}
+
 export interface AuthResponse {
   access_token: string;
-  user: {
-    id: number;
-    email: string;
-    role: {
-      id: number;
-      name: string;
-      permissions: string[];
-    };
-  };
+  user: UserInToken;
 }
 
 @Injectable()
 export class AuthService {
+  /**
+   * Durée du JWT exposée pour le controller (calcul du Max-Age du cookie).
+   * La valeur effective dans le token est celle configurée dans JwtModule (auth.module.ts).
+   */
+  readonly jwtExpiresIn: string = process.env.JWT_EXPIRES_IN ?? '7d';
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,

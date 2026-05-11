@@ -13,7 +13,11 @@ import { PrismaService } from '../prisma.service';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-      signOptions: { expiresIn: '1d' },
+      // Durée configurable via env, par défaut 7j (US admin-auth-persistence)
+      signOptions: {
+        expiresIn: (process.env.JWT_EXPIRES_IN ??
+          '7d') as `${number}${'s' | 'm' | 'h' | 'd' | 'w'}`,
+      },
     }),
   ],
   controllers: [AuthController],

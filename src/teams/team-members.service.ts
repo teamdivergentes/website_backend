@@ -5,6 +5,7 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { ReorderDto } from './dto/reorder.dto';
 import { Prisma } from '../../generated/prisma';
+import { generateMemberSlug, extractFilenameFromUrl } from './utils/team-slug.util';
 
 @Injectable()
 export class TeamMembersService {
@@ -14,19 +15,10 @@ export class TeamMembersService {
   ) {}
 
   /**
-   * Extract filename from URL path
-   */
-  private extractFilename(url: string | null): string | null {
-    if (!url) return null;
-    const parts = url.split('/');
-    return parts[parts.length - 1];
-  }
-
-  /**
    * Delete image file silently (don't fail if deletion fails)
    */
   private async deleteImageSilently(url: string | null): Promise<void> {
-    const filename = this.extractFilename(url);
+    const filename = extractFilenameFromUrl(url);
     if (!filename) return;
 
     try {
@@ -34,18 +26,6 @@ export class TeamMembersService {
     } catch {
       // Silently ignore deletion errors
     }
-  }
-
-  /**
-   * Generate a URL-friendly slug from member name
-   */
-  private generateSlug(name: string): string {
-    return name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents
-      .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with -
-      .replace(/(^-|-$)/g, ''); // Remove leading/trailing dashes
   }
 
   /**
@@ -87,7 +67,7 @@ export class TeamMembersService {
     });
 
     // Generate slug if not provided
-    const slug = createMemberDto.slug || this.generateSlug(createMemberDto.name);
+    const slug = createMemberDto.slug || generateMemberSlug(createMemberDto.name);
 
     return this.prisma.teamMember.create({
       data: {
@@ -140,7 +120,7 @@ export class TeamMembersService {
         updateData.name = updateMemberDto.name;
         // Regenerate slug if name changes and no explicit slug provided
         if (updateMemberDto.slug === undefined) {
-          updateData.slug = this.generateSlug(updateMemberDto.name);
+          updateData.slug = generateMemberSlug(updateMemberDto.name);
         }
       }
       if (updateMemberDto.realName !== undefined) updateData.realName = updateMemberDto.realName;

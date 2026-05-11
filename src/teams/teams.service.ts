@@ -5,6 +5,7 @@ import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { ReorderDto } from './dto/reorder.dto';
 import { Prisma } from '../../generated/prisma';
+import { generateTeamSlug, extractFilenameFromUrl } from './utils/team-slug.util';
 
 @Injectable()
 export class TeamsService {
@@ -24,19 +25,10 @@ export class TeamsService {
   }
 
   /**
-   * Extract filename from URL path
-   */
-  private extractFilename(url: string | null): string | null {
-    if (!url) return null;
-    const parts = url.split('/');
-    return parts[parts.length - 1];
-  }
-
-  /**
    * Delete image file silently (don't fail if deletion fails)
    */
   private async deleteImageSilently(url: string | null): Promise<void> {
-    const filename = this.extractFilename(url);
+    const filename = extractFilenameFromUrl(url);
     if (!filename) return;
 
     try {
@@ -44,20 +36,6 @@ export class TeamsService {
     } catch {
       // Silently ignore deletion errors
     }
-  }
-
-  /**
-   * Generate a URL-friendly slug from team name
-   */
-  private generateSlug(name: string): string {
-    return name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents
-      .replace(/[^a-z0-9\s-]/g, '') // Remove special chars
-      .trim()
-      .replace(/\s+/g, '-') // Replace spaces with -
-      .replace(/-+/g, '-'); // Remove duplicate -
   }
 
   /**
@@ -78,13 +56,16 @@ export class TeamsService {
   }
 
   /**
-   * Get team by slug with members
+   * Get team by slug with members and coaching staff
    */
   async findBySlug(slug: string) {
     const team = await this.prisma.team.findUnique({
       where: { slug },
       include: {
         members: {
+          orderBy: { position: 'asc' },
+        },
+        coachingStaff: {
           orderBy: { position: 'asc' },
         },
       },
@@ -104,7 +85,7 @@ export class TeamsService {
    * Create a new team
    */
   async create(createTeamDto: CreateTeamDto) {
-    const slug = this.generateSlug(createTeamDto.name);
+    const slug = generateTeamSlug(createTeamDto.name);
 
     // Check if slug already exists
     const existing = await this.prisma.team.findUnique({
@@ -174,7 +155,7 @@ export class TeamsService {
 
       if (updateTeamDto.name !== undefined) {
         updateData.name = updateTeamDto.name;
-        updateData.slug = this.generateSlug(updateTeamDto.name);
+        updateData.slug = generateTeamSlug(updateTeamDto.name);
 
         // Check if new slug conflicts with existing team
         const slugConflict = await this.prisma.team.findUnique({

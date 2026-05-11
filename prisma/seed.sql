@@ -26,7 +26,8 @@ INSERT INTO roles (name, permissions, "isSystem", "createdAt", "updatedAt") VALU
     'annonces:read','annonces:write','annonces:delete',
     'articles:read','articles:write','articles:delete',
     'recrutement:read','recrutement:write','recrutement:delete',
-    'analytics:read'
+    'analytics:read',
+    'twitch_channels:read','twitch_channels:write','twitch_channels:delete'
   ], true, NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
   permissions = EXCLUDED.permissions,
@@ -90,7 +91,9 @@ INSERT INTO configs (key, value, description, "createdAt", "updatedAt") VALUES
   ('page_contact_visible', 'true', 'Afficher la page Contact', NOW(), NOW()),
   ('page_equipes_visible', 'true', 'Afficher la page Equipes/Ambassadeurs', NOW(), NOW()),
   ('page_sponsors_visible', 'true', 'Afficher la page Sponsors', NOW(), NOW()),
-  ('page_recrutement_visible', 'true', 'Afficher la page Recrutement', NOW(), NOW())
+  ('page_recrutement_visible', 'true', 'Afficher la page Recrutement', NOW(), NOW()),
+  ('page_articles_visible', 'true', 'Afficher la page Articles/Annonces', NOW(), NOW()),
+  ('page_twitch_visible', 'true', 'Afficher la page En Live (Twitch)', NOW(), NOW())
 ON CONFLICT (key) DO NOTHING;
 
 -- 4. Creation des membres du staff initiaux

@@ -4,12 +4,16 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { join } from 'path';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Security: Helmet middleware for HTTP headers
   app.use(helmet());
+
+  // Parsing des cookies (nécessaire pour lire dvg_auth_token)
+  app.use(cookieParser());
 
   // Serve static files from uploads directory
   // Using process.cwd() because multer saves to ./uploads (relative to cwd)

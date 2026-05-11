@@ -5,6 +5,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { loginAsAdmin } from './helpers/login';
 
 /**
  * Tests E2E de sécurité (cas négatifs et pentest).
@@ -99,17 +100,10 @@ describe('Security E2E - Negative Tests', () => {
       },
     });
 
-    // Obtenir un token admin valide
+    // Obtenir un token admin valide via cookie
     const server = app.getHttpServer() as Parameters<typeof request>[0];
-    const loginResponse = await request(server)
-      .post('/api/auth/login')
-      .send({ email: 'admin@teamdivergentes.fr', password: 'admin123' });
-
-    const loginBody = loginResponse.body as { access_token?: string };
-    if (!loginBody.access_token) {
-      throw new Error("Impossible d'obtenir le token admin pour les tests de sécurité");
-    }
-    adminToken = loginBody.access_token;
+    const { token } = await loginAsAdmin(server);
+    adminToken = token;
   });
 
   afterAll(async () => {

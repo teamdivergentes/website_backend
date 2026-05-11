@@ -30,6 +30,11 @@ export const PERMISSIONS = {
 
   // Analytics
   ANALYTICS_READ: 'analytics:read',
+
+  // Coaching staff
+  COACHING_STAFF_READ: 'coaching_staff:read',
+  COACHING_STAFF_WRITE: 'coaching_staff:write',
+  COACHING_STAFF_DELETE: 'coaching_staff:delete',
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);

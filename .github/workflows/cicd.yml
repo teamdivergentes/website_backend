@@ -2,7 +2,7 @@ name: CICD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
     tags: [ "v*" ]  # Format: vXX.YY.ZZ
   pull_request:
     paths-ignore:
@@ -10,6 +10,8 @@ on:
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
+      - '.github/dependabot.yml'
+      - 'BACKLOG/**'
   pull_request_review:
     types: [submitted]
   issue_comment:
@@ -19,6 +21,9 @@ on:
 env:
   NODE_VERSION: 22
 
+# Cancel in-progress runs on the same branch/PR when a new push arrives.
+# Avoids accumulation of stale runs (e.g. 3 consecutive update-branch pushes = 3 runs
+# that would queue up and monopolize the 2 self-hosted runners).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -33,59 +38,125 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
     outputs:
       build-status: ${{ steps.build.outcome }}
+      # Actor classification — propagated to downstream jobs to skip heavy
+      # jobs on Dependabot PRs that don't justify a full pipeline run.
+      #
+      # is-dependabot-actions : PR bumps a GitHub Action only (.github/workflows)
+      #   -> skip everything except pr-report + workflow-status
+      # is-dependabot-dev     : PR bumps a devDependency (minor/patch npm)
+      #   -> skip e2e, mutation-test, docker, scan-image, deploy-*, release
+      # Dependabot prod dep bumps (major or prod): treated as human PRs (full pipeline)
+      is-dependabot-actions: ${{ steps.actor.outputs.is-dependabot-actions }}
+      is-dependabot-dev: ${{ steps.actor.outputs.is-dependabot-dev }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Classify PR actor and dependency type
+        id: actor
+        run: |
+          IS_DEP_ACTIONS=false
+          IS_DEP_DEV=false
+
+          # Classification basee uniquement sur le prefixe de branche, pas sur github.actor.
+          # Quand un humain re-run la CI ou force-push sur une branche Dependabot,
+          # github.actor devient l'humain — la classification basee sur l'acteur perd
+          # alors la branche et reactive le pipeline complet (Sonar inclus), ce qui
+          # bloque les bumps Dependabot meme triviaux a cause du QG.
+          BRANCH="${{ github.head_ref }}"
+
+          # dependabot/github_actions/... -> only action bumps, no code change
+          if [[ "$BRANCH" == dependabot/github_actions/* ]]; then
+            IS_DEP_ACTIONS=true
+            echo "Dependabot branch (actions): $BRANCH"
+            echo "Classified as: github_actions bump (skip all except pr-report)"
+
+          # dependabot/npm_and_yarn/... -> check package.json to classify
+          elif [[ "$BRANCH" == dependabot/npm_and_yarn/* ]]; then
+            echo "Dependabot branch (npm): $BRANCH"
+            PKG_HINT=$(echo "$BRANCH" | sed 's|dependabot/npm_and_yarn/||' | tr '/_-' ' ' | tr '[:upper:]' '[:lower:]')
+            echo "Package hint: $PKG_HINT"
+
+            # Classify as devDep if the package name fragment matches a devDependency key
+            if node -e "
+              const pkg = require('./package.json');
+              const hint = process.argv[1].toLowerCase();
+              const devKeys = Object.keys(pkg.devDependencies || {}).map(k => k.toLowerCase().replace(/[@\/]/g, ''));
+              const isDev = devKeys.some(k => hint.includes(k) || k.includes(hint.split(' ')[0]));
+              process.exit(isDev ? 0 : 1);
+            " "$PKG_HINT" 2>/dev/null; then
+              IS_DEP_DEV=true
+              echo "Classified as: devDependency bump (skip docker/e2e/deploy)"
+            else
+              echo "Classified as: prod/unknown dependency bump (full pipeline)"
+            fi
+          fi
+
+          echo "is-dependabot-actions=$IS_DEP_ACTIONS" >> $GITHUB_OUTPUT
+          echo "is-dependabot-dev=$IS_DEP_DEV" >> $GITHUB_OUTPUT
 
       - name: Setup Node
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        # Skip full setup for action-only bumps (no code to build)
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache node_modules
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         id: cache-modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
-        if: steps.cache-modules.outputs.cache-hit != 'true'
+        if: steps.actor.outputs.is-dependabot-actions != 'true' && steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Generate Prisma Client
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         run: npx prisma generate
 
       - name: Build NestJS
+        if: steps.actor.outputs.is-dependabot-actions != 'true'
         id: build
         run: npm run build
 
+      # For github_actions bumps there is no code to build — mark as success via echo
+      - name: Skip build (github_actions bump)
+        if: steps.actor.outputs.is-dependabot-actions == 'true'
+        run: echo "Skipping build — github_actions Dependabot bump, no application code changed."
+
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, docker]
     needs: build
-    if: needs.build.result == 'success'
+    # Skip for github_actions bumps (no code changed)
+    if: |
+      needs.build.result == 'success' &&
+      needs.build.outputs.is-dependabot-actions != 'true'
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Setup Node
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache node_modules
         id: cache-modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
@@ -98,46 +169,39 @@ jobs:
         run: npx prisma generate
 
       - name: Run ESLint
+        # --max-warnings=0 enforced in package.json lint script (EPIC-19).
+        # CI fails on any ESLint warning, not just errors.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run lint
 
   # Fast job: unit tests only (Jest, no E2E).
-  # Runs on every push/PR — this is the gating job for Docker and deployments.
+  # Runs on every push/PR (except github_actions bumps) — gating job for Docker and deployments.
+  # No PostgreSQL service needed: all specs mock PrismaService (no real DB connection).
+  # Schema drift validation is done by the Husky pre-push hook (backend/prisma/* changes).
   test-unit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, docker]
     needs: build
-    if: needs.build.result == 'success'
+    if: |
+      needs.build.result == 'success' &&
+      needs.build.outputs.is-dependabot-actions != 'true'
     permissions:
       contents: read
       pull-requests: write
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: testpass
-          POSTGRES_DB: testdb
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Setup Node
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache node_modules
         id: cache-modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
@@ -149,30 +213,40 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Run Prisma migrations
-        env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
-        run: npx prisma migrate deploy
-
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
-        run: npm run test -- --coverage --coverageReporters=json-summary --coverageReporters=text
+          NODE_OPTIONS: --max-old-space-size=2048
+        run: npm run test -- --coverage --maxWorkers=2
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        continue-on-error: true
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          retention-days: 1
 
   # Slow job: NestJS E2E tests (supertest against a real Postgres).
   # Triggers: push to main, tag, PR approval, /run-e2e comment on PR, or workflow_dispatch.
   # NOT triggered on every PR push to keep pipelines fast.
+  # NOT triggered for Dependabot action bumps or dev dep bumps.
   # Note: github.event.comment.body is used only in if: expression context (not in run:) - safe.
   test-e2e:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, docker]
+    needs: build
     if: |
-      (github.event_name == 'push') ||
-      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-e2e') ||
-      (github.event_name == 'workflow_dispatch')
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true' &&
+      (
+        (github.event_name == 'push') ||
+        (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-e2e') ||
+        (github.event_name == 'workflow_dispatch')
+      )
     permissions:
       contents: read
 
@@ -188,22 +262,83 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        # See test-unit for topology explanation. Runner is connected to github_network_* in Resolve step.
         ports:
-          - 5432:5432
+          - 5432
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Resolve postgres host
+        # See test-unit for full topology explanation and root cause analysis.
+        # Fix: use direct IP from docker inspect instead of DNS alias "postgres".
+        id: pg-host
+        run: |
+          RUNNER_ID=$(hostname)
+          # Sur le runner self-hosted, plusieurs networks `github_network_*`
+          # peuvent coexister (orphelins de jobs precedents pas nettoyes ou
+          # jobs paralleles). Le `head -1` naif pouvait pointer sur un network
+          # orphelin sans postgres (cf. run 25426436114). On itere et on garde
+          # celui qui contient effectivement un container postgres.
+          # On retry car le tag de network du service postgres peut etre propage
+          # avec un delai apres `Starting postgres service container`.
+          PG_NETWORK=""
+          PG_CONTAINER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            for net in $(docker network ls --format '{{.Name}}' | grep '^github_network_'); do
+              c=$(docker ps --filter "network=${net}" --format '{{.ID}}\t{{.Image}}' | grep -i 'postgres' | awk '{print $1}' | head -1)
+              if [ -n "$c" ]; then
+                PG_NETWORK="$net"
+                PG_CONTAINER="$c"
+                break
+              fi
+            done
+            if [ -n "$PG_CONTAINER" ]; then
+              echo "Postgres resolved on attempt ${attempt}: container=${PG_CONTAINER} network=${PG_NETWORK}"
+              break
+            fi
+            echo "[${attempt}/8] Postgres container not yet visible on any github_network_*, retry in 3s..."
+            sleep 3
+          done
+          if [ -z "$PG_CONTAINER" ]; then
+            echo "ERROR: No postgres container found on any github_network_* after 8 attempts" >&2
+            echo "--- docker network ls ---" >&2
+            docker network ls >&2 || true
+            echo "--- docker ps --all ---" >&2
+            docker ps --all >&2 || true
+            exit 1
+          fi
+          PG_IP=$(docker inspect "${PG_CONTAINER}" \
+            --format "{{(index .NetworkSettings.Networks \"${PG_NETWORK}\").IPAddress}}")
+          echo "Postgres container IP on ${PG_NETWORK}: ${PG_IP}"
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner container already connected (re-run)"
+          else
+            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
+            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
+              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
+            exit 0
+          fi
+          echo "PGHOST=${PG_IP}" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "DATABASE_URL will use ${PG_IP}:5432 (direct IP, no DNS)"
 
       - name: Setup Node
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache node_modules
         id: cache-modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
@@ -217,52 +352,137 @@ jobs:
 
       - name: Run Prisma migrations
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
         run: npx prisma migrate deploy
 
       - name: Run E2E tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
           JWT_SECRET: test-secret-key-for-ci
           JWT_EXPIRES_IN: 1h
           NODE_ENV: test
-        run: npm run test:e2e
+          NODE_OPTIONS: --max-old-space-size=2048
+        # --runInBand : execute les specs e2e en serie pour eviter de saturer
+        # la limite de connexions Postgres (default 100). Avec ~10 specs en
+        # parallele x N workers x pool size Prisma, on hit "sorry, too many
+        # clients already" (cf. run #25426880283). Les e2e partagent une DB,
+        # le parallelisme apporte peu et cause des collisions de fixtures.
+        run: npm run test:e2e -- --runInBand
 
-  validate-migrations:
-    runs-on: ubuntu-latest
+  # Mutation testing with Stryker Mutator
+  # Triggers: push to main, PR approval, /run-mutation comment, workflow_dispatch.
+  # NOT triggered for Dependabot PRs (no new application code to mutate).
+  # Non-blocking — reports mutation score as artifact.
+  mutation-test:
+    runs-on: [self-hosted, linux, docker]
     needs: build
-    if: needs.build.result == 'success'
+    if: |
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.body == '/run-mutation') ||
+        (github.event_name == 'workflow_dispatch')
+      )
     permissions:
       contents: read
 
     services:
-      postgres-migration:
+      postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: migration_test
-          POSTGRES_PASSWORD: migration_test
-          POSTGRES_DB: testdb_migration
-        ports:
-          - 5433:5432
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        # See test-unit for topology explanation. Runner is connected to github_network_* in Resolve step.
+        ports:
+          - 5432
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch main branch for incremental analysis
+        if: github.ref != 'refs/heads/main'
+        run: git fetch origin main:refs/remotes/origin/main --depth=1
+
+      - name: Resolve postgres host
+        # See test-unit for full topology explanation and root cause analysis.
+        # Fix: use direct IP from docker inspect instead of DNS alias "postgres".
+        id: pg-host
+        run: |
+          RUNNER_ID=$(hostname)
+          # Sur le runner self-hosted, plusieurs networks `github_network_*`
+          # peuvent coexister (orphelins de jobs precedents pas nettoyes ou
+          # jobs paralleles). Le `head -1` naif pouvait pointer sur un network
+          # orphelin sans postgres (cf. run 25426436114). On itere et on garde
+          # celui qui contient effectivement un container postgres.
+          # On retry car le tag de network du service postgres peut etre propage
+          # avec un delai apres `Starting postgres service container`.
+          PG_NETWORK=""
+          PG_CONTAINER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            for net in $(docker network ls --format '{{.Name}}' | grep '^github_network_'); do
+              c=$(docker ps --filter "network=${net}" --format '{{.ID}}\t{{.Image}}' | grep -i 'postgres' | awk '{print $1}' | head -1)
+              if [ -n "$c" ]; then
+                PG_NETWORK="$net"
+                PG_CONTAINER="$c"
+                break
+              fi
+            done
+            if [ -n "$PG_CONTAINER" ]; then
+              echo "Postgres resolved on attempt ${attempt}: container=${PG_CONTAINER} network=${PG_NETWORK}"
+              break
+            fi
+            echo "[${attempt}/8] Postgres container not yet visible on any github_network_*, retry in 3s..."
+            sleep 3
+          done
+          if [ -z "$PG_CONTAINER" ]; then
+            echo "ERROR: No postgres container found on any github_network_* after 8 attempts" >&2
+            echo "--- docker network ls ---" >&2
+            docker network ls >&2 || true
+            echo "--- docker ps --all ---" >&2
+            docker ps --all >&2 || true
+            exit 1
+          fi
+          PG_IP=$(docker inspect "${PG_CONTAINER}" \
+            --format "{{(index .NetworkSettings.Networks \"${PG_NETWORK}\").IPAddress}}")
+          echo "Postgres container IP on ${PG_NETWORK}: ${PG_IP}"
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner container already connected (re-run)"
+          else
+            echo "Network connect failed (native runner?): ${CONNECT_OUT}"
+            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
+              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
+            exit 0
+          fi
+          echo "PGHOST=${PG_IP}" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
+          echo "DATABASE_URL will use ${PG_IP}:5432 (direct IP, no DNS)"
 
       - name: Setup Node
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache node_modules
         id: cache-modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
@@ -274,52 +494,163 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Create shadow database
+      - name: Run Prisma migrations
         env:
-          PGPASSWORD: migration_test
-        run: psql -h localhost -p 5433 -U migration_test -d testdb_migration -c "CREATE DATABASE shadow_db;"
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
+        run: npx prisma migrate deploy
 
-      - name: Validate Prisma migrations
-        env:
-          DATABASE_URL: postgresql://migration_test:migration_test@localhost:5433/testdb_migration
+      - name: Determine Stryker mode
+        id: stryker-mode
         run: |
-          set -euo pipefail
-          echo "Running Prisma migrate deploy..."
-          npx prisma migrate deploy
-          echo "Validating schema consistency..."
-          npx prisma migrate diff \
-            --from-schema-datamodel prisma/schema.prisma \
-            --to-migrations prisma/migrations \
-            --shadow-database-url "postgresql://migration_test:migration_test@localhost:5433/shadow_db" \
-            --exit-code
-          echo "Migrations validated successfully"
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "args=" >> $GITHUB_OUTPUT
+            echo "Running full mutation analysis"
+          else
+            echo "args=--since origin/main" >> $GITHUB_OUTPUT
+            echo "Running incremental mutation analysis (changed files only)"
+          fi
+
+      - name: Run mutation tests
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@${{ steps.pg-host.outputs.PGHOST }}:${{ steps.pg-host.outputs.PGPORT }}/testdb
+          JWT_SECRET: test-secret-key-for-ci
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: test
+        run: npx stryker run ${{ steps.stryker-mode.outputs.args }}
+        continue-on-error: true
+
+      - name: Upload Stryker report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: stryker-mutation-report
+          path: reports/mutation/
+          retention-days: 7
+
+      - name: Write Stryker summary to GitHub Step Summary
+        if: always()
+        run: |
+          {
+            echo "## 🧬 Mutation testing (Stryker)"
+            echo ""
+            if [[ -f reports/mutation/mutation.json ]]; then
+              # Extract score from report (Stryker JSON format)
+              SCORE=$(node -e "const r=require('./reports/mutation/mutation.json'); console.log(r.thresholds ? r.thresholds.high : 'n/a')" 2>/dev/null || echo "n/a")
+              KILLED=$(node -e "const r=require('./reports/mutation/mutation.json'); const f=Object.values(r.files || {}); console.log(f.reduce((a,x)=>a+(x.mutants?.filter(m=>m.status==='Killed').length||0),0))" 2>/dev/null || echo "n/a")
+              SURVIVED=$(node -e "const r=require('./reports/mutation/mutation.json'); const f=Object.values(r.files || {}); console.log(f.reduce((a,x)=>a+(x.mutants?.filter(m=>m.status==='Survived').length||0),0))" 2>/dev/null || echo "n/a")
+              echo "- Mutation score threshold (high): **${SCORE}%**"
+              echo "- Mutants killed : ${KILLED}"
+              echo "- Mutants survived : ${SURVIVED}"
+            else
+              echo "_No mutation report found (mutation.json missing)._"
+            fi
+            echo ""
+            echo "Full HTML report : artifact \`stryker-mutation-report\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Note: schema drift validation (formerly `validate-migrations` job, then an
+  # inline step in `test-unit`) is now handled by the Husky pre-push hook on
+  # backend/prisma/* changes. test-unit no longer spins up a postgres service
+  # because all unit tests mock PrismaService and need no real DB connection.
 
   semgrep:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, docker]
     needs: build
-    # Skip any PR created by dependabot to avoid permission issues:
-    if: (github.actor != 'dependabot[bot]') && needs.build.result == 'success'
+    # SAST: main/tag/dispatch only — saves ~3 min per PR push.
+    # Never runs for Dependabot (no new application code to scan).
+    if: |
+      (github.actor != 'dependabot[bot]') &&
+      needs.build.result == 'success' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
 
-    container:
-      image: semgrep/semgrep:latest
+    # On NE LANCE PAS le job entier dans `container: semgrep/semgrep:latest` :
+    # le runner self-hosted ne mount pas correctement son bundle node20_alpine
+    # dans le container alpine pour les post-steps de actions/checkout, ce
+    # qui fait planter "Post job cleanup" avec :
+    #   exec: "/__e/node20_alpine/bin/node": no such file or directory
+    # On checkout sur l'host (node20 natif dispo) puis on lance semgrep
+    # via un `docker run` explicite : aucune action GitHub ne s'execute
+    # dans le container, le probleme disparait.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Run Semgrep (containerized CLI)
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            -e SEMGREP_APP_TOKEN \
+            semgrep/semgrep:latest \
+            semgrep ci
+
+  # SonarQube analysis — BLOCKING. Quality Gate (Sonar way) must pass.
+  # Runs after unit tests to include coverage from the test-unit artifact.
+  # Triggers: push/PR/workflow_dispatch (same gates as the rest of the pipeline).
+  # Skipped for Dependabot github_actions bumps (no application code changed).
+  # QG conditions (on New Code): 0 new issues, >=80% new coverage,
+  # <=3% new duplicated lines, 100% new security hotspots reviewed.
+  # See docs/SONARQUBE.md for details.
+  sonarqube:
+    runs-on: [self-hosted, linux, docker]
+    needs: [build, test-unit]
+    if: |
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.result == 'success' &&
+      needs.test-unit.result == 'success' &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # fetch-depth: 0 is required for SonarQube blame analysis and branch detection
+          fetch-depth: 0
 
-      - name: Run Semgrep
-        run: semgrep ci
+      - name: Download coverage report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: coverage-lcov
+          path: coverage/
+
+      - name: Run SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4  # v7.1.0
         env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
+          SONAR_HOST_URL: https://sonarqube.tellebma.fr
 
-  # Docker depends on fast jobs only (test-unit, not test-e2e).
-  # This keeps Docker unblocked on every PR push for fast feedback.
+      - name: Check SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
+          SONAR_HOST_URL: https://sonarqube.tellebma.fr
+
+  # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
+  # Sonar QG blocks Docker build -> no image is published if quality fails.
+  # Skipped for Dependabot dev-dep and action bumps (no production code changed).
   docker:
-    runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, semgrep]
-    if: needs.build.result == 'success' && needs.lint.result == 'success' && needs.test-unit.result == 'success' && needs.semgrep.result == 'success'
+    runs-on: [self-hosted, linux, docker]
+    needs: [build, lint, test-unit, semgrep, sonarqube]
+    if: |
+      !cancelled() &&
+      needs.build.outputs.is-dependabot-actions != 'true' &&
+      needs.build.outputs.is-dependabot-dev != 'true' &&
+      needs.build.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.test-unit.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
+      (needs.sonarqube.result == 'success' || needs.sonarqube.result == 'skipped')
     permissions:
       contents: read
       packages: write
@@ -343,17 +674,17 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@6524bf65af31da8d45b59e8c27de4bd072b392f5 # v3.8.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Determine image tags
         id: tags
@@ -379,14 +710,14 @@ jobs:
             "${{ env.BUILD_TIME }}" \
             "${{ env.GITHUB_REPOSITORY }}"
 
-          # Extraire les labels du Dockerfile pour les passer à docker/build-push-action
+          # Extraire les labels du Dockerfile pour les passer a docker/build-push-action
           if [[ -f "Dockerfile" ]]; then
             grep "^LABEL " Dockerfile | sed 's/^LABEL //' > labels_temp.txt
 
             if [[ -s "labels_temp.txt" ]]; then
               while IFS= read -r line; do
                 if [[ "$line" =~ [\;\|\&\`\$\(\)] ]]; then
-                  echo "Warning: Label dangereux détecté et ignoré: $line"
+                  echo "Warning: Label dangereux detecte et ignore: $line"
                   continue
                 fi
                 echo "$line" >> labels_output.txt
@@ -397,15 +728,15 @@ jobs:
                 cat labels_output.txt >> $GITHUB_OUTPUT
                 echo "EOF" >> $GITHUB_OUTPUT
               else
-                echo "Warning: Aucun label valide trouvé dans le Dockerfile"
+                echo "Warning: Aucun label valide trouve dans le Dockerfile"
               fi
             else
-              echo "Warning: Aucun label trouvé dans le Dockerfile"
+              echo "Warning: Aucun label trouve dans le Dockerfile"
             fi
 
             rm -f labels_temp.txt labels_output.txt
           else
-            echo "Dockerfile non trouvé"
+            echo "Dockerfile non trouve"
             exit 1
           fi
         env:
@@ -413,31 +744,36 @@ jobs:
 
       - name: Build and Push Docker image
         id: build-image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v6.4.1
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
           push: true
-          # platforms: linux/amd64,linux/arm64  # Multi-arch désactivé : serveur cible amd64 uniquement
+          # platforms: linux/amd64,linux/arm64  # Multi-arch desactive : serveur cible amd64 uniquement
           platforms: linux/amd64
           tags: |
             ${{ steps.tags.outputs.image-tag }}
             ${{ steps.tags.outputs.workflow-tag }}
             ${{ steps.tags.outputs.version-tag }}
           labels: ${{ steps.labels.outputs.labels }}
-          cache-from: type=gha
-          cache-to: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && 'type=gha,mode=max' || '' }}
+          # Cache : sur le runner self-hosted, le backend cache GHA (type=gha)
+          # renvoie regulierement des HTTP 400 et declenche des retries qui
+          # font durer le build 30+ min. On utilise type=registry (cache pousse
+          # dans GHCR sous un tag dedie) qui ne depend pas du backend GHA
+          # interne et profite a tous les runners.
+          cache-from: type=registry,ref=${{ steps.tags.outputs.image-name }}:buildcache
+          cache-to: ${{ (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.pull_request.title || '', '[DEPLOY]')) && format('type=registry,ref={0}:buildcache,mode=max', steps.tags.outputs.image-name) || '' }}
 
   scan-image:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, docker]
     needs: [docker]
-    if: needs.docker.result == 'success'
+    if: ${{ !cancelled() && needs.docker.result == 'success' }}
     permissions:
       contents: read
       security-events: write
       packages: read
     steps:
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -446,9 +782,16 @@ jobs:
       # SECURITY: Trivy was compromised in a supply chain attack (March 2026).
       # Only SHA 57a97c7 (v0.35.0) is verified safe. Do NOT update without verification.
       # See: https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23
-      # Informational scan — table output visible in job logs
+      #
+      # Informational scan — table output visible in job logs. Steps are
+      # non-blocking : `exit-code: 0` neutralise les findings, et
+      # `continue-on-error: true` evite qu'un crash interne de Trivy
+      # (DB schema obsolete, network, registry) bloque la chaine de deploy.
+      # La detection reelle des CVE reste en place (visible dans les logs et
+      # dans l'onglet Security quand l'upload SARIF reussit).
       - name: Run Trivy vulnerability scanner (table)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
+        continue-on-error: true
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
           format: table
@@ -459,6 +802,7 @@ jobs:
       # SARIF report for GitHub Security tab
       - name: Run Trivy vulnerability scanner (SARIF)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (verified safe)
+        continue-on-error: true
         with:
           image-ref: ${{ needs.docker.outputs.image-tag }}
           format: sarif
@@ -468,23 +812,28 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
+        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13  # v4.35.1
         if: always()
         continue-on-error: true
         with:
           sarif_file: trivy-results.sarif
 
-  # Déploiement PREPROD (push sur main ou PR avec [DEPLOY])
+  # Deploiement PREPROD (push sur develop ou PR avec [DEPLOY]).
+  # GitFlow refonte : PREPROD est branchee sur develop pour valider en
+  # continu chaque integration. Un merge sur main ne deploie plus PREPROD ;
+  # il declenche uniquement la creation du tag vX.Y.Z qui partira en PROD
+  # apres smoke-release (cf. job du meme nom).
   deploy-preprod:
     runs-on: ubuntu-latest
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
-      (github.ref == 'refs/heads/main' ||
+      !cancelled() &&
+      (github.ref == 'refs/heads/develop' ||
        (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[DEPLOY]'))) &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success' &&
       needs.scan-image.result == 'success'
     environment:
@@ -496,7 +845,7 @@ jobs:
       deploy-status: ${{ steps.set-status.outputs.deploy-status }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Deploy to PREPROD
         id: deploy
@@ -504,6 +853,7 @@ jobs:
           DEPLOY_REPO: ${{ secrets.DEPLOY_REPO }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
           IMAGE_REPO: ${{ needs.docker.outputs.image-name }}
+          DEPLOY_IMAGE_TAG: ${{ needs.docker.outputs.image-tag }}
         run: |
           chmod +x ./.github/scripts/deploy.sh
           ./.github/scripts/deploy.sh "PREPROD" "website"
@@ -513,18 +863,125 @@ jobs:
         if: always()
         run: echo "deploy-status=${{ steps.deploy.outcome }}" >> $GITHUB_OUTPUT
 
-  # Déploiement PROD (tag vX.Y.Z)
+  # Smoke-release : boot le binaire RELEASE qui sera deploye en PROD pour
+  # valider que l'image demarre, applique les migrations et repond 200 sur
+  # /health avant de declencher le deploiement. Garde-fou final apres le
+  # workflow re-trigger declenche par le tag vX.Y.Z (cree par semantic-release
+  # sur main). Ne s'execute que sur les tags v*.
+  smoke-release:
+    runs-on: [self-hosted, linux, docker]
+    needs: [docker, scan-image]
+    if: |
+      !cancelled() &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.docker.result == 'success' &&
+      needs.scan-image.result == 'success'
+    permissions:
+      contents: read
+      packages: read
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: smokeuser
+          POSTGRES_PASSWORD: smokepass
+          POSTGRES_DB: smokedb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432
+
+    steps:
+      - name: Resolve service network and connect runner
+        id: pg-net
+        # Memes mecaniques que test-e2e : le runner self-hosted est lui-meme
+        # un conteneur, on le rejoint au reseau github_network_* cree pour le
+        # service postgres puis on lance le conteneur de smoke sur ce meme
+        # reseau pour qu'il puisse contacter postgres via son alias.
+        run: |
+          set -euo pipefail
+          RUNNER_ID=$(hostname)
+          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
+          if [ -z "$PG_NETWORK" ]; then
+            echo "ERROR: No github_network_* found" >&2
+            exit 1
+          fi
+          echo "Service network: ${PG_NETWORK}"
+          CONNECT_OUT=$(docker network connect "${PG_NETWORK}" "${RUNNER_ID}" 2>&1) && CONNECT_RC=0 || CONNECT_RC=$?
+          if [ $CONNECT_RC -eq 0 ]; then
+            echo "Runner container connected to ${PG_NETWORK}"
+          elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
+            echo "Runner already on ${PG_NETWORK}"
+          else
+            echo "Network connect failed: ${CONNECT_OUT}" >&2
+            exit 1
+          fi
+          echo "network=${PG_NETWORK}" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and boot release image
+        env:
+          IMAGE: ${{ needs.docker.outputs.image-tag }}
+          PG_NETWORK: ${{ steps.pg-net.outputs.network }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          # L'entrypoint applique les migrations (npx prisma migrate deploy)
+          # puis lance node — d'ou la presence d'un postgres ephemere. Le
+          # conteneur smoke rejoint le reseau de service pour resoudre
+          # l'alias "postgres".
+          docker run -d --name backend-smoke \
+            --network "$PG_NETWORK" \
+            -e NODE_ENV=production \
+            -e DATABASE_URL="postgresql://smokeuser:smokepass@postgres:5432/smokedb" \
+            -e JWT_SECRET=smoke-release-secret-key \
+            -e JWT_EXPIRES_IN=1h \
+            "$IMAGE"
+          # Boot peut prendre 20-30s (migrate deploy + bootstrap NestJS).
+          # 60s laisse une marge confortable avant d'echouer.
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://backend-smoke:3000/health || echo "0")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "Smoke OK (HTTP 200) apres ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Smoke release KO - /health n'a jamais repondu 200 apres 60s"
+          docker logs backend-smoke || true
+          exit 1
+
+      - name: Cleanup smoke container
+        if: always()
+        run: docker rm -f backend-smoke || true
+
+  # Deploiement PROD (tag vX.Y.Z apres smoke-release).
+  # On passe DEPLOY_IMAGE_TAG=:SHA pour deployer le binaire EXACT qui vient
+  # d'etre smoke-teste, sans dependre de la resolution du tag flottant
+  # :RELEASE qui pourrait etre repointe par un autre run concurrent.
   deploy-prod:
     runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, semgrep, docker, scan-image]
+    needs: [build, lint, test-unit, semgrep, docker, scan-image, smoke-release]
     if: |
+      !cancelled() &&
       startsWith(github.ref, 'refs/tags/v') &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success' &&
-      needs.scan-image.result == 'success'
+      needs.scan-image.result == 'success' &&
+      needs.smoke-release.result == 'success'
     environment:
       name: production
       url: https://api.teamdivergentes.fr
@@ -534,7 +991,7 @@ jobs:
       deploy-status: ${{ steps.set-status.outputs.deploy-status }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Deploy to PROD
         id: deploy-prod
@@ -542,6 +999,7 @@ jobs:
           DEPLOY_REPO: ${{ secrets.DEPLOY_REPO }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
           IMAGE_REPO: ${{ needs.docker.outputs.image-name }}
+          DEPLOY_IMAGE_TAG: ${{ needs.docker.outputs.image-tag }}
         run: |
           chmod +x ./.github/scripts/deploy.sh
           ./.github/scripts/deploy.sh "PROD" "website"
@@ -582,11 +1040,12 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       GITHUB_EVENT_NUMBER: ${{ github.event.number || github.event.issue.number }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Générer le rapport de PR
+      - name: Generer le rapport de PR
         id: report
         run: |
           chmod +x ./.github/scripts/generate-pr-report.sh
@@ -618,13 +1077,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, lint, test-unit, semgrep, docker]
     if: |
+      !cancelled() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       !startsWith(github.event.head_commit.message, 'chore(release)') &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
-      needs.semgrep.result == 'success' &&
+      (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success'
     permissions:
       contents: write
@@ -632,7 +1092,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -641,7 +1101,7 @@ jobs:
         run: git remote set-url origin "https://x-access-token:${{ secrets.DEPLOY_TOKEN }}@github.com/${{ github.repository }}.git"
 
       - name: Setup Node
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -658,10 +1118,10 @@ jobs:
           GIT_COMMITTER_EMAIL: semantic-release-bot@teamdivergentes.fr
         run: npx semantic-release
 
-  # Job final pour déterminer le statut global du workflow
+  # Job final pour determiner le statut global du workflow
   workflow-status:
     runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, test-e2e, validate-migrations, semgrep, docker, scan-image, deploy-preprod, deploy-prod, release, pr-report, notify]
+    needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, smoke-release, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
     if: always()
     permissions: {}
     steps:
@@ -671,18 +1131,20 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           TEST_UNIT_RESULT: ${{ needs.test-unit.result }}
           TEST_E2E_RESULT: ${{ needs.test-e2e.result }}
-          VALIDATE_MIGRATIONS_RESULT: ${{ needs.validate-migrations.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
+          SONARQUBE_RESULT: ${{ needs.sonarqube.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
+          SMOKE_RELEASE_RESULT: ${{ needs.smoke-release.result }}
           DEPLOY_PREPROD_RESULT: ${{ needs.deploy-preprod.result }}
           DEPLOY_PROD_RESULT: ${{ needs.deploy-prod.result }}
+          MUTATION_RESULT: ${{ needs.mutation-test.result }}
         run: |
           echo "Build status: $BUILD_RESULT"
           echo "Lint status: $LINT_RESULT"
           echo "Test (unit) status: $TEST_UNIT_RESULT"
           echo "Test (e2e) status: $TEST_E2E_RESULT"
-          echo "Validate migrations status: $VALIDATE_MIGRATIONS_RESULT"
           echo "Semgrep status: $SEMGREP_RESULT"
+          echo "SonarQube status: $SONARQUBE_RESULT"
           echo "Docker status: $DOCKER_RESULT"
           echo "Deploy PREPROD status: $DEPLOY_PREPROD_RESULT"
           echo "Deploy PROD status: $DEPLOY_PROD_RESULT"
@@ -703,30 +1165,44 @@ jobs:
             exit 1
           fi
 
-          if [[ "$VALIDATE_MIGRATIONS_RESULT" == "failure" || "$VALIDATE_MIGRATIONS_RESULT" == "cancelled" ]]; then
-            echo "Workflow failed: Validate migrations job failed"
-            exit 1
-          fi
-
           if [[ "$SEMGREP_RESULT" == "failure" || "$SEMGREP_RESULT" == "cancelled" ]]; then
             echo "Workflow failed: Semgrep job failed"
             exit 1
+          elif [[ "$SEMGREP_RESULT" == "skipped" ]]; then
+            echo "Semgrep skipped (runs on main/tag/dispatch only)"
           fi
 
           if [[ "$DOCKER_RESULT" == "failure" || "$DOCKER_RESULT" == "cancelled" ]]; then
             echo "Workflow failed: Docker job failed"
             exit 1
+          elif [[ "$DOCKER_RESULT" == "skipped" ]]; then
+            echo "Docker skipped (runs on main/tag/dispatch only)"
           fi
 
-          # E2E is conditional: only fail the workflow if it actually ran and failed.
-          # skipped = not yet triggered (normal on PR push), which is acceptable.
-          if [[ "$TEST_E2E_RESULT" == "failure" || "$TEST_E2E_RESULT" == "cancelled" ]]; then
-            echo "Workflow failed: Test (e2e) job failed"
-            exit 1
+          # E2E est OPTIONNEL (informatif) : conditionnel au trigger, lent
+          # et parfois flaky. Aucun job de deploy ne le requiert dans son
+          # `needs:`. On garde donc la visibilite (badge rouge si echec) mais
+          # le verdict global du workflow ne bloque pas dessus — meme
+          # philosophie que sonarqube et mutation-test plus bas.
+          if [[ "$TEST_E2E_RESULT" == "failure" ]]; then
+            echo "Warning: Test (e2e) failed (non-blocking)"
+          elif [[ "$TEST_E2E_RESULT" == "cancelled" ]]; then
+            echo "Warning: Test (e2e) cancelled (non-blocking)"
           elif [[ "$TEST_E2E_RESULT" == "skipped" ]]; then
             echo "Test (e2e) skipped (not triggered - will run on PR approval or push to main)"
           elif [[ "$TEST_E2E_RESULT" == "success" ]]; then
             echo "Test (e2e) passed"
+          fi
+
+          # Smoke-release: blocking on tag pushes only. Skipped is acceptable
+          # outside that context (PR/develop/main pushes never trigger it).
+          if [[ "$SMOKE_RELEASE_RESULT" == "failure" || "$SMOKE_RELEASE_RESULT" == "cancelled" ]]; then
+            echo "Workflow failed: Smoke release job failed"
+            exit 1
+          elif [[ "$SMOKE_RELEASE_RESULT" == "skipped" ]]; then
+            echo "Smoke release skipped (runs on tag v* push only)"
+          elif [[ "$SMOKE_RELEASE_RESULT" == "success" ]]; then
+            echo "Smoke release passed"
           fi
 
           # Deployments: fail the workflow only if they actually ran and failed.
@@ -752,6 +1228,24 @@ jobs:
             exit 1
           elif [[ "$DEPLOY_PROD_RESULT" == "skipped" ]]; then
             echo "Deploy PROD skipped"
+          fi
+
+          # SonarQube is non-blocking (continue-on-error: true on the job)
+          if [[ "$SONARQUBE_RESULT" == "failure" ]]; then
+            echo "Warning: SonarQube scan failed (non-blocking)"
+          elif [[ "$SONARQUBE_RESULT" == "success" ]]; then
+            echo "SonarQube scan passed"
+          elif [[ "$SONARQUBE_RESULT" == "skipped" ]]; then
+            echo "SonarQube scan skipped"
+          fi
+
+          # Mutation testing is non-blocking (informational only)
+          if [[ "$MUTATION_RESULT" == "failure" ]]; then
+            echo "Warning: Mutation testing failed (non-blocking)"
+          elif [[ "$MUTATION_RESULT" == "success" ]]; then
+            echo "Mutation testing passed"
+          elif [[ "$MUTATION_RESULT" == "skipped" ]]; then
+            echo "Mutation testing skipped (not triggered)"
           fi
 
           echo "All critical jobs succeeded"

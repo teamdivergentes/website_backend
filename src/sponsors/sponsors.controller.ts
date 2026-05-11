@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { SponsorsService } from './sponsors.service';
+import { SponsorImagesService } from './sponsor-images.service';
+import { SponsorLinksService } from './sponsor-links.service';
 import { CreateSponsorDto } from './dto/create-sponsor.dto';
 import { UpdateSponsorDto } from './dto/update-sponsor.dto';
 import { AddImageDto } from './dto/add-image.dto';
@@ -25,7 +27,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('api/sponsors')
 export class SponsorsController {
-  constructor(private readonly sponsorsService: SponsorsService) {}
+  constructor(
+    private readonly sponsorsService: SponsorsService,
+    private readonly sponsorImagesService: SponsorImagesService,
+    private readonly sponsorLinksService: SponsorLinksService,
+  ) {}
 
   /**
    * GET /api/sponsors - Liste tous les sponsors actifs (public)
@@ -114,7 +120,7 @@ export class SponsorsController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   addImage(@Param('id', ParseIntPipe) sponsorId: number, @Body() addImageDto: AddImageDto) {
-    return this.sponsorsService.addImage(sponsorId, addImageDto);
+    return this.sponsorImagesService.addImage(sponsorId, addImageDto);
   }
 
   /**
@@ -127,7 +133,7 @@ export class SponsorsController {
     @Param('id', ParseIntPipe) sponsorId: number,
     @Param('imageId', ParseIntPipe) imageId: number,
   ) {
-    return this.sponsorsService.removeImage(sponsorId, imageId);
+    return this.sponsorImagesService.removeImage(sponsorId, imageId);
   }
 
   /**
@@ -140,7 +146,7 @@ export class SponsorsController {
     @Param('id', ParseIntPipe) sponsorId: number,
     @Param('imageId', ParseIntPipe) imageId: number,
   ) {
-    return this.sponsorsService.setPrimaryImage(sponsorId, imageId);
+    return this.sponsorImagesService.setPrimaryImage(sponsorId, imageId);
   }
 
   /**
@@ -153,7 +159,7 @@ export class SponsorsController {
     @Param('id', ParseIntPipe) sponsorId: number,
     @Body() reorderImagesDto: ReorderImagesDto,
   ) {
-    return this.sponsorsService.reorderImages(sponsorId, reorderImagesDto.orderedIds);
+    return this.sponsorImagesService.reorderImages(sponsorId, reorderImagesDto.orderedIds);
   }
 
   /**
@@ -163,7 +169,7 @@ export class SponsorsController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   addLink(@Param('id', ParseIntPipe) sponsorId: number, @Body() addLinkDto: AddLinkDto) {
-    return this.sponsorsService.addLink(sponsorId, addLinkDto);
+    return this.sponsorLinksService.addLink(sponsorId, addLinkDto);
   }
 
   /**
@@ -177,7 +183,7 @@ export class SponsorsController {
     @Param('linkId', ParseIntPipe) linkId: number,
     @Body() updateLinkDto: UpdateLinkDto,
   ) {
-    return this.sponsorsService.updateLink(sponsorId, linkId, updateLinkDto);
+    return this.sponsorLinksService.updateLink(sponsorId, linkId, updateLinkDto);
   }
 
   /**
@@ -190,6 +196,6 @@ export class SponsorsController {
     @Param('id', ParseIntPipe) sponsorId: number,
     @Param('linkId', ParseIntPipe) linkId: number,
   ) {
-    return this.sponsorsService.removeLink(sponsorId, linkId);
+    return this.sponsorLinksService.removeLink(sponsorId, linkId);
   }
 }
