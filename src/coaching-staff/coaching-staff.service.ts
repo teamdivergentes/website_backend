@@ -135,6 +135,9 @@ export class CoachingStaffService {
         position,
         socials: dto.socials ?? Prisma.JsonNull,
         slug,
+        nationality: dto.nationality,
+        birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
+        customFields: (dto.customFields as Prisma.InputJsonValue) ?? Prisma.JsonNull,
       },
     });
   }
@@ -179,6 +182,10 @@ export class CoachingStaffService {
     if (dto.biography !== undefined) data.biography = dto.biography;
     if (dto.position !== undefined) data.position = dto.position;
     if (dto.socials !== undefined) data.socials = dto.socials;
+    if (dto.nationality !== undefined) data.nationality = dto.nationality;
+    if (dto.birthDate !== undefined) data.birthDate = new Date(dto.birthDate);
+    if (dto.customFields !== undefined)
+      data.customFields = dto.customFields as Prisma.InputJsonValue;
     return data;
   }
 
