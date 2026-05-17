@@ -97,6 +97,66 @@ describe('CoachingStaffService', () => {
     });
   });
 
+  // ─── findBySlug ───────────────────────────────────────────────────────────────
+
+  describe('findBySlug', () => {
+    const sampleTeamSummary = {
+      id: 1,
+      slug: 'dvg-valorant',
+      name: 'DVG Valorant',
+      game: 'Valorant',
+      image: null,
+    };
+
+    const coachWithTeam = {
+      ...sampleCoach,
+      team: sampleTeamSummary,
+    };
+
+    it('should return a coach with team info when slug is found', async () => {
+      mockPrisma.coachingStaff.findUnique.mockResolvedValue(coachWithTeam);
+
+      const result: Awaited<ReturnType<typeof service.findBySlug>> =
+        await service.findBySlug('jean-coach');
+
+      expect(result).toEqual(coachWithTeam);
+      expect(result.team).toEqual(sampleTeamSummary);
+      expect(result.nationality).toBeNull();
+      expect(result.birthDate).toBeNull();
+      expect(result.customFields).toBeNull();
+
+      const [findUniqueCall] = mockPrisma.coachingStaff.findUnique.mock.calls as [
+        [{ where: { slug: string }; include: unknown }],
+      ];
+      expect(findUniqueCall[0].where).toEqual({ slug: 'jean-coach' });
+      expect(findUniqueCall[0].include).toHaveProperty('team');
+    });
+
+    it('should return editorial fields when coach has nationality, birthDate and customFields', async () => {
+      const birthDate = new Date('1995-06-15');
+      const coachWithEditorialFields = {
+        ...coachWithTeam,
+        nationality: 'Français',
+        birthDate,
+        customFields: { discord: 'jean#0001' },
+      };
+      mockPrisma.coachingStaff.findUnique.mockResolvedValue(coachWithEditorialFields);
+
+      const result: Awaited<ReturnType<typeof service.findBySlug>> =
+        await service.findBySlug('jean-coach');
+
+      expect(result.nationality).toBe('Français');
+      expect(result.birthDate).toEqual(birthDate);
+      expect(result.customFields).toEqual({ discord: 'jean#0001' });
+    });
+
+    it('should throw NotFoundException when slug does not exist', async () => {
+      mockPrisma.coachingStaff.findUnique.mockResolvedValue(null);
+
+      await expect(service.findBySlug('slug-inexistant')).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ─── create ──────────────────────────────────────────────────────────────────
 
   describe('create', () => {
