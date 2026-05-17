@@ -42,6 +42,9 @@ describe('CoachingStaffService', () => {
     position: 0,
     socials: null,
     slug: 'jean-coach',
+    nationality: null,
+    birthDate: null,
+    customFields: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -175,6 +178,55 @@ describe('CoachingStaffService', () => {
         NotFoundException,
       );
     });
+
+    it('should create a coach with editorial fields (nationality, birthDate, customFields)', async () => {
+      const dto: CreateCoachingStaffDto = {
+        name: 'Pierre Coach',
+        role: 'Analyst',
+        nationality: 'Français',
+        birthDate: '1995-06-15',
+        customFields: { discord: 'pierre#1234', speciality: 'data' },
+      };
+
+      const birthDate = new Date('1995-06-15');
+      const expectedCoach = {
+        ...sampleCoach,
+        id: 5,
+        name: 'Pierre Coach',
+        role: 'Analyst',
+        slug: 'pierre-coach',
+        nationality: 'Français',
+        birthDate,
+        customFields: { discord: 'pierre#1234', speciality: 'data' },
+      };
+
+      mockPrisma.team.findUnique.mockResolvedValue(sampleTeam);
+      mockPrisma.coachingStaff.aggregate.mockResolvedValue({ _max: { position: 0 } });
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(null);
+      mockPrisma.coachingStaff.create.mockResolvedValue(expectedCoach);
+
+      const result: Awaited<ReturnType<typeof service.create>> = await service.create(1, dto);
+
+      expect(result.nationality).toBe('Français');
+      expect(result.birthDate).toEqual(birthDate);
+      expect(result.customFields).toEqual({ discord: 'pierre#1234', speciality: 'data' });
+
+      const createCall = mockPrisma.coachingStaff.create.mock.calls[0] as [
+        {
+          data: {
+            nationality: string;
+            birthDate: Date;
+            customFields: Record<string, unknown>;
+          };
+        },
+      ];
+      expect(createCall[0].data.nationality).toBe('Français');
+      expect(createCall[0].data.birthDate).toEqual(new Date('1995-06-15'));
+      expect(createCall[0].data.customFields).toEqual({
+        discord: 'pierre#1234',
+        speciality: 'data',
+      });
+    });
   });
 
   // ─── update ──────────────────────────────────────────────────────────────────
@@ -268,6 +320,44 @@ describe('CoachingStaffService', () => {
       mockPrisma.coachingStaff.update.mockRejectedValue(new Error('DB timeout'));
 
       await expect(service.update(1, 1, { role: 'X' })).rejects.toThrow('DB timeout');
+    });
+
+    it('should partially update editorial fields (nationality, birthDate, customFields)', async () => {
+      const dto: UpdateCoachingStaffDto = {
+        nationality: 'Belge',
+        birthDate: '1992-03-10',
+        customFields: { rank: 'Radiant' },
+      };
+      const birthDate = new Date('1992-03-10');
+      const updatedCoach = {
+        ...sampleCoach,
+        nationality: 'Belge',
+        birthDate,
+        customFields: { rank: 'Radiant' },
+      };
+
+      mockPrisma.coachingStaff.findFirst.mockResolvedValue(sampleCoach);
+      mockPrisma.coachingStaff.update.mockResolvedValue(updatedCoach);
+
+      const result: Awaited<ReturnType<typeof service.update>> = await service.update(1, 1, dto);
+
+      expect(result.nationality).toBe('Belge');
+      expect(result.birthDate).toEqual(birthDate);
+      expect(result.customFields).toEqual({ rank: 'Radiant' });
+
+      const updateCall = mockPrisma.coachingStaff.update.mock.calls[0] as [
+        {
+          where: { id: number };
+          data: {
+            nationality: string;
+            birthDate: Date;
+            customFields: Record<string, unknown>;
+          };
+        },
+      ];
+      expect(updateCall[0].data.nationality).toBe('Belge');
+      expect(updateCall[0].data.birthDate).toEqual(new Date('1992-03-10'));
+      expect(updateCall[0].data.customFields).toEqual({ rank: 'Radiant' });
     });
   });
 
