@@ -104,6 +104,33 @@ export class CoachingStaffService {
   }
 
   /**
+   * Retourne un membre du coaching staff par slug, avec les informations de son équipe.
+   * Utilisé par la page publique de détail coach.
+   */
+  async findBySlug(slug: string) {
+    const coach = await this.prisma.coachingStaff.findUnique({
+      where: { slug },
+      include: {
+        team: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            game: true,
+            image: true,
+          },
+        },
+      },
+    });
+
+    if (!coach) {
+      throw new NotFoundException(`Coach avec le slug "${slug}" non trouvé`);
+    }
+
+    return coach;
+  }
+
+  /**
    * Crée un membre du coaching staff.
    */
   async create(teamId: number, dto: CreateCoachingStaffDto) {
