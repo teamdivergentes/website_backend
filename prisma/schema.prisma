@@ -242,19 +242,22 @@ model TwitchChannel {
 }
 
 model CoachingStaff {
-  id        Int      @id @default(autoincrement())
-  teamId    Int
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  name      String
-  realName  String?
-  role      String
-  image     String?
-  biography String?
-  position  Int      @default(0)
-  socials   Json?
-  slug      String?  @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           Int       @id @default(autoincrement())
+  teamId       Int
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name         String
+  realName     String?
+  role         String
+  image        String?
+  biography    String?
+  position     Int       @default(0)
+  socials      Json?
+  slug         String?   @unique
+  nationality  String?
+  birthDate    DateTime?
+  customFields Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([teamId, position])
   @@map("coaching_staff")

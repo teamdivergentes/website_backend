@@ -7,6 +7,7 @@ import {
   Min,
   MaxLength,
   Matches,
+  IsDateString,
 } from 'class-validator';
 
 export class CreateCoachingStaffDto {
@@ -51,4 +52,17 @@ export class CreateCoachingStaffDto {
     message: 'slug doit etre kebab-case (lettres minuscules, chiffres et tirets)',
   })
   slug?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(100, { message: 'La nationalité ne peut pas dépasser 100 caractères' })
+  nationality?: string;
+
+  @IsDateString()
+  @IsOptional()
+  birthDate?: string;
+
+  @IsObject()
+  @IsOptional()
+  customFields?: Record<string, unknown>;
 }
