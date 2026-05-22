@@ -11,6 +11,7 @@ describe('CoachingStaffController', () => {
   let controller: CoachingStaffController;
 
   const mockCoachingStaffService = {
+    findBySlug: jest.fn(),
     findByTeam: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -40,6 +41,29 @@ describe('CoachingStaffController', () => {
 
   it('devrait être défini', () => {
     expect(controller).toBeDefined();
+  });
+
+  // ─── findBySlug (public) ─────────────────────────────────────────────────────
+
+  describe('findBySlug', () => {
+    it('devrait appeler coachingStaffService.findBySlug avec le slug et retourner le coach avec son équipe', async () => {
+      const coachWithTeam = {
+        id: 1,
+        name: 'Jean Coach',
+        role: 'Head Coach',
+        slug: 'jean-coach',
+        nationality: 'Français',
+        birthDate: null,
+        customFields: null,
+        team: { id: 1, slug: 'dvg-valorant', name: 'DVG Valorant', game: 'Valorant', image: null },
+      };
+      mockCoachingStaffService.findBySlug.mockResolvedValue(coachWithTeam);
+
+      const result = await controller.findBySlug('jean-coach');
+
+      expect(mockCoachingStaffService.findBySlug).toHaveBeenCalledWith('jean-coach');
+      expect(result).toEqual(coachWithTeam);
+    });
   });
 
   // ─── findByTeamPublic (public) ────────────────────────────────────────────────

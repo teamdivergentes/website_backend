@@ -539,6 +539,19 @@ async function main() {
     console.log('No team found — CoachingStaff seed skipped');
   }
 
+  // Seed article types (categories)
+  const articleTypeNames = ['Actualité', 'Annonce', 'Match Report', 'eSport', 'Interview'];
+
+  for (const name of articleTypeNames) {
+    await prisma.articleType.upsert({
+      where: { name },
+      update: {},
+      create: { name },
+    });
+  }
+
+  console.log('✓ Catégories d\'articles seedées:', articleTypeNames.length);
+
   console.log('Seed completed successfully!');
 }
 

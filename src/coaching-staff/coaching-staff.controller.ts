@@ -25,6 +25,13 @@ export class CoachingStaffController {
 
   // ─── Routes publiques ──────────────────────────────────────────────────────
 
+  @Get('api/coaching-staff/by-slug/:slug')
+  @Public()
+  @SkipThrottle()
+  findBySlug(@Param('slug') slug: string) {
+    return this.coachingStaffService.findBySlug(slug);
+  }
+
   @Get('api/teams/:teamId/coaching-staff')
   @Public()
   @SkipThrottle()
