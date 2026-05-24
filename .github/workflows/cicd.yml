@@ -898,16 +898,33 @@ jobs:
     steps:
       - name: Resolve service network and connect runner
         id: pg-net
-        # Memes mecaniques que test-e2e : le runner self-hosted est lui-meme
-        # un conteneur, on le rejoint au reseau github_network_* cree pour le
-        # service postgres puis on lance le conteneur de smoke sur ce meme
-        # reseau pour qu'il puisse contacter postgres via son alias.
         run: |
           set -euo pipefail
           RUNNER_ID=$(hostname)
-          PG_NETWORK=$(docker network ls --format '{{.Name}}' | grep '^github_network_' | head -1)
-          if [ -z "$PG_NETWORK" ]; then
-            echo "ERROR: No github_network_* found" >&2
+          # Retry loop : le tag de network du service postgres peut etre propage
+          # avec un delai apres le demarrage du service container.
+          PG_NETWORK=""
+          PG_CONTAINER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            for net in $(docker network ls --format '{{.Name}}' | grep '^github_network_'); do
+              c=$(docker ps --filter "network=${net}" --format '{{.ID}}\t{{.Image}}' | grep -i 'postgres' | awk '{print $1}' | head -1)
+              if [ -n "$c" ]; then
+                PG_NETWORK="$net"
+                PG_CONTAINER="$c"
+                break
+              fi
+            done
+            if [ -n "$PG_CONTAINER" ]; then
+              echo "Postgres resolved on attempt ${attempt}: container=${PG_CONTAINER} network=${PG_NETWORK}"
+              break
+            fi
+            echo "[${attempt}/8] Postgres container not yet visible on any github_network_*, retry in 3s..."
+            sleep 3
+          done
+          if [ -z "$PG_CONTAINER" ]; then
+            echo "ERROR: No postgres container found on any github_network_* after 8 attempts" >&2
+            docker network ls >&2 || true
+            docker ps --all >&2 || true
             exit 1
           fi
           echo "Service network: ${PG_NETWORK}"
@@ -917,10 +934,22 @@ jobs:
           elif echo "$CONNECT_OUT" | grep -q "already exists in network"; then
             echo "Runner already on ${PG_NETWORK}"
           else
-            echo "Network connect failed: ${CONNECT_OUT}" >&2
-            exit 1
+            # Fallback : runner en network_mode:host (hostname = VPS, pas un container ID).
+            # docker network connect echoue car le runner n'est pas un container joignable
+            # par nom. On utilise le port expose sur l'hote a la place.
+            echo "Network connect failed (native/host-network runner): ${CONNECT_OUT}"
+            echo "Falling back to host-mapped port..."
+            PG_HOST_PORT=$(docker inspect "${PG_CONTAINER}" \
+              --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}')
+            echo "PGHOST=localhost" >> $GITHUB_OUTPUT
+            echo "PGPORT=${PG_HOST_PORT}" >> $GITHUB_OUTPUT
+            echo "network=" >> $GITHUB_OUTPUT
+            echo "Postgres reachable at localhost:${PG_HOST_PORT}"
+            exit 0
           fi
           echo "network=${PG_NETWORK}" >> $GITHUB_OUTPUT
+          echo "PGHOST=postgres" >> $GITHUB_OUTPUT
+          echo "PGPORT=5432" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -933,24 +962,41 @@ jobs:
         env:
           IMAGE: ${{ needs.docker.outputs.image-tag }}
           PG_NETWORK: ${{ steps.pg-net.outputs.network }}
+          PGHOST: ${{ steps.pg-net.outputs.PGHOST }}
+          PGPORT: ${{ steps.pg-net.outputs.PGPORT }}
         run: |
           set -euo pipefail
           docker pull "$IMAGE"
-          # L'entrypoint applique les migrations (npx prisma migrate deploy)
-          # puis lance node — d'ou la presence d'un postgres ephemere. Le
-          # conteneur smoke rejoint le reseau de service pour resoudre
-          # l'alias "postgres".
-          docker run -d --name backend-smoke \
-            --network "$PG_NETWORK" \
-            -e NODE_ENV=production \
-            -e DATABASE_URL="postgresql://smokeuser:smokepass@postgres:5432/smokedb" \
-            -e JWT_SECRET=smoke-release-secret-key \
-            -e JWT_EXPIRES_IN=1h \
-            "$IMAGE"
+          # Si PG_NETWORK est vide = fallback localhost (runner en network_mode:host).
+          # On demarre le smoke avec --network host pour qu'il partage la stack reseau
+          # de l'hote et puisse joindre Postgres via localhost:PGPORT.
+          # Si PG_NETWORK est defini = runner container connecte au reseau de services,
+          # on attach le smoke au meme reseau pour resoudre l'alias "postgres".
+          if [ -z "${PG_NETWORK}" ]; then
+            DB_URL="postgresql://smokeuser:smokepass@${PGHOST}:${PGPORT}/smokedb"
+            docker run -d --name backend-smoke \
+              --network host \
+              -e NODE_ENV=production \
+              -e DATABASE_URL="${DB_URL}" \
+              -e JWT_SECRET=smoke-release-secret-key \
+              -e JWT_EXPIRES_IN=1h \
+              "$IMAGE"
+            SMOKE_HOST="localhost"
+          else
+            DB_URL="postgresql://smokeuser:smokepass@postgres:5432/smokedb"
+            docker run -d --name backend-smoke \
+              --network "$PG_NETWORK" \
+              -e NODE_ENV=production \
+              -e DATABASE_URL="${DB_URL}" \
+              -e JWT_SECRET=smoke-release-secret-key \
+              -e JWT_EXPIRES_IN=1h \
+              "$IMAGE"
+            SMOKE_HOST="backend-smoke"
+          fi
           # Boot peut prendre 20-30s (migrate deploy + bootstrap NestJS).
           # 60s laisse une marge confortable avant d'echouer.
           for i in $(seq 1 60); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://backend-smoke:3000/health || echo "0")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://${SMOKE_HOST}:3000/health" || echo "0")
             if [[ "$STATUS" == "200" ]]; then
               echo "Smoke OK (HTTP 200) apres ${i}s"
               exit 0
