@@ -10,18 +10,38 @@ import { Public } from '../auth/decorators/public.decorator';
 export class ConfigController {
   constructor(private readonly configService: ConfigService) {}
 
+  /**
+   * Endpoint public : retourne uniquement les clés de l'allow-list publique.
+   * Les secrets serveur (SMTP, webhooks) sont filtrés.
+   */
   @Get()
   @Public()
   @SkipThrottle()
   findAll() {
+    return this.configService.findAllPublic();
+  }
+
+  /**
+   * Endpoint admin : retourne TOUTES les clés, y compris les secrets.
+   * Nécessite le rôle admin.
+   * IMPORTANT : déclaré AVANT ":key" pour ne pas être capturé par le paramètre de route.
+   */
+  @Get('admin/all')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  findAllAdmin() {
     return this.configService.findAll();
   }
 
+  /**
+   * Endpoint public : retourne une clé si elle est dans l'allow-list publique.
+   * Retourne 404 si la clé est privée (ne révèle pas son existence).
+   */
   @Get(':key')
   @Public()
   @SkipThrottle()
-  findOne(@Param('key') key: string) {
-    return this.configService.findOne(key);
+  findOnePublic(@Param('key') key: string) {
+    return this.configService.findOnePublic(key);
   }
 
   @Post()
