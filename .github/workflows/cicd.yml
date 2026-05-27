@@ -17,6 +17,11 @@ on:
   issue_comment:
     types: [created]
   workflow_dispatch:
+    inputs:
+      deploy_tag:
+        description: "Tag de release a (re)deployer en PROD, ex: v1.5.0. Vide = CI normale."
+        required: false
+        type: string
 
 env:
   NODE_VERSION: 22
@@ -639,6 +644,11 @@ jobs:
   # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
   # Sonar QG blocks Docker build -> no image is published if quality fails.
   # Skipped for Dependabot dev-dep and action bumps (no production code changed).
+  #
+  # DISPATCH FALLBACK PROD : quand workflow_dispatch est déclenché avec deploy_tag
+  # renseigné, le rebuild est sauté (l'image :RELEASE existe déjà sur GHCR).
+  # Ce job tourne quand même pour fournir les outputs (image-tag, image-name…)
+  # dont smoke-release et deploy-prod ont besoin. Seul le step build-push est conditionné.
   docker:
     runs-on: [self-hosted, linux, docker]
     needs: [build, lint, test-unit, semgrep, sonarqube]
@@ -688,6 +698,11 @@ jobs:
 
       - name: Determine image tags
         id: tags
+        # Sur dispatch fallback (deploy_tag renseigné), on injecte DISPATCH_DEPLOY_TAG
+        # pour que determine-tags.sh produise TAG_SUFFIX=RELEASE / image :RELEASE
+        # sans reconstruire depuis la branche courante (GITHUB_REF = refs/heads/...).
+        env:
+          DISPATCH_DEPLOY_TAG: ${{ inputs.deploy_tag || '' }}
         run: |
           chmod +x ./.github/scripts/determine-tags.sh
           ./.github/scripts/determine-tags.sh
@@ -742,8 +757,34 @@ jobs:
         env:
           BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.repository.pushed_at || github.event.repository.updated_at }}
 
+      # DISPATCH FALLBACK PROD : on ne rebuilde PAS l'image — elle existe déjà sur GHCR.
+      # On vérifie que le tag IMMUABLE versionné X.Y.Z-RELEASE est bien présent.
+      # On cible version-tag (ex: 1.5.0-RELEASE) et non workflow-tag (:RELEASE flottant)
+      # pour garantir qu'on redeploie EXACTEMENT le tag demandé et non la dernière release
+      # publiée depuis (ex: v1.4.1 demandé mais :RELEASE pointe sur v1.5.0 → mauvaise version).
+      - name: Verify RELEASE image exists on GHCR (dispatch fallback only)
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy_tag != ''
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.image-tag }}
+          VERSION_TAG: ${{ steps.tags.outputs.version-tag }}
+        run: |
+          set -euo pipefail
+          echo "Dispatch fallback : verification des images GHCR avant deploy..."
+          echo "  SHA tag      : $IMAGE_TAG"
+          echo "  Version tag  : $VERSION_TAG"
+          # Tenter de pull le manifest sans télécharger les layers
+          docker manifest inspect "$VERSION_TAG" > /dev/null 2>&1 || {
+            echo "::error::Image $VERSION_TAG introuvable sur GHCR."
+            echo "::error::Le tag ${{ inputs.deploy_tag }} n'a peut-etre jamais declenche de run CICD"
+            echo "::error::(tag fantome). Promouvoir develop->main pour creer un nouveau tag."
+            exit 1
+          }
+          echo "Image $VERSION_TAG presente sur GHCR - OK"
+
       - name: Build and Push Docker image
         id: build-image
+        # Sur dispatch fallback (deploy_tag renseigné), l'image est déjà sur GHCR — on skip.
+        if: "!(github.event_name == 'workflow_dispatch' && inputs.deploy_tag != '')"
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
@@ -863,19 +904,22 @@ jobs:
         if: always()
         run: echo "deploy-status=${{ steps.deploy.outcome }}" >> $GITHUB_OUTPUT
 
-  # Smoke-release : boot le binaire RELEASE qui sera deploye en PROD pour
-  # valider que l'image demarre, applique les migrations et repond 200 sur
-  # /health avant de declencher le deploiement. Garde-fou final apres le
-  # workflow re-trigger declenche par le tag vX.Y.Z (cree par semantic-release
-  # sur main). Ne s'execute que sur les tags v*.
+  # Smoke-release : valide le binaire :RELEASE avant deploiement PROD.
+  # Chemin normal (tag push) : boot l'image localement avec Postgres service,
+  #   applique les migrations, verifie /health → 200. Garde-fou final.
+  # Chemin dispatch fallback (workflow_dispatch + deploy_tag) : l'image a deja
+  #   ete validee lors du tag initial. On verifie uniquement le manifest GHCR
+  #   (fait dans le job docker) et on passe directement a deploy-prod.
+  #   Le boot local Postgres n'est PAS rejoue : le service postgres n'est declare
+  #   que pour ne pas bloquer si le runner l'ignore quand le step est skippe.
   smoke-release:
     runs-on: [self-hosted, linux, docker]
     needs: [docker, scan-image]
     if: |
       !cancelled() &&
-      startsWith(github.ref, 'refs/tags/v') &&
+      (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy_tag != '')) &&
       needs.docker.result == 'success' &&
-      needs.scan-image.result == 'success'
+      (needs.scan-image.result == 'success' || needs.scan-image.result == 'skipped')
     permissions:
       contents: read
       packages: read
@@ -896,8 +940,13 @@ jobs:
           - 5432
 
     steps:
+      # Ce step ne s'execute que sur le chemin normal (tag push).
+      # Sur dispatch fallback, le service postgres est toujours declare (nécessaire
+      # pour que le job reste valide), mais le step est skippe car on ne boot pas
+      # l'image localement.
       - name: Resolve service network and connect runner
         id: pg-net
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           RUNNER_ID=$(hostname)
@@ -958,7 +1007,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Chemin dispatch fallback : l'image a deja ete smoke-testee lors du tag initial.
+      # On confirme la presence du tag IMMUABLE versionné X.Y.Z-RELEASE (double-securite,
+      # le job docker l'a deja verifie). On cible version-tag et non workflow-tag (:RELEASE
+      # flottant) pour garantir que l'on redéploie bien la version exacte demandée.
+      - name: Confirm RELEASE image present (dispatch fallback)
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy_tag != ''
+        env:
+          VERSION_TAG: ${{ needs.docker.outputs.version-tag }}
+        run: |
+          set -euo pipefail
+          echo "Dispatch fallback : confirmation image $VERSION_TAG..."
+          docker pull "$VERSION_TAG" > /dev/null
+          echo "Image $VERSION_TAG confirmee sur GHCR - smoke passe (image pre-validee)"
+
+      # Chemin normal (tag push) : boot complet avec Postgres service.
       - name: Pull and boot release image
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           IMAGE: ${{ needs.docker.outputs.image-tag }}
           PG_NETWORK: ${{ steps.pg-net.outputs.network }}
@@ -1011,22 +1076,24 @@ jobs:
         if: always()
         run: docker rm -f backend-smoke || true
 
-  # Deploiement PROD (tag vX.Y.Z apres smoke-release).
-  # On passe DEPLOY_IMAGE_TAG=:SHA pour deployer le binaire EXACT qui vient
-  # d'etre smoke-teste, sans dependre de la resolution du tag flottant
-  # :RELEASE qui pourrait etre repointe par un autre run concurrent.
+  # Deploiement PROD (tag vX.Y.Z apres smoke-release, ou dispatch fallback).
+  # Chemin normal : on passe DEPLOY_IMAGE_TAG=:SHA pour deployer le binaire EXACT
+  #   qui vient d'etre smoke-teste, sans dependre du tag flottant :RELEASE.
+  # Chemin dispatch fallback : DEPLOY_IMAGE_TAG = :RELEASE (image pre-validee,
+  #   pas de SHA courant valide car on n'a pas rebuilde). L'image :RELEASE
+  #   a ete confirmee presente par le job docker + smoke-release dispatch.
   deploy-prod:
     runs-on: ubuntu-latest
     needs: [build, lint, test-unit, semgrep, docker, scan-image, smoke-release]
     if: |
       !cancelled() &&
-      startsWith(github.ref, 'refs/tags/v') &&
+      (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy_tag != '')) &&
       needs.build.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.test-unit.result == 'success' &&
       (needs.semgrep.result == 'success' || needs.semgrep.result == 'skipped') &&
       needs.docker.result == 'success' &&
-      needs.scan-image.result == 'success' &&
+      (needs.scan-image.result == 'success' || needs.scan-image.result == 'skipped') &&
       needs.smoke-release.result == 'success'
     environment:
       name: production
@@ -1045,7 +1112,14 @@ jobs:
           DEPLOY_REPO: ${{ secrets.DEPLOY_REPO }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
           IMAGE_REPO: ${{ needs.docker.outputs.image-name }}
-          DEPLOY_IMAGE_TAG: ${{ needs.docker.outputs.image-tag }}
+          # Chemin normal (tag push) : on utilise le SHA exact pour cibler le
+          #   binaire smoke-teste sans dependre d'un tag flottant.
+          # Chemin dispatch fallback : pas de SHA courant valide (pas de rebuild).
+          #   On utilise le tag IMMUABLE versionné X.Y.Z-RELEASE (version-tag) et non
+          #   le tag flottant :RELEASE (workflow-tag) pour garantir que l'on redeploie
+          #   EXACTEMENT la version demandée via deploy_tag, et non la dernière release
+          #   publiée depuis (ex: deploy_tag=v1.4.1 mais :RELEASE pointe sur v1.5.0).
+          DEPLOY_IMAGE_TAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_tag != '') && needs.docker.outputs.version-tag || needs.docker.outputs.image-tag }}
         run: |
           chmod +x ./.github/scripts/deploy.sh
           ./.github/scripts/deploy.sh "PROD" "website"
@@ -1164,10 +1238,106 @@ jobs:
           GIT_COMMITTER_EMAIL: semantic-release-bot@teamdivergentes.fr
         run: npx semantic-release
 
+  # Garde-fou anti tag-fantôme (EPIC-24 Enabler-1).
+  # Semantic-release crée le tag vX.Y.Z sur main. Ce tag DOIT déclencher un
+  # nouveau run CICD (le "tag run") pour construire :RELEASE et déployer PROD.
+  # Si GitHub rate-limite, le webhook tag est silencieusement droppé → le tag
+  # run ne démarre jamais → :RELEASE n'est jamais poussée → deploy-prod skip.
+  # Ce job attend 90s (délai GitHub pour enregistrer le run) puis interroge
+  # l'API. Si aucun run récent sur ce tag n'est trouvé, on notifie Discord.
+  # Non-bloquant (continue-on-error: true) : la release est créée, on informe
+  # seulement. L'opérateur peut relancer via workflow_dispatch + deploy_tag.
+  check-tag-run:
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: |
+      needs.release.result == 'success' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Wait for tag run to appear
+        run: |
+          echo "Attente 90s pour laisser GitHub enregistrer le run sur le tag..."
+          sleep 90
+
+      - name: Check tag run existence
+        id: tag-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Récupérer le dernier tag créé par semantic-release (commence par v)
+          LATEST_TAG=$(curl -sf \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/tags?per_page=5" \
+            | jq -r '[.[] | select(.name | startswith("v"))] | .[0].name // empty')
+
+          if [[ -z "$LATEST_TAG" ]]; then
+            echo "Impossible de recuperer le dernier tag — check abandonne"
+            echo "tag-found=unknown" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "Dernier tag : $LATEST_TAG"
+          echo "tag-name=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+          # Lister les runs CICD sur ce tag (creés dans les 5 dernières minutes)
+          SINCE=$(date -u -d '5 minutes ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                  date -u -v-5M +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                  echo "")
+          QUERY="https://api.github.com/repos/$REPO/actions/workflows/cicd.yml/runs?branch=${LATEST_TAG}&per_page=5"
+          if [[ -n "$SINCE" ]]; then
+            QUERY="${QUERY}&created=>=${SINCE}"
+          fi
+
+          RUNS=$(curl -sf \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$QUERY" | jq '.total_count // 0')
+
+          echo "Runs CICD trouves sur $LATEST_TAG : $RUNS"
+          echo "tag-found=$( [[ "$RUNS" -gt 0 ]] && echo 'true' || echo 'false' )" >> $GITHUB_OUTPUT
+
+      - name: Notify Discord if tag run is missing
+        if: steps.tag-check.outputs.tag-found == 'false'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          TAG_NAME: ${{ steps.tag-check.outputs.tag-name }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions
+        run: |
+          set -euo pipefail
+          echo "::warning::Tag $TAG_NAME cree mais aucun run CICD detecte (tag fantome potentiel)"
+          if [[ -z "$DISCORD_WEBHOOK" ]]; then
+            echo "DISCORD_DEPLOY_WEBHOOK non configure — notification Discord ignoree"
+            exit 0
+          fi
+          curl -sf -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"Tag fantome detecte — Backend\",
+                \"description\": \"Le tag \`${TAG_NAME}\` a ete cree par semantic-release mais **aucun run CICD** n'a ete detecte 90s apres sa creation.\\n\\nL'image \`:RELEASE\` n'a peut-etre jamais ete poussee et **le deploy PROD n'a pas eu lieu**.\\n\\n**Action requise :** relancer via Actions UI avec \`workflow_dispatch\` + \`deploy_tag=${TAG_NAME}\`\\n[Voir les runs](${RUN_URL})\",
+                \"color\": 16776960,
+                \"fields\": [
+                  {\"name\": \"Repo\", \"value\": \"${REPO}\", \"inline\": true},
+                  {\"name\": \"Tag\", \"value\": \"\`${TAG_NAME}\`\", \"inline\": true},
+                  {\"name\": \"Remediation\", \"value\": \"workflow_dispatch + deploy_tag\", \"inline\": false}
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+              }]
+            }"
+          echo "Notification Discord envoyee"
+
   # Job final pour determiner le statut global du workflow
   workflow-status:
     runs-on: ubuntu-latest
-    needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, smoke-release, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test]
+    needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, smoke-release, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test, check-tag-run]
     if: always()
     permissions: {}
     steps:
