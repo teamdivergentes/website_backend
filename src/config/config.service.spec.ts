@@ -37,7 +37,7 @@ describe('ConfigService', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // findAll
+  // findAll (admin — toutes les clés)
   // ---------------------------------------------------------------------------
   describe('findAll', () => {
     it('devrait retourner la liste de toutes les configurations', async () => {
@@ -59,6 +59,127 @@ describe('ConfigService', () => {
       const result = await service.findAll();
 
       expect(result).toEqual([]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // findAllPublic — seules les clés de l'allow-list
+  // ---------------------------------------------------------------------------
+  describe('findAllPublic', () => {
+    const smtpConfig = {
+      id: 10,
+      key: 'contact_smtp_pass',
+      value: 'secret',
+      description: 'Mot de passe SMTP',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const webhookConfig = {
+      id: 11,
+      key: 'contact_discord_webhook',
+      value: 'https://discord.com/api/webhooks/xxx',
+      description: 'Webhook',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const pageVisibleConfig = {
+      id: 12,
+      key: 'page_shop_visible',
+      value: 'true',
+      description: 'Page shop visible',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    it('devrait retourner uniquement les clés publiques', async () => {
+      prismaMock.config.findMany.mockResolvedValue([
+        mockConfig,
+        smtpConfig,
+        webhookConfig,
+        pageVisibleConfig,
+      ]);
+
+      const result = await service.findAllPublic();
+
+      const keys = result.map((c) => c.key);
+      expect(keys).toContain('site_name');
+      expect(keys).toContain('page_shop_visible');
+      expect(keys).not.toContain('contact_smtp_pass');
+      expect(keys).not.toContain('contact_discord_webhook');
+    });
+
+    it('devrait retourner un tableau vide si aucune config publique', async () => {
+      prismaMock.config.findMany.mockResolvedValue([smtpConfig, webhookConfig]);
+
+      const result = await service.findAllPublic();
+
+      expect(result).toEqual([]);
+    });
+
+    it('devrait inclure les clés page_*_visible (pattern)', async () => {
+      const configs = [
+        { ...pageVisibleConfig, key: 'page_contact_visible' },
+        { ...pageVisibleConfig, key: 'page_twitch_visible' },
+        smtpConfig,
+      ];
+      prismaMock.config.findMany.mockResolvedValue(configs);
+
+      const result = await service.findAllPublic();
+
+      const keys = result.map((c) => c.key);
+      expect(keys).toContain('page_contact_visible');
+      expect(keys).toContain('page_twitch_visible');
+      expect(keys).not.toContain('contact_smtp_pass');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // findOnePublic — 404 pour clés privées (ne révèle pas l'existence)
+  // ---------------------------------------------------------------------------
+  describe('findOnePublic', () => {
+    it('devrait retourner la config si la clé est publique', async () => {
+      prismaMock.config.findUnique.mockResolvedValue(mockConfig);
+
+      const result = await service.findOnePublic('site_name');
+
+      expect(result).toEqual(mockConfig);
+    });
+
+    it('doit lever NotFoundException si la clé est SMTP (même si elle existe en base)', async () => {
+      // Simuler que la clé existe en base, mais elle est privée
+      prismaMock.config.findUnique.mockResolvedValue({
+        id: 10,
+        key: 'contact_smtp_pass',
+        value: 'secret',
+        description: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await expect(service.findOnePublic('contact_smtp_pass')).rejects.toThrow(NotFoundException);
+    });
+
+    it('doit lever NotFoundException si la clé est un webhook (même si elle existe en base)', async () => {
+      prismaMock.config.findUnique.mockResolvedValue({
+        id: 11,
+        key: 'contact_discord_webhook',
+        value: 'https://discord.com/api/webhooks/xxx',
+        description: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await expect(service.findOnePublic('contact_discord_webhook')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('doit lever NotFoundException si la clé est publique mais introuvable en base', async () => {
+      prismaMock.config.findUnique.mockResolvedValue(null);
+
+      await expect(service.findOnePublic('site_name')).rejects.toThrow(NotFoundException);
     });
   });
 

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { UpdateConfigDto, CreateConfigDto } from './dto/update-config.dto';
+import { isPublicConfigKey } from './public-config-keys';
 
 @Injectable()
 export class ConfigService {
@@ -11,6 +12,40 @@ export class ConfigService {
       orderBy: { key: 'asc' },
       take: 200,
     });
+  }
+
+  /**
+   * Retourne uniquement les configurations dont la clé est dans l'allow-list publique.
+   * Utilisé par l'endpoint public GET /api/config.
+   * Principe fail-safe : tout ce qui n'est pas explicitement public est privé.
+   */
+  async findAllPublic() {
+    const all = await this.prisma.config.findMany({
+      orderBy: { key: 'asc' },
+      take: 200,
+    });
+    return all.filter((config) => isPublicConfigKey(config.key));
+  }
+
+  /**
+   * Retourne une configuration publique par clé.
+   * Si la clé n'est pas dans l'allow-list, retourne 404 (ne révèle pas l'existence d'une clé privée).
+   * Utilisé par l'endpoint public GET /api/config/:key.
+   */
+  async findOnePublic(key: string) {
+    if (!isPublicConfigKey(key)) {
+      throw new NotFoundException(`Configuration "${key}" non trouvée`);
+    }
+
+    const config = await this.prisma.config.findUnique({
+      where: { key },
+    });
+
+    if (!config) {
+      throw new NotFoundException(`Configuration "${key}" non trouvée`);
+    }
+
+    return config;
   }
 
   async findOne(key: string) {
