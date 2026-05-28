@@ -18,7 +18,7 @@
 # VERSION DU PROJET
 # =============================================================================
 project:
-  version: "1.5.0"
+  version: "1.5.2"
   name: "dvg_web_backend"
   description: "Backend NestJS pour DVG Web"
   organization: "teamdivergentes"

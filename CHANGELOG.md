@@ -1,3 +1,11 @@
+## [1.5.2](https://github.com/teamdivergentes/website_backend/compare/v1.5.1...v1.5.2) (2026-05-28)
+
+
+### Bug Fixes
+
+* **ci:** add DISPATCH_DEPLOY_TAG release mode to determine-tags ([bea5c44](https://github.com/teamdivergentes/website_backend/commit/bea5c4403a0dd46b3a71952bc1f44f0c8dfa2348))
+* **config:** restrict public /api/config to allow-list, add admin-only endpoint ([05b5355](https://github.com/teamdivergentes/website_backend/commit/05b5355b96cc1759c90e22a2eead10324edd7bb7))
+
 # [1.5.0](https://github.com/teamdivergentes/website_backend/compare/v1.4.0...v1.5.0) (2026-05-22)
 
 
