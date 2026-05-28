@@ -3,7 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtStrategy, getJwtSecret } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { PrismaService } from '../prisma.service';
 
@@ -12,7 +12,8 @@ import { PrismaService } from '../prisma.service';
     UsersModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      // SEC-002 : fail-fast si JWT_SECRET absent — pas de fallback en clair
+      secret: getJwtSecret(),
       // Durée configurable via env, par défaut 7j (US admin-auth-persistence)
       signOptions: {
         expiresIn: (process.env.JWT_EXPIRES_IN ??

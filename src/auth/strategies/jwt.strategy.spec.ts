@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
-import { JwtStrategy } from './jwt.strategy';
+import { JwtStrategy, getJwtSecret } from './jwt.strategy';
 import { PrismaService } from '../../prisma.service';
 
 describe('JwtStrategy', () => {
@@ -31,6 +31,15 @@ describe('JwtStrategy', () => {
     updatedAt: new Date(),
     role: mockRole,
   };
+
+  beforeAll(() => {
+    // JWT_SECRET doit être défini pour que JwtStrategy puisse s'instancier (SEC-002 fail-fast)
+    process.env.JWT_SECRET = 'test-secret-for-jest';
+  });
+
+  afterAll(() => {
+    delete process.env.JWT_SECRET;
+  });
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -125,5 +134,38 @@ describe('JwtStrategy', () => {
       ).extractJwt(mockRequest);
       expect(extracted).toBeNull();
     });
+  });
+});
+
+// -------------------------------------------------------------------------
+// SEC-002 — getJwtSecret : fail-fast si JWT_SECRET absent
+// Isolé dans un describe de niveau racine pour éviter les interférences
+// avec le beforeEach du describe JwtStrategy qui instancie le module NestJS.
+// -------------------------------------------------------------------------
+describe('getJwtSecret — SEC-002 fail-fast', () => {
+  afterEach(() => {
+    // Toujours restaurer une valeur valide après chaque test
+    process.env.JWT_SECRET = 'test-secret-for-jest';
+  });
+
+  afterAll(() => {
+    delete process.env.JWT_SECRET;
+  });
+
+  it('devrait retourner le secret si JWT_SECRET est défini', () => {
+    process.env.JWT_SECRET = 'mon-super-secret-de-test';
+    expect(getJwtSecret()).toBe('mon-super-secret-de-test');
+  });
+
+  it('devrait lever une erreur si JWT_SECRET est absent', () => {
+    delete process.env.JWT_SECRET;
+    expect(() => getJwtSecret()).toThrow(Error);
+    expect(() => getJwtSecret()).toThrow(/JWT_SECRET/);
+  });
+
+  it('devrait lever une erreur si JWT_SECRET est une chaîne vide', () => {
+    process.env.JWT_SECRET = '';
+    expect(() => getJwtSecret()).toThrow(Error);
+    expect(() => getJwtSecret()).toThrow(/JWT_SECRET/);
   });
 });

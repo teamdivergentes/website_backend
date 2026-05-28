@@ -13,6 +13,21 @@ interface RequestWithCookies {
   headers?: Record<string, string | undefined>;
 }
 
+/**
+ * Lit JWT_SECRET depuis l'environnement avec fail-fast.
+ * Lève une erreur explicite au démarrage si la variable est absente ou vide
+ * (SEC-002 — interdit le fallback en clair qui permettrait de forger des tokens).
+ */
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "JWT_SECRET est requis. Définissez cette variable d'environnement avant de démarrer l'application.",
+    );
+  }
+  return secret;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaService) {
@@ -29,7 +44,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secretOrKey: getJwtSecret(),
       passReqToCallback: false,
     });
   }
