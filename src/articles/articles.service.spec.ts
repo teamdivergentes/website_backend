@@ -46,6 +46,12 @@ describe('ArticlesService', () => {
     user: { id: 1 },
   };
 
+  /** Article simulant une réponse Prisma avec les données complètes */
+  const mockArticleWithFullUser = {
+    ...mockArticle,
+    user: { id: 1, email: 'auteur@test.fr' },
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [ArticlesService, { provide: PrismaService, useValue: mockPrismaService }],
@@ -62,14 +68,17 @@ describe('ArticlesService', () => {
   // findAll
   // -------------------------------------------------------------------------
   describe('findAll', () => {
-    it("retourne une liste paginée d'articles", async () => {
+    it("retourne une liste paginée d'articles sans userId ni user (SEC-006)", async () => {
       const articles = [mockArticle];
       mockPrismaService.article.findMany.mockResolvedValue(articles);
       mockPrismaService.article.count.mockResolvedValue(1);
 
       const result = await service.findAll({ page: 1, limit: 20 });
 
-      expect(result.data).toEqual(articles);
+      // La réponse ne doit pas contenir userId ni user (SEC-006)
+
+      const { userId: _u, user: _usr, ...expectedArticle } = mockArticle;
+      expect(result.data).toEqual([expectedArticle]);
       expect(result.meta.total).toBe(1);
       expect(result.meta.page).toBe(1);
       expect(result.meta.limit).toBe(20);
@@ -160,12 +169,15 @@ describe('ArticlesService', () => {
   // findBySlug
   // -------------------------------------------------------------------------
   describe('findBySlug', () => {
-    it("retourne l'article correspondant au slug", async () => {
+    it("retourne l'article correspondant au slug sans userId ni user (SEC-006)", async () => {
       mockPrismaService.article.findUnique.mockResolvedValue(mockArticle);
 
       const result = await service.findBySlug('mon-article');
 
-      expect(result).toEqual(mockArticle);
+      // La réponse ne doit pas contenir userId ni user (SEC-006)
+
+      const { userId: _u, user: _usr, ...expectedArticle } = mockArticle;
+      expect(result).toEqual(expectedArticle);
       expect(mockPrismaService.article.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { slug: 'mon-article' } }),
       );
@@ -376,6 +388,76 @@ describe('ArticlesService', () => {
       mockPrismaService.article.findUnique.mockRejectedValue(new Error('DB error'));
 
       await expect(service.toggleFeatured(1)).rejects.toThrow(BadGatewayException);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // SEC-006 — les endpoints publics ne doivent PAS exposer userId / user
+  // -------------------------------------------------------------------------
+  describe('SEC-006 — fuite identité auteur (endpoints publics)', () => {
+    describe('findAll — réponse publique sans userId ni user', () => {
+      it('ne contient pas de champ userId dans les articles retournés', async () => {
+        const articleAvecUserId = { ...mockArticle };
+        mockPrismaService.article.findMany.mockResolvedValue([articleAvecUserId]);
+        mockPrismaService.article.count.mockResolvedValue(1);
+
+        const result = await service.findAll({});
+
+        result.data.forEach((article) => {
+          expect(article).not.toHaveProperty('userId');
+        });
+      });
+
+      it('ne contient pas de relation user dans les articles retournés', async () => {
+        mockPrismaService.article.findMany.mockResolvedValue([mockArticle]);
+        mockPrismaService.article.count.mockResolvedValue(1);
+
+        const result = await service.findAll({});
+
+        result.data.forEach((article) => {
+          expect(article).not.toHaveProperty('user');
+        });
+      });
+    });
+
+    describe('findHomepage — réponse publique sans userId ni user', () => {
+      it('ne contient pas de champ userId dans les articles homepage', async () => {
+        mockPrismaService.article.findMany.mockResolvedValue([
+          mockArticle,
+          mockArticle,
+          mockArticle,
+        ]);
+
+        const result = await service.findHomepage();
+
+        result.forEach((article) => {
+          expect(article).not.toHaveProperty('userId');
+          expect(article).not.toHaveProperty('user');
+        });
+      });
+    });
+
+    describe('findBySlug — réponse publique sans userId ni user', () => {
+      it('ne contient pas de champ userId ni user dans la réponse', async () => {
+        mockPrismaService.article.findUnique.mockResolvedValue(mockArticle);
+
+        const result = await service.findBySlug('mon-article');
+
+        expect(result).not.toHaveProperty('userId');
+        expect(result).not.toHaveProperty('user');
+      });
+    });
+
+    describe('findOne (admin) — préserve user.id et user.email', () => {
+      it('retourne user.id et user.email pour la vue admin', async () => {
+        mockPrismaService.article.findUnique.mockResolvedValue(mockArticleWithFullUser);
+
+        const result = await service.findOne(1);
+
+        expect(result.user).toBeDefined();
+        expect(result.user).toHaveProperty('id');
+        expect(result.user).toHaveProperty('email');
+      });
     });
   });
 });
