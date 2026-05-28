@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException, BadGatewayException } from '@nestjs/common';
+import * as dns from 'dns';
 
 export interface LinkMetaResult {
   title?: string;
@@ -12,6 +13,7 @@ export interface LinkMetaResponse {
 }
 
 // Plages d'IP privées et locales à bloquer (protection SSRF)
+// Utilisées pour valider tant le hostname brut que l'IP résolue par DNS.
 const PRIVATE_IP_PATTERNS = [
   /^127\./,
   /^10\./,
@@ -62,6 +64,36 @@ export class LinkMetaService {
     const port = parsed.port;
     if (port && port !== '80' && port !== '443') {
       throw new BadRequestException('Les ports non standards ne sont pas autorisés');
+    }
+
+    return parsed;
+  }
+
+  /**
+   * Vérifie qu'une IP résolue (après lookup DNS) n'appartient pas à une plage privée.
+   * Protège contre le DNS rebinding (SEC-003).
+   */
+  private isPrivateIp(ip: string): boolean {
+    return PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(ip));
+  }
+
+  /**
+   * Valide l'URL et résout le DNS pour vérifier que l'IP cible est publique.
+   * Combine la validation syntaxique (validateUrl) et la résolution DNS (SEC-003 SSRF).
+   */
+  async validateUrlWithDns(rawUrl: string): Promise<URL> {
+    const parsed = this.validateUrl(rawUrl);
+
+    let resolvedAddress: string;
+    try {
+      const result = await dns.promises.lookup(parsed.hostname);
+      resolvedAddress = result.address;
+    } catch {
+      throw new BadRequestException("Impossible de résoudre le nom d'hôte de l'URL fournie");
+    }
+
+    if (this.isPrivateIp(resolvedAddress)) {
+      throw new BadRequestException("L'URL pointe vers une adresse privée ou locale non autorisée");
     }
 
     return parsed;
@@ -203,11 +235,12 @@ export class LinkMetaService {
 
   /**
    * Point d'entrée principal : récupère les métadonnées d'une URL.
+   * SEC-003 : utilise validateUrlWithDns pour bloquer les attaques SSRF via DNS rebinding.
    */
   async fetchLinkMeta(rawUrl: string): Promise<LinkMetaResponse> {
     let validatedUrl: URL;
     try {
-      validatedUrl = this.validateUrl(rawUrl);
+      validatedUrl = await this.validateUrlWithDns(rawUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'URL invalide';
       this.logger.warn(`URL rejetée (validation SSRF) : ${message}`);

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, BadGatewayException } from '@nestjs/common';
+import * as dns from 'dns';
 import { LinkMetaService } from './link-meta.service';
 
 // Helper pour construire une Response mockée
@@ -339,6 +340,133 @@ describe('LinkMetaService', () => {
 
       expect(result.success).toBe(1);
       expect(result.meta).toEqual({});
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // SEC-003 — Protection SSRF via résolution DNS
+  // -------------------------------------------------------------------------
+  describe('validateUrlWithDns — SEC-003 SSRF DNS resolution', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('rejette une URL dont le DNS résout vers 127.0.0.1 (loopback)', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '127.0.0.1',
+        family: 4,
+      });
+
+      await expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejette une URL dont le DNS résout vers 169.254.169.254 (metadata cloud)', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '169.254.169.254',
+        family: 4,
+      });
+
+      await expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejette une URL dont le DNS résout vers 10.0.0.1 (RFC1918)', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '10.0.0.1',
+        family: 4,
+      });
+
+      await expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejette une URL dont le DNS résout vers 192.168.1.1 (RFC1918)', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '192.168.1.1',
+        family: 4,
+      });
+
+      await expect(service.validateUrlWithDns('https://attacker.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejette une URL dont le DNS résout vers 172.16.0.1 (RFC1918)', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '172.16.0.1',
+        family: 4,
+      });
+
+      await expect(service.validateUrlWithDns('https://attacker.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejette une URL dont le DNS résout vers ::1 (IPv6 loopback)', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '::1',
+        family: 6,
+      });
+
+      await expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('accepte une URL dont le DNS résout vers une IP publique', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '93.184.216.34',
+        family: 4,
+      });
+
+      const result = await service.validateUrlWithDns('https://example.com');
+      expect(result).toBeInstanceOf(URL);
+      expect(result.hostname).toBe('example.com');
+    });
+
+    it('lève BadRequestException si la résolution DNS échoue', async () => {
+      const dnsError = new Error('ENOTFOUND invalid.domain.xyz');
+      jest.spyOn(dns.promises, 'lookup').mockRejectedValueOnce(dnsError);
+
+      await expect(service.validateUrlWithDns('https://invalid.domain.xyz')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // SEC-003 — fetchLinkMeta utilise bien la validation DNS
+  // -------------------------------------------------------------------------
+  describe('fetchLinkMeta avec DNS validation — SEC-003', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('refuse de fetcher si DNS résout vers une IP privée', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '10.0.0.100',
+        family: 4,
+      });
+
+      await expect(service.fetchLinkMeta('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('autorise le fetch si DNS résout vers une IP publique', async () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '93.184.216.34',
+        family: 4,
+      });
+      const html = '<html><head><title>OK</title></head></html>';
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(mockFetchResponse(html));
+
+      const result = await service.fetchLinkMeta('https://example.com');
+      expect(result.success).toBe(1);
     });
   });
 });
