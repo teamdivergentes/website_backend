@@ -15,6 +15,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 
@@ -49,6 +50,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('register')
+  @UseGuards(RolesGuard)
   @Roles('admin')
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   async register(@Body() registerDto: RegisterDto) {
