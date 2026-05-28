@@ -2,6 +2,15 @@
 
 # Script pour déterminer les tags Docker basés sur le contexte du workflow
 # Usage: ./determine-tags.sh
+#
+# Variable d'environnement spéciale :
+#   DISPATCH_DEPLOY_TAG  Si renseignée (ex: "v1.5.0"), force le mode RELEASE
+#                        sans rebuild. Utilisée par le chemin workflow_dispatch
+#                        de fallback prod : l'image :RELEASE existe déjà sur GHCR,
+#                        on reconstruit seulement les outputs pour smoke-release
+#                        et deploy-prod. GITHUB_REF vaut alors refs/heads/...
+#                        (pas un tag), ce qui sans cette branche produirait
+#                        TAG_SUFFIX=PREPROD ou unstable — résultat incorrect.
 
 set -euo pipefail
 
@@ -14,9 +23,9 @@ IMAGE_NAME="dvg_web_backend"
 # Version du projet - extraire depuis devsecops.yml
 if [[ -f "devsecops.yml" ]]; then
     PROJECT_VERSION=$(chmod +x ./.github/scripts/get-config-value.sh && ./.github/scripts/get-config-value.sh "project.version")
-    echo "📋 Version extraite depuis devsecops.yml: $PROJECT_VERSION"
+    echo "Version extraite depuis devsecops.yml: $PROJECT_VERSION"
 else
-    echo "⚠️  Fichier devsecops.yml non trouvé"
+    echo "Fichier devsecops.yml non trouvé"
     exit 1
 fi
 
@@ -24,7 +33,18 @@ fi
 SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
 
 # Déterminer le tag basé sur le contexte
-if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+#
+# Priorité 1 : dispatch fallback prod (DISPATCH_DEPLOY_TAG renseigné)
+#   → on rejoue le déploiement d'un tag de release existant sans rebuild.
+#   → GITHUB_REF = refs/heads/<branche-courante>, pas un tag : sans cette
+#     branche prioritaire, le script tomberait dans PREPROD ou unstable.
+#   → On extrait la version depuis DISPATCH_DEPLOY_TAG (ex: v1.5.0 -> 1.5.0).
+if [[ -n "${DISPATCH_DEPLOY_TAG:-}" ]]; then
+    TAG_SUFFIX="RELEASE"
+    VERSION_FROM_TAG=$(echo "$DISPATCH_DEPLOY_TAG" | sed 's/^v//')
+    VERSION_TAG="$VERSION_FROM_TAG-RELEASE"
+    echo "Mode dispatch fallback PROD : DISPATCH_DEPLOY_TAG=$DISPATCH_DEPLOY_TAG"
+elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
     # Pour les PR, utiliser GITHUB_HEAD_REF (nom de la branche source)
     VERSION_FROM_BRANCH=$(echo "$GITHUB_HEAD_REF" | sed 's/[^a-zA-Z0-9._-]/-/g')
     TAG_SUFFIX="unstable-$VERSION_FROM_BRANCH"
