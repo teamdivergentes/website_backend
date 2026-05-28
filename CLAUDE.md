@@ -237,8 +237,7 @@ contact_email, contact_discord_webhook
 ### Secrets
 - **Jamais** de secrets dans le code source
 - Utiliser les variables d'environnement
-- `JWT_SECRET` doit etre change en production
-- Le fallback `'your-secret-key-change-in-production'` est un warning volontaire
+- `JWT_SECRET` est **obligatoire** : l'application fait un **fail-fast** au demarrage si la variable est absente ou vide (cf. `getJwtSecret()` dans `src/auth/strategies/jwt.strategy.ts`). Aucun fallback en dur (SEC-002, EPIC-30)
 
 ---
 
