@@ -237,7 +237,17 @@ describe('LinkMetaService', () => {
   // fetchLinkMeta (intégration avec fetch mocké)
   // -------------------------------------------------------------------------
   describe('fetchLinkMeta', () => {
+    // DNS mocké par défaut sur une IP publique pour rendre les tests hermétiques
+    // (validateUrlWithDns appelle dns.promises.lookup avant chaque fetch).
+    beforeEach(() => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValue({
+        address: '93.184.216.34',
+        family: 4,
+      });
+    });
+
     it('retourne success:0 si URL pointe vers une adresse privée', async () => {
+      // localhost est rejeté par validateUrl (regex hostname) sans appel DNS
       await expect(service.fetchLinkMeta('http://localhost')).rejects.toThrow(BadRequestException);
     });
 
@@ -467,6 +477,203 @@ describe('LinkMetaService', () => {
 
       const result = await service.fetchLinkMeta('https://example.com');
       expect(result.success).toBe(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // ALPHA-SEC-001 — SSRF via redirect non revalidé
+  // fetchHtml doit utiliser redirect:'manual', revalider chaque Location via DNS,
+  // limiter à 3 redirections et rejeter les cibles privées.
+  // -------------------------------------------------------------------------
+  describe('fetchHtml — ALPHA-SEC-001 redirect revalidation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    /** Construit une réponse de redirection (3xx) avec un header Location. */
+    function mockRedirectResponse(location: string, status = 302): Response {
+      return {
+        ok: false,
+        status,
+        headers: new Headers({ location }),
+        body: null,
+      } as unknown as Response;
+    }
+
+    it('bloque une redirection 302 vers 169.254.169.254 (metadata cloud)', async () => {
+      // Premier fetch : URL publique → 302 vers adresse metadata
+      jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce(mockRedirectResponse('http://169.254.169.254/latest/meta-data/'));
+      // DNS lookup pour la cible de redirection → IP metadata
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '93.184.216.34', // DNS initial : IP publique OK
+        family: 4,
+      });
+      // DNS lookup pour la cible de redirection 169.254.169.254
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '169.254.169.254',
+        family: 4,
+      });
+
+      await expect(service.fetchLinkMeta('https://example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('bloque une redirection 301 vers une IP privée RFC1918', async () => {
+      jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce(mockRedirectResponse('http://10.0.0.1/secret'));
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '93.184.216.34',
+        family: 4,
+      });
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '10.0.0.1',
+        family: 4,
+      });
+
+      await expect(service.fetchLinkMeta('https://example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('suit une redirection 302 vers une URL publique et retourne le contenu', async () => {
+      const html = '<html><head><title>Page finale</title></head></html>';
+      // DNS initial : public
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '93.184.216.34',
+        family: 4,
+      });
+      // Première requête → 302 vers autre URL publique
+      jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce(mockRedirectResponse('https://other.example.com/page'));
+      // DNS de la cible de redirection : public
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '185.199.108.153',
+        family: 4,
+      });
+      // Deuxième requête → 200 avec contenu HTML
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(mockFetchResponse(html));
+
+      const result = await service.fetchLinkMeta('https://example.com');
+      expect(result.success).toBe(1);
+      expect(result.meta?.title).toBe('Page finale');
+    });
+
+    it('lève BadGatewayException après 3 redirections', async () => {
+      // DNS initial : public
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValue({
+        address: '93.184.216.34',
+        family: 4,
+      });
+      // 4 réponses redirect (dépasse la limite de 3)
+      jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce(mockRedirectResponse('https://a.example.com/'))
+        .mockResolvedValueOnce(mockRedirectResponse('https://b.example.com/'))
+        .mockResolvedValueOnce(mockRedirectResponse('https://c.example.com/'))
+        .mockResolvedValueOnce(mockRedirectResponse('https://d.example.com/'));
+
+      await expect(service.fetchLinkMeta('https://example.com')).rejects.toThrow(
+        BadGatewayException,
+      );
+    });
+
+    it('bloque une redirection vers une URL avec protocole non-HTTP', async () => {
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(mockRedirectResponse('file:///etc/passwd'));
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '93.184.216.34',
+        family: 4,
+      });
+
+      await expect(service.fetchLinkMeta('https://example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // ALPHA-SEC-002 — plages IPv6 privées incomplètes
+  // fd00::/8 (ULA) et ::ffff:x.x.x.x (IPv4-mapped) doivent être bloqués.
+  // -------------------------------------------------------------------------
+  describe('isPrivateIp — ALPHA-SEC-002 IPv6 ULA et IPv4-mapped', () => {
+    it('bloque fd00::1 (ULA fd00::/8)', () => {
+      // Accès via validateUrlWithDns avec DNS mocké
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: 'fd00::1',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('bloque fd12:3456::1 (ULA fd::/8 générique)', () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: 'fd12:3456::1',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('bloque ::ffff:169.254.169.254 (IPv4-mapped metadata cloud)', () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '::ffff:169.254.169.254',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('bloque ::ffff:127.0.0.1 (IPv4-mapped loopback)', () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '::ffff:127.0.0.1',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('bloque ::ffff:10.0.0.1 (IPv4-mapped RFC1918)', () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '::ffff:10.0.0.1',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('bloque ::ffff:192.168.1.1 (IPv4-mapped RFC1918)', () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '::ffff:192.168.1.1',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('accepte une IP IPv6 publique (2606:2800::1)', () => {
+      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
+        address: '2606:2800::1',
+        family: 6,
+      });
+
+      return expect(service.validateUrlWithDns('https://example.com')).resolves.toBeInstanceOf(URL);
     });
   });
 });

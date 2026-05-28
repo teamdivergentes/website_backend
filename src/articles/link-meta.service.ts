@@ -12,20 +12,48 @@ export interface LinkMetaResponse {
   meta?: LinkMetaResult;
 }
 
-// Plages d'IP privées et locales à bloquer (protection SSRF)
+// Plages d'IP privées et locales à bloquer (protection SSRF).
 // Utilisées pour valider tant le hostname brut que l'IP résolue par DNS.
 const PRIVATE_IP_PATTERNS = [
+  // IPv4 loopback (127.0.0.0/8)
   /^127\./,
+  // IPv4 RFC1918
   /^10\./,
   /^172\.(1[6-9]|2\d|3[01])\./,
   /^192\.168\./,
+  // IPv4 link-local et metadata cloud AWS/GCP (169.254.0.0/16)
   /^169\.254\./,
-  /^::1$/,
-  /^fc00:/i,
-  /^fe80:/i,
+  // IPv4 this-network
   /^0\./,
+  // Hostnames réservés
   /^localhost$/i,
+  // IPv6 loopback
+  /^::1$/,
+  // IPv6 link-local (fe80::/10)
+  /^fe80:/i,
+  // IPv6 ULA (fc00::/7) — couvre fc00::/8 ET fd00::/8 (ALPHA-SEC-002)
+  /^f[cd][0-9a-f]{2}:/i,
 ];
+
+/**
+ * Extrait la partie IPv4 d'une adresse IPv4-mapped IPv6 (::ffff:x.x.x.x).
+ * Retourne null si l'adresse n'est pas au format IPv4-mapped.
+ * ALPHA-SEC-002 : ::ffff:169.254.169.254 → '169.254.169.254'
+ */
+function extractIpv4MappedAddress(ip: string): string | null {
+  const lower = ip.toLowerCase();
+  // Format ::ffff:x.x.x.x
+  const ffff = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
+  if (ffff) return ffff[1];
+  // Format ::ffff:hhhh:hhhh (hex compacté) — ex. ::ffff:7f00:0001 = 127.0.0.1
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
+  if (hex) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  }
+  return null;
+}
 
 const FETCH_TIMEOUT_MS = 5000;
 const MAX_BODY_BYTES = 500 * 1024; // 500 KB
@@ -71,10 +99,23 @@ export class LinkMetaService {
 
   /**
    * Vérifie qu'une IP résolue (après lookup DNS) n'appartient pas à une plage privée.
-   * Protège contre le DNS rebinding (SEC-003).
+   * Gère IPv4, IPv6 natif, et IPv4-mapped IPv6 (::ffff:x.x.x.x) — ALPHA-SEC-002.
    */
   private isPrivateIp(ip: string): boolean {
-    return PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(ip));
+    const normalized = ip.toLowerCase();
+
+    // Test direct sur l'adresse (couvre IPv4 et IPv6 natif)
+    if (PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return true;
+    }
+
+    // ALPHA-SEC-002 : démasquer les IPv4-mapped ::ffff:x.x.x.x et retester
+    const ipv4Part = extractIpv4MappedAddress(normalized);
+    if (ipv4Part !== null) {
+      return PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(ipv4Part));
+    }
+
+    return false;
   }
 
   /**
@@ -100,65 +141,117 @@ export class LinkMetaService {
   }
 
   /**
-   * Récupère le HTML de l'URL avec timeout et limite de taille.
+   * Effectue une requête GET sans suivre les redirections automatiquement.
+   * Utilisé par fetchHtml pour gérer les redirections avec revalidation SSRF.
+   */
+  private async fetchOnce(url: URL, signal: AbortSignal): Promise<globalThis.Response> {
+    return fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+      },
+      signal,
+      // ALPHA-SEC-001 : ne pas suivre les redirections automatiquement —
+      // chaque Location doit être revalidée via validateUrlWithDns avant le prochain fetch.
+      redirect: 'manual',
+    });
+  }
+
+  /**
+   * Lit le body d'une réponse HTML avec limite de taille.
+   */
+  private async readBody(response: globalThis.Response): Promise<string> {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+      throw new BadRequestException('La ressource distante ne semble pas être une page HTML');
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new BadGatewayException('Impossible de lire la réponse de la page distante');
+    }
+
+    let totalBytes = 0;
+    const chunks: Uint8Array[] = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        reader.cancel().catch(() => {});
+        break;
+      }
+      chunks.push(value);
+    }
+
+    const safeLength = Math.min(totalBytes, MAX_BODY_BYTES);
+    const combined = new Uint8Array(safeLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      const remaining = safeLength - offset;
+      if (remaining <= 0) break;
+      combined.set(chunk.slice(0, remaining), offset);
+      offset += Math.min(chunk.length, remaining);
+    }
+
+    return new TextDecoder('utf-8').decode(combined);
+  }
+
+  /**
+   * Récupère le HTML de l'URL avec timeout, limite de taille et gestion manuelle
+   * des redirections. Chaque URL de redirection est revalidée via validateUrlWithDns
+   * pour bloquer les attaques SSRF par rebinding (ALPHA-SEC-001).
+   * Maximum MAX_REDIRECTS redirections consécutives.
    */
   async fetchHtml(url: URL): Promise<string> {
+    const MAX_REDIRECTS = 3;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+    let currentUrl = url;
+    let redirectCount = 0;
+
     try {
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          'User-Agent': USER_AGENT,
-          Accept: 'text/html,application/xhtml+xml',
-          'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-        },
-        signal: controller.signal,
-        redirect: 'follow',
-      });
-
-      if (!response.ok) {
-        throw new BadGatewayException(`La page distante a retourné le statut ${response.status}`);
-      }
-
-      const contentType = response.headers.get('content-type') ?? '';
-      if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
-        throw new BadRequestException('La ressource distante ne semble pas être une page HTML');
-      }
-
-      // Lire le body avec limite de taille
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new BadGatewayException('Impossible de lire la réponse de la page distante');
-      }
-
-      let totalBytes = 0;
-      const chunks: Uint8Array[] = [];
-
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        totalBytes += value.length;
-        if (totalBytes > MAX_BODY_BYTES) {
-          reader.cancel().catch(() => {});
-          break;
+        const response = await this.fetchOnce(currentUrl, controller.signal);
+
+        // Redirection manuelle : revalider la cible avant de suivre
+        const isRedirect = response.status >= 300 && response.status < 400;
+        if (isRedirect) {
+          if (redirectCount >= MAX_REDIRECTS) {
+            throw new BadGatewayException(
+              `Trop de redirections (max ${MAX_REDIRECTS}) pour cette URL`,
+            );
+          }
+
+          const location = response.headers.get('location');
+          if (!location) {
+            throw new BadGatewayException('Redirection sans header Location');
+          }
+
+          // Résoudre l'URL relative en absolue par rapport à l'URL courante
+          let redirectUrl: URL;
+          try {
+            redirectUrl = new URL(location, currentUrl.toString());
+          } catch {
+            throw new BadRequestException("L'URL de redirection est malformée");
+          }
+
+          // ALPHA-SEC-001 : revalider la cible de redirection (syntaxe + DNS)
+          currentUrl = await this.validateUrlWithDns(redirectUrl.toString());
+          redirectCount++;
+          continue;
         }
-        chunks.push(value);
-      }
 
-      const safeLength = Math.min(totalBytes, MAX_BODY_BYTES);
-      const combined = new Uint8Array(safeLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        const remaining = safeLength - offset;
-        if (remaining <= 0) break;
-        const slice = chunk.slice(0, remaining);
-        combined.set(slice, offset);
-        offset += slice.length;
-      }
+        if (!response.ok) {
+          throw new BadGatewayException(`La page distante a retourné le statut ${response.status}`);
+        }
 
-      return new TextDecoder('utf-8').decode(combined);
+        return this.readBody(response);
+      }
     } finally {
       clearTimeout(timeoutId);
     }
