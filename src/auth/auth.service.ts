@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ConflictException,
   NotFoundException,
@@ -28,6 +29,8 @@ export interface AuthResponse {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   /**
    * Durée du JWT exposée pour le controller (calcul du Max-Age du cookie).
    * La valeur effective dans le token est celle configurée dans JwtModule (auth.module.ts).
@@ -92,20 +95,27 @@ export class AuthService {
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
+      this.logger.warn(`Échec de connexion — email: ${loginDto.email} — raison: email inconnu`);
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
     if (!user.actif) {
+      this.logger.warn(`Échec de connexion — email: ${loginDto.email} — raison: compte désactivé`);
       throw new UnauthorizedException('Compte désactivé');
     }
 
     const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
     if (!isPasswordValid) {
+      this.logger.warn(
+        `Échec de connexion — email: ${loginDto.email} — raison: mot de passe invalide`,
+      );
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
     const payload = { sub: user.id, email: user.email };
     const accessToken = await this.jwtService.signAsync(payload);
+
+    this.logger.log(`Connexion réussie — email: ${loginDto.email} — userId: ${user.id}`);
 
     return {
       access_token: accessToken,
