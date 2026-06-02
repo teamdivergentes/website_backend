@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { RolesGuard } from './guards/roles.guard';
 import { Response } from 'express';
 
 describe('AuthController', () => {
@@ -170,6 +173,75 @@ describe('AuthController', () => {
 
       expect(result).toEqual(mockProfile);
       expect(mockAuthService.getProfile).toHaveBeenCalledWith(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // SEC-001 — POST /api/auth/register : RolesGuard appliqué
+  // -------------------------------------------------------------------------
+  describe('register — SEC-001 RolesGuard', () => {
+    // Accès via le prototype pour obtenir les métadonnées Reflect attachées à la méthode.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const registerFn = AuthController.prototype.register;
+
+    it('devrait porter le décorateur @Roles("admin")', () => {
+      const reflector = new Reflector();
+      const rolesMetadata = reflector.get<string[]>('roles', registerFn);
+      expect(rolesMetadata).toEqual(['admin']);
+    });
+
+    it('devrait porter le guard RolesGuard via __guards__ metadata', () => {
+      const guards = Reflect.getMetadata('__guards__', registerFn) as (new (
+        ...args: unknown[]
+      ) => unknown)[];
+      expect(guards).toBeDefined();
+      expect(guards.some((g) => g === RolesGuard)).toBe(true);
+    });
+
+    it('devrait refuser un utilisateur non-admin (403) via RolesGuard', () => {
+      const reflector = new Reflector();
+      const guard = new RolesGuard(reflector);
+
+      // Simuler un utilisateur avec rôle "cm" (non admin)
+      const mockContext = {
+        getHandler: () => registerFn,
+        getClass: () => AuthController,
+        switchToHttp: () => ({
+          getRequest: () => ({
+            user: { id: 2, email: 'cm@example.com', role: { name: 'cm' } },
+          }),
+        }),
+      };
+
+      expect(() => guard.canActivate(mockContext as never)).toThrow(ForbiddenException);
+    });
+
+    it('devrait autoriser un utilisateur admin via RolesGuard', () => {
+      const reflector = new Reflector();
+      const guard = new RolesGuard(reflector);
+
+      const mockContext = {
+        getHandler: () => registerFn,
+        getClass: () => AuthController,
+        switchToHttp: () => ({
+          getRequest: () => ({
+            user: { id: 1, email: 'admin@example.com', role: { name: 'Admin' } },
+          }),
+        }),
+      };
+
+      expect(guard.canActivate(mockContext as never)).toBe(true);
+    });
+
+    it('devrait créer un compte si admin authentifié', async () => {
+      const registerDto = { email: 'new@example.com', password: 'Passw0rd!', roleId: 2 };
+      const expected = { id: 10, email: 'new@example.com' };
+      mockAuthService.register.mockResolvedValue(expected);
+
+      const result = await controller.register(registerDto);
+
+      expect(result).toEqual(expected);
+      expect(mockAuthService.register).toHaveBeenCalledWith(registerDto);
     });
   });
 });
