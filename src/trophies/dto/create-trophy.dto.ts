@@ -5,8 +5,10 @@ import {
   IsBoolean,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsDateString,
+  Matches,
 } from 'class-validator';
 
 export class CreateTrophyDto {
@@ -17,6 +19,7 @@ export class CreateTrophyDto {
 
   @IsInt({ message: 'Le placement doit être un entier' })
   @Min(1, { message: 'Le placement minimum est 1' })
+  @Max(999, { message: 'Le placement maximum est 999' })
   placement: number;
 
   @IsString()
@@ -30,6 +33,9 @@ export class CreateTrophyDto {
   @IsString()
   @IsOptional()
   @MaxLength(500, { message: "L'image ne peut pas dépasser 500 caractères" })
+  @Matches(/^(\/uploads\/|https?:\/\/)/, {
+    message: "L'image doit être un chemin /uploads/ ou une URL http(s)",
+  })
   image?: string;
 
   @IsBoolean()
@@ -37,6 +43,7 @@ export class CreateTrophyDto {
   featured?: boolean;
 
   @IsInt()
+  @Min(1, { message: "L'identifiant d'équipe doit être un entier positif" })
   @IsOptional()
   teamId?: number;
 

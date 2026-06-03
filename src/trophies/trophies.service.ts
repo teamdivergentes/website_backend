@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { CreateTrophyDto } from './dto/create-trophy.dto';
 import { UpdateTrophyDto } from './dto/update-trophy.dto';
@@ -59,21 +59,28 @@ export class TrophiesService {
   }
 
   async create(dto: CreateTrophyDto): Promise<TrophyDto> {
-    const trophy = await this.prisma.trophy.create({
-      data: {
-        competition: dto.competition,
-        placement: dto.placement,
-        description: dto.description ?? null,
-        date: new Date(dto.date),
-        image: dto.image ?? null,
-        featured: dto.featured ?? false,
-        teamId: dto.teamId ?? null,
-        teamLabel: dto.teamLabel ?? null,
-        active: dto.active ?? true,
-      },
-      include: TEAM_INCLUDE,
-    });
-    return this.mapToDto(trophy);
+    try {
+      const trophy = await this.prisma.trophy.create({
+        data: {
+          competition: dto.competition,
+          placement: dto.placement,
+          description: dto.description ?? null,
+          date: new Date(dto.date),
+          image: dto.image ?? null,
+          featured: dto.featured ?? false,
+          teamId: dto.teamId ?? null,
+          teamLabel: dto.teamLabel ?? null,
+          active: dto.active ?? true,
+        },
+        include: TEAM_INCLUDE,
+      });
+      return this.mapToDto(trophy);
+    } catch (error) {
+      if (this.isPrismaFkError(error)) {
+        throw new BadRequestException('Équipe introuvable ou teamId invalide');
+      }
+      throw error;
+    }
   }
 
   async update(id: number, dto: UpdateTrophyDto): Promise<TrophyDto> {
@@ -97,6 +104,9 @@ export class TrophiesService {
     } catch (error) {
       if (this.isPrismaNotFoundError(error)) {
         throw new NotFoundException(`Trophée ${id} introuvable`);
+      }
+      if (this.isPrismaFkError(error)) {
+        throw new BadRequestException('Équipe introuvable ou teamId invalide');
       }
       throw error;
     }
@@ -137,6 +147,15 @@ export class TrophiesService {
       error !== null &&
       'code' in error &&
       (error as { code: string }).code === 'P2025'
+    );
+  }
+
+  private isPrismaFkError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code: string }).code === 'P2003'
     );
   }
 }

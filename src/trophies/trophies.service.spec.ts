@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TrophiesService } from './trophies.service';
 import { PrismaService } from '../prisma.service';
 import { CreateTrophyDto } from './dto/create-trophy.dto';
@@ -99,9 +99,14 @@ describe('TrophiesService', () => {
         placement: 1,
         date: '2024-11-10',
       };
-      mockPrisma.trophy.create.mockResolvedValue({ ...sampleTrophy, ...dto, date: new Date(dto.date) });
+      mockPrisma.trophy.create.mockResolvedValue({
+        ...sampleTrophy,
+        ...dto,
+        date: new Date(dto.date),
+      });
       await service.create(dto);
       expect(mockPrisma.trophy.create).toHaveBeenCalledWith({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         data: expect.objectContaining({
           competition: 'Open Valorant',
           placement: 1,
@@ -110,6 +115,46 @@ describe('TrophiesService', () => {
         include: { team: { select: { id: true, name: true, slug: true } } },
       });
     });
+
+    it('applique les valeurs par défaut (featured false, active true, teamLabel null)', async () => {
+      const dto: CreateTrophyDto = { competition: 'LAN DVG', placement: 2, date: '2024-03-01' };
+      const created = {
+        ...sampleTrophy,
+        competition: 'LAN DVG',
+        placement: 2,
+        featured: false,
+        active: true,
+        teamId: null,
+        teamLabel: null,
+        team: null,
+      };
+      mockPrisma.trophy.create.mockResolvedValue(created);
+      const result = await service.create(dto);
+      expect(mockPrisma.trophy.create).toHaveBeenCalledWith({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        data: expect.objectContaining({
+          featured: false,
+          active: true,
+          teamId: null,
+          teamLabel: null,
+        }),
+        include: { team: { select: { id: true, name: true, slug: true } } },
+      });
+      expect(result.featured).toBe(false);
+      expect(result.active).toBe(true);
+      expect(result.teamName).toBeNull();
+    });
+
+    it('lève BadRequestException si teamId référence une équipe inexistante (P2003)', async () => {
+      mockPrisma.trophy.create.mockRejectedValue({ code: 'P2003', message: 'FK constraint' });
+      const dto: CreateTrophyDto = {
+        competition: 'Test',
+        placement: 1,
+        date: '2024-01-01',
+        teamId: 999,
+      };
+      await expect(service.create(dto)).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('update', () => {
@@ -117,12 +162,33 @@ describe('TrophiesService', () => {
       mockPrisma.trophy.update.mockRejectedValue({ code: 'P2025', message: 'Not found' });
       await expect(service.update(999, { competition: 'X' })).rejects.toThrow(NotFoundException);
     });
+
+    it('lève BadRequestException si teamId référence une équipe inexistante (P2003)', async () => {
+      mockPrisma.trophy.update.mockRejectedValue({ code: 'P2003', message: 'FK constraint' });
+      await expect(service.update(1, { teamId: 999 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('ne transmet à Prisma que les champs fournis (patch partiel)', async () => {
+      mockPrisma.trophy.update.mockResolvedValue(sampleTrophy);
+      await service.update(1, { placement: 2 });
+      expect(mockPrisma.trophy.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { placement: 2 },
+        include: { team: { select: { id: true, name: true, slug: true } } },
+      });
+    });
   });
 
   describe('delete', () => {
     it('lève NotFoundException si le trophée est introuvable (P2025)', async () => {
       mockPrisma.trophy.delete.mockRejectedValue({ code: 'P2025', message: 'Not found' });
       await expect(service.delete(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('supprime le trophée sans erreur', async () => {
+      mockPrisma.trophy.delete.mockResolvedValue(undefined);
+      await expect(service.delete(1)).resolves.toBeUndefined();
+      expect(mockPrisma.trophy.delete).toHaveBeenCalledWith({ where: { id: 1 } });
     });
   });
 });
