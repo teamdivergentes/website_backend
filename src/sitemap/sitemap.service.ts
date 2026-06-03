@@ -29,6 +29,12 @@ const STATIC_PAGES: StaticPage[] = [
 
 const TWITCH_PAGE: StaticPage = { path: '/twitch', changefreq: 'daily', priority: '0.7' };
 
+const PALMARES_PAGE: StaticPage = {
+  path: '/structure/palmares',
+  changefreq: 'monthly',
+  priority: '0.7',
+};
+
 @Injectable()
 export class SitemapService {
   private readonly logger = new Logger(SitemapService.name);
@@ -91,52 +97,56 @@ export class SitemapService {
 
   async generateSitemapXml(baseUrl: string): Promise<string> {
     try {
-      const [teams, members, recruitmentPosts, articles, twitchConfig] = await Promise.all([
-        this.prisma.team.findMany({
-          where: { active: true },
-          select: {
-            slug: true,
-            updatedAt: true,
-          },
-        }),
-        this.prisma.teamMember.findMany({
-          where: {
-            slug: { not: null },
-            team: { active: true },
-          },
-          select: {
-            slug: true,
-            updatedAt: true,
-            team: {
-              select: { slug: true },
+      const [teams, members, recruitmentPosts, articles, twitchConfig, palmaresConfig] =
+        await Promise.all([
+          this.prisma.team.findMany({
+            where: { active: true },
+            select: {
+              slug: true,
+              updatedAt: true,
             },
-          },
-        }),
-        this.prisma.recruitmentPost.findMany({
-          where: {
-            active: true,
-            slug: { not: null },
-          },
-          select: {
-            slug: true,
-            updatedAt: true,
-          },
-        }),
-        this.prisma.article.findMany({
-          where: {
-            published: true,
-          },
-          select: {
-            slug: true,
-            title: true,
-            imageUrl: true,
-            updatedAt: true,
-          },
-        }),
-        this.prisma.config.findUnique({
-          where: { key: 'page_twitch_visible' },
-        }),
-      ]);
+          }),
+          this.prisma.teamMember.findMany({
+            where: {
+              slug: { not: null },
+              team: { active: true },
+            },
+            select: {
+              slug: true,
+              updatedAt: true,
+              team: {
+                select: { slug: true },
+              },
+            },
+          }),
+          this.prisma.recruitmentPost.findMany({
+            where: {
+              active: true,
+              slug: { not: null },
+            },
+            select: {
+              slug: true,
+              updatedAt: true,
+            },
+          }),
+          this.prisma.article.findMany({
+            where: {
+              published: true,
+            },
+            select: {
+              slug: true,
+              title: true,
+              imageUrl: true,
+              updatedAt: true,
+            },
+          }),
+          this.prisma.config.findUnique({
+            where: { key: 'page_twitch_visible' },
+          }),
+          this.prisma.config.findUnique({
+            where: { key: 'page_palmares_visible' },
+          }),
+        ]);
 
       const normalizedBase = baseUrl.replace(/\/$/, '');
 
@@ -157,6 +167,18 @@ export class SitemapService {
             `${normalizedBase}${TWITCH_PAGE.path}`,
             TWITCH_PAGE.changefreq,
             TWITCH_PAGE.priority,
+          ),
+        );
+      }
+
+      // /structure/palmares — masqué par défaut, visible uniquement si page_palmares_visible === 'true'
+      const isPalmaresVisible = palmaresConfig?.value === 'true';
+      if (isPalmaresVisible) {
+        urlEntries.push(
+          this.buildUrlEntry(
+            `${normalizedBase}${PALMARES_PAGE.path}`,
+            PALMARES_PAGE.changefreq,
+            PALMARES_PAGE.priority,
           ),
         );
       }
