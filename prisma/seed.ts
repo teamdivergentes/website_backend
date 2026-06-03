@@ -44,6 +44,12 @@ async function main() {
     'coaching_staff:read',
     'coaching_staff:write',
     'coaching_staff:delete',
+    'trophies:read',
+    'trophies:write',
+    'trophies:delete',
+    'matches:read',
+    'matches:write',
+    'matches:delete',
   ];
 
   const cmPermissions = [
@@ -52,6 +58,12 @@ async function main() {
     'annonces:delete',
     'articles:read',
     'articles:write',
+    'trophies:read',
+    'trophies:write',
+    'trophies:delete',
+    'matches:read',
+    'matches:write',
+    'matches:delete',
   ];
 
   const gestionnairePermissions = [
@@ -245,6 +257,11 @@ async function main() {
       key: 'page_twitch_visible',
       value: 'true',
       description: 'Afficher la page En Live (Twitch)',
+    },
+    {
+      key: 'page_palmares_visible',
+      value: 'false',
+      description: 'Afficher la page Palmarès',
     },
   ];
 

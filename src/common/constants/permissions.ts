@@ -35,6 +35,16 @@ export const PERMISSIONS = {
   COACHING_STAFF_READ: 'coaching_staff:read',
   COACHING_STAFF_WRITE: 'coaching_staff:write',
   COACHING_STAFF_DELETE: 'coaching_staff:delete',
+
+  // Trophies (palmares)
+  TROPHIES_READ: 'trophies:read',
+  TROPHIES_WRITE: 'trophies:write',
+  TROPHIES_DELETE: 'trophies:delete',
+
+  // Matches
+  MATCHES_READ: 'matches:read',
+  MATCHES_WRITE: 'matches:write',
+  MATCHES_DELETE: 'matches:delete',
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
@@ -52,5 +62,14 @@ export const ROLE_PERMISSIONS = {
     PERMISSIONS.RECRUTEMENT_WRITE,
     PERMISSIONS.RECRUTEMENT_DELETE,
   ],
-  community_manager: [PERMISSIONS.TEAMS_READ, PERMISSIONS.SPONSORS_READ],
+  community_manager: [
+    PERMISSIONS.TEAMS_READ,
+    PERMISSIONS.SPONSORS_READ,
+    PERMISSIONS.TROPHIES_READ,
+    PERMISSIONS.TROPHIES_WRITE,
+    PERMISSIONS.TROPHIES_DELETE,
+    PERMISSIONS.MATCHES_READ,
+    PERMISSIONS.MATCHES_WRITE,
+    PERMISSIONS.MATCHES_DELETE,
+  ],
 };
