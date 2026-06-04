@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { TrophiesService } from './trophies.service';
+import { TrophiesService, TrophyAdminDto } from './trophies.service';
 import { PrismaService } from '../prisma.service';
 import { CreateTrophyDto } from './dto/create-trophy.dto';
 
@@ -90,6 +90,35 @@ describe('TrophiesService', () => {
       expect(result[0].teamName).toBe('Roster LoL 2024');
       expect(result[0].teamSlug).toBeNull();
     });
+
+    it('le DTO public ne contient pas les champs internes (active, createdAt, updatedAt)', async () => {
+      mockPrisma.trophy.findMany.mockResolvedValue([sampleTrophy]);
+      const result = await service.findAllPublic({});
+      expect(result[0]).not.toHaveProperty('active');
+      expect(result[0]).not.toHaveProperty('createdAt');
+      expect(result[0]).not.toHaveProperty('updatedAt');
+    });
+  });
+
+  describe('findAllAdmin', () => {
+    it('le DTO admin contient les champs internes (active, createdAt, updatedAt)', async () => {
+      mockPrisma.trophy.findMany.mockResolvedValue([sampleTrophy]);
+      const result = await service.findAllAdmin();
+      expect(result[0]).toHaveProperty('active');
+      expect(result[0]).toHaveProperty('createdAt');
+      expect(result[0]).toHaveProperty('updatedAt');
+    });
+
+    it('retourne tous les trophées (actifs et inactifs)', async () => {
+      const inactiveTrophy = { ...sampleTrophy, active: false };
+      mockPrisma.trophy.findMany.mockResolvedValue([sampleTrophy, inactiveTrophy]);
+      const result = await service.findAllAdmin();
+      expect(result).toHaveLength(2);
+      expect(mockPrisma.trophy.findMany).toHaveBeenCalledWith(
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        expect.not.objectContaining({ where: expect.objectContaining({ active: true }) }),
+      );
+    });
   });
 
   describe('create', () => {
@@ -143,6 +172,15 @@ describe('TrophiesService', () => {
       expect(result.featured).toBe(false);
       expect(result.active).toBe(true);
       expect(result.teamName).toBeNull();
+    });
+
+    it('retourne un TrophyAdminDto avec les champs internes (active, createdAt, updatedAt)', async () => {
+      const dto: CreateTrophyDto = { competition: 'Open CS', placement: 1, date: '2024-06-01' };
+      mockPrisma.trophy.create.mockResolvedValue(sampleTrophy);
+      const result: TrophyAdminDto = await service.create(dto);
+      expect(result).toHaveProperty('active');
+      expect(result).toHaveProperty('createdAt');
+      expect(result).toHaveProperty('updatedAt');
     });
 
     it('lève BadRequestException si teamId référence une équipe inexistante (P2003)', async () => {

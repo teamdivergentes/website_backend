@@ -11,7 +11,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { TrophiesService, TrophyFilters } from './trophies.service';
 import { CreateTrophyDto } from './dto/create-trophy.dto';
 import { UpdateTrophyDto } from './dto/update-trophy.dto';
@@ -28,7 +28,8 @@ export class TrophiesController {
 
   @Get('api/trophies')
   @Public()
-  @SkipThrottle()
+  // Throttle aligné sur articles : endpoint public avec query params DB (VQO ALPHA-SEC-001)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   findAllPublic(@Query('featured') featured?: string, @Query('teamId') teamId?: string) {
     const filters: TrophyFilters = {};
     if (featured !== undefined) {

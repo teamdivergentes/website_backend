@@ -4,7 +4,7 @@ import { CreateTrophyDto } from './dto/create-trophy.dto';
 import { UpdateTrophyDto } from './dto/update-trophy.dto';
 import { Prisma } from '../../generated/prisma';
 
-export interface TrophyDto {
+export interface TrophyPublicDto {
   id: number;
   competition: string;
   placement: number;
@@ -15,6 +15,9 @@ export interface TrophyDto {
   teamId: number | null;
   teamName: string | null;
   teamSlug: string | null;
+}
+
+export interface TrophyAdminDto extends TrophyPublicDto {
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -37,7 +40,8 @@ const TEAM_INCLUDE = {
 export class TrophiesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllPublic(filters: TrophyFilters): Promise<TrophyDto[]> {
+  // Pas de pagination ni d'index (active, date) : volume attendu < 200 trophées à vie (décision VQO ALPHA-PERF-001/002, réévaluer si > 500 lignes)
+  async findAllPublic(filters: TrophyFilters): Promise<TrophyPublicDto[]> {
     const trophies = await this.prisma.trophy.findMany({
       where: {
         active: true,
@@ -47,18 +51,18 @@ export class TrophiesService {
       orderBy: [{ date: 'desc' }, { placement: 'asc' }],
       include: TEAM_INCLUDE,
     });
-    return trophies.map((trophy) => this.mapToDto(trophy));
+    return trophies.map((trophy) => this.mapToPublicDto(trophy));
   }
 
-  async findAllAdmin(): Promise<TrophyDto[]> {
+  async findAllAdmin(): Promise<TrophyAdminDto[]> {
     const trophies = await this.prisma.trophy.findMany({
       orderBy: [{ date: 'desc' }, { placement: 'asc' }],
       include: TEAM_INCLUDE,
     });
-    return trophies.map((trophy) => this.mapToDto(trophy));
+    return trophies.map((trophy) => this.mapToAdminDto(trophy));
   }
 
-  async create(dto: CreateTrophyDto): Promise<TrophyDto> {
+  async create(dto: CreateTrophyDto): Promise<TrophyAdminDto> {
     try {
       const trophy = await this.prisma.trophy.create({
         data: {
@@ -74,7 +78,7 @@ export class TrophiesService {
         },
         include: TEAM_INCLUDE,
       });
-      return this.mapToDto(trophy);
+      return this.mapToAdminDto(trophy);
     } catch (error) {
       if (this.isPrismaFkError(error)) {
         throw new BadRequestException('Équipe introuvable ou teamId invalide');
@@ -83,7 +87,7 @@ export class TrophiesService {
     }
   }
 
-  async update(id: number, dto: UpdateTrophyDto): Promise<TrophyDto> {
+  async update(id: number, dto: UpdateTrophyDto): Promise<TrophyAdminDto> {
     try {
       const trophy = await this.prisma.trophy.update({
         where: { id },
@@ -100,7 +104,7 @@ export class TrophiesService {
         },
         include: TEAM_INCLUDE,
       });
-      return this.mapToDto(trophy);
+      return this.mapToAdminDto(trophy);
     } catch (error) {
       if (this.isPrismaNotFoundError(error)) {
         throw new NotFoundException(`Trophée ${id} introuvable`);
@@ -112,6 +116,7 @@ export class TrophiesService {
     }
   }
 
+  // Hard delete assumé : la dépublication réversible passe par active=false (pattern repo, VQO ALPHA-RES-001)
   async delete(id: number): Promise<void> {
     try {
       await this.prisma.trophy.delete({ where: { id } });
@@ -123,7 +128,7 @@ export class TrophiesService {
     }
   }
 
-  private mapToDto(trophy: TrophyWithTeam): TrophyDto {
+  private mapToPublicDto(trophy: TrophyWithTeam): TrophyPublicDto {
     return {
       id: trophy.id,
       competition: trophy.competition,
@@ -135,6 +140,12 @@ export class TrophiesService {
       teamId: trophy.teamId,
       teamName: trophy.team?.name ?? trophy.teamLabel ?? null,
       teamSlug: trophy.team?.slug ?? null,
+    };
+  }
+
+  private mapToAdminDto(trophy: TrophyWithTeam): TrophyAdminDto {
+    return {
+      ...this.mapToPublicDto(trophy),
       active: trophy.active,
       createdAt: trophy.createdAt,
       updatedAt: trophy.updatedAt,
