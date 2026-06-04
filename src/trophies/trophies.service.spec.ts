@@ -30,7 +30,7 @@ describe('TrophiesService', () => {
     active: true,
     createdAt: new Date(),
     updatedAt: new Date(),
-    team: { id: 2, name: 'Équipe LoL', slug: 'equipe-lol' },
+    team: { id: 2, name: 'Équipe LoL', slug: 'equipe-lol', game: 'lol' },
   };
 
   beforeEach(async () => {
@@ -48,7 +48,7 @@ describe('TrophiesService', () => {
       expect(mockPrisma.trophy.findMany).toHaveBeenCalledWith({
         where: { active: true },
         orderBy: [{ date: 'desc' }, { placement: 'asc' }],
-        include: { team: { select: { id: true, name: true, slug: true } } },
+        include: { team: { select: { id: true, name: true, slug: true, game: true } } },
       });
     });
 
@@ -78,6 +78,7 @@ describe('TrophiesService', () => {
           placement: 1,
           teamName: 'Équipe LoL',
           teamSlug: 'equipe-lol',
+          teamGame: 'lol',
         }),
       );
     });
@@ -89,6 +90,7 @@ describe('TrophiesService', () => {
       const result = await service.findAllPublic({});
       expect(result[0].teamName).toBe('Roster LoL 2024');
       expect(result[0].teamSlug).toBeNull();
+      expect(result[0].teamGame).toBeNull();
     });
 
     it('le DTO public ne contient pas les champs internes (active, createdAt, updatedAt)', async () => {
@@ -141,7 +143,7 @@ describe('TrophiesService', () => {
           placement: 1,
           date: new Date('2024-11-10'),
         }),
-        include: { team: { select: { id: true, name: true, slug: true } } },
+        include: { team: { select: { id: true, name: true, slug: true, game: true } } },
       });
     });
 
@@ -167,7 +169,7 @@ describe('TrophiesService', () => {
           teamId: null,
           teamLabel: null,
         }),
-        include: { team: { select: { id: true, name: true, slug: true } } },
+        include: { team: { select: { id: true, name: true, slug: true, game: true } } },
       });
       expect(result.featured).toBe(false);
       expect(result.active).toBe(true);
@@ -212,7 +214,7 @@ describe('TrophiesService', () => {
       expect(mockPrisma.trophy.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: { placement: 2 },
-        include: { team: { select: { id: true, name: true, slug: true } } },
+        include: { team: { select: { id: true, name: true, slug: true, game: true } } },
       });
     });
   });

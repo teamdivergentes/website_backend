@@ -15,6 +15,7 @@ export interface TrophyPublicDto {
   teamId: number | null;
   teamName: string | null;
   teamSlug: string | null;
+  teamGame: string | null;
 }
 
 export interface TrophyAdminDto extends TrophyPublicDto {
@@ -29,11 +30,11 @@ export interface TrophyFilters {
 }
 
 type TrophyWithTeam = Prisma.TrophyGetPayload<{
-  include: { team: { select: { id: true; name: true; slug: true } } };
+  include: { team: { select: { id: true; name: true; slug: true; game: true } } };
 }>;
 
 const TEAM_INCLUDE = {
-  team: { select: { id: true, name: true, slug: true } },
+  team: { select: { id: true, name: true, slug: true, game: true } },
 } as const;
 
 @Injectable()
@@ -140,6 +141,7 @@ export class TrophiesService {
       teamId: trophy.teamId,
       teamName: trophy.team?.name ?? trophy.teamLabel ?? null,
       teamSlug: trophy.team?.slug ?? null,
+      teamGame: trophy.team?.game ?? null,
     };
   }
 
