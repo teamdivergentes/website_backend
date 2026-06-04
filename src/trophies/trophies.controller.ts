@@ -29,10 +29,7 @@ export class TrophiesController {
   @Get('api/trophies')
   @Public()
   @SkipThrottle()
-  findAllPublic(
-    @Query('featured') featured?: string,
-    @Query('teamId') teamId?: string,
-  ) {
+  findAllPublic(@Query('featured') featured?: string, @Query('teamId') teamId?: string) {
     const filters: TrophyFilters = {};
     if (featured !== undefined) {
       filters.featured = featured === 'true';

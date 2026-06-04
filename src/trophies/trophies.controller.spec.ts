@@ -21,11 +21,7 @@ describe('TrophiesController', () => {
     jest.resetAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TrophiesController],
-      providers: [
-        { provide: TrophiesService, useValue: mockService },
-        PermissionsGuard,
-        Reflector,
-      ],
+      providers: [{ provide: TrophiesService, useValue: mockService }, PermissionsGuard, Reflector],
     }).compile();
     controller = module.get<TrophiesController>(TrophiesController);
   });
