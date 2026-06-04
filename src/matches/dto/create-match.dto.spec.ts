@@ -79,10 +79,34 @@ describe('CreateMatchDto — validation', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('rejette une scheduledAt manquante', async () => {
+    const dto = plainToInstance(CreateMatchDto, { teamId: 1, opponentName: 'Team Alpha' });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'scheduledAt')).toBe(true);
+  });
+
   it('rejette un streamUrl sans protocole', async () => {
     const dto = plainToInstance(CreateMatchDto, { ...validBase, streamUrl: 'twitch.tv/dvg' });
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'streamUrl')).toBe(true);
+  });
+
+  it('rejette un streamUrl avec protocole ftp://', async () => {
+    const dto = plainToInstance(CreateMatchDto, {
+      ...validBase,
+      streamUrl: 'ftp://stream.example.com',
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'streamUrl')).toBe(true);
+  });
+
+  it('accepte un streamUrl https://', async () => {
+    const dto = plainToInstance(CreateMatchDto, {
+      ...validBase,
+      streamUrl: 'https://twitch.tv/dvg',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
   });
 
   it('rejette un score négatif', async () => {

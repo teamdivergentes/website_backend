@@ -58,8 +58,8 @@ export class MatchesController {
 
     if (limit !== undefined) {
       const parsed = Number.parseInt(limit, 10);
-      if (Number.isNaN(parsed)) {
-        throw new BadRequestException('Le paramètre limit doit être un entier valide');
+      if (Number.isNaN(parsed) || parsed < 1) {
+        throw new BadRequestException('Le paramètre limit doit être un entier ≥ 1');
       }
       filters.limit = parsed;
     }

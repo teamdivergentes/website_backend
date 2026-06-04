@@ -61,6 +61,12 @@ describe('MatchesController', () => {
       );
     });
 
+    it('limit négatif → lève BadRequestException', () => {
+      expect(() => controller.findAllPublic(undefined, undefined, '-1')).toThrow(
+        BadRequestException,
+      );
+    });
+
     it('status invalide → lève BadRequestException', () => {
       expect(() => controller.findAllPublic(undefined, 'invalid', undefined)).toThrow(
         BadRequestException,

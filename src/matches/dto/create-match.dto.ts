@@ -42,7 +42,10 @@ export class CreateMatchDto {
   @MaxLength(200, { message: 'La compétition ne peut pas dépasser 200 caractères' })
   competition?: string;
 
-  @IsUrl({ require_protocol: true }, { message: "L'URL du stream doit être une URL valide" })
+  @IsUrl(
+    { require_protocol: true, protocols: ['http', 'https'] },
+    { message: "L'URL du stream doit être une URL http(s) valide" },
+  )
   @IsOptional()
   streamUrl?: string;
 
