@@ -24,6 +24,7 @@ import { TwitchHelixModule } from './twitch-helix/twitch-helix.module';
 import { TwitchChannelsModule } from './twitch-channels/twitch-channels.module';
 import { CoachingStaffModule } from './coaching-staff/coaching-staff.module';
 import { TrophiesModule } from './trophies/trophies.module';
+import { MatchesModule } from './matches/matches.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -56,6 +57,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     TwitchChannelsModule,
     CoachingStaffModule,
     TrophiesModule,
+    MatchesModule,
   ],
   controllers: [AppController],
   providers: [
