@@ -19,6 +19,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/permissions.decorator';
 import { PERMISSIONS } from '../common/constants/permissions';
+import { parseOptionalIntegerQueryParam } from '../common/utils/query-params';
 
 const VALID_STATUSES = ['upcoming', 'past'] as const;
 type MatchStatus = (typeof VALID_STATUSES)[number];
@@ -39,12 +40,12 @@ export class MatchesController {
   ) {
     const filters: MatchFilters = {};
 
-    if (teamId !== undefined) {
-      const parsed = Number.parseInt(teamId, 10);
-      if (Number.isNaN(parsed)) {
-        throw new BadRequestException('Le paramètre teamId doit être un entier valide');
-      }
-      filters.teamId = parsed;
+    const parsedTeamId = parseOptionalIntegerQueryParam(
+      teamId,
+      'Le paramètre teamId doit être un entier valide',
+    );
+    if (parsedTeamId !== undefined) {
+      filters.teamId = parsedTeamId;
     }
 
     if (status !== undefined) {
@@ -56,12 +57,13 @@ export class MatchesController {
       filters.status = status as MatchStatus;
     }
 
-    if (limit !== undefined) {
-      const parsed = Number.parseInt(limit, 10);
-      if (Number.isNaN(parsed) || parsed < 1) {
-        throw new BadRequestException('Le paramètre limit doit être un entier ≥ 1');
-      }
-      filters.limit = parsed;
+    const parsedLimit = parseOptionalIntegerQueryParam(
+      limit,
+      'Le paramètre limit doit être un entier ≥ 1',
+      { min: 1 },
+    );
+    if (parsedLimit !== undefined) {
+      filters.limit = parsedLimit;
     }
 
     return this.matchesService.findAllPublic(filters);

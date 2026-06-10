@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { CreateTrophyDto } from './dto/create-trophy.dto';
 import { UpdateTrophyDto } from './dto/update-trophy.dto';
 import { Prisma } from '../../generated/prisma';
+import { isPrismaForeignKeyError, isPrismaNotFoundError } from '../common/utils/prisma-errors';
 
 export interface TrophyPublicDto {
   id: number;
@@ -81,7 +82,7 @@ export class TrophiesService {
       });
       return this.mapToAdminDto(trophy);
     } catch (error) {
-      if (this.isPrismaFkError(error)) {
+      if (isPrismaForeignKeyError(error)) {
         throw new BadRequestException('Équipe introuvable ou teamId invalide');
       }
       throw error;
@@ -107,10 +108,10 @@ export class TrophiesService {
       });
       return this.mapToAdminDto(trophy);
     } catch (error) {
-      if (this.isPrismaNotFoundError(error)) {
+      if (isPrismaNotFoundError(error)) {
         throw new NotFoundException(`Trophée ${id} introuvable`);
       }
-      if (this.isPrismaFkError(error)) {
+      if (isPrismaForeignKeyError(error)) {
         throw new BadRequestException('Équipe introuvable ou teamId invalide');
       }
       throw error;
@@ -122,7 +123,7 @@ export class TrophiesService {
     try {
       await this.prisma.trophy.delete({ where: { id } });
     } catch (error) {
-      if (this.isPrismaNotFoundError(error)) {
+      if (isPrismaNotFoundError(error)) {
         throw new NotFoundException(`Trophée ${id} introuvable`);
       }
       throw error;
@@ -152,23 +153,5 @@ export class TrophiesService {
       createdAt: trophy.createdAt,
       updatedAt: trophy.updatedAt,
     };
-  }
-
-  private isPrismaNotFoundError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: string }).code === 'P2025'
-    );
-  }
-
-  private isPrismaFkError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: string }).code === 'P2003'
-    );
   }
 }

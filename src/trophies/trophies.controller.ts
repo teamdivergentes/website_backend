@@ -9,7 +9,6 @@ import {
   Query,
   ParseIntPipe,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { TrophiesService, TrophyFilters } from './trophies.service';
@@ -19,6 +18,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/permissions.decorator';
 import { PERMISSIONS } from '../common/constants/permissions';
+import { parseOptionalIntegerQueryParam } from '../common/utils/query-params';
 
 @Controller()
 export class TrophiesController {
@@ -35,12 +35,12 @@ export class TrophiesController {
     if (featured !== undefined) {
       filters.featured = featured === 'true';
     }
-    if (teamId !== undefined) {
-      const parsed = Number.parseInt(teamId, 10);
-      if (Number.isNaN(parsed)) {
-        throw new BadRequestException('Le paramètre teamId doit être un entier valide');
-      }
-      filters.teamId = parsed;
+    const parsedTeamId = parseOptionalIntegerQueryParam(
+      teamId,
+      'Le paramètre teamId doit être un entier valide',
+    );
+    if (parsedTeamId !== undefined) {
+      filters.teamId = parsedTeamId;
     }
     return this.trophiesService.findAllPublic(filters);
   }

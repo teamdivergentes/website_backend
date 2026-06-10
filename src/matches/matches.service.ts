@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { CreateMatchDto } from './dto/create-match.dto';
 import { UpdateMatchDto } from './dto/update-match.dto';
 import { Prisma } from '../../generated/prisma';
+import { isPrismaForeignKeyError, isPrismaNotFoundError } from '../common/utils/prisma-errors';
 
 export interface MatchPublicDto {
   id: number;
@@ -112,7 +113,7 @@ export class MatchesService {
       });
       return this.mapToAdminDto(match);
     } catch (error) {
-      if (this.isPrismaFkError(error)) {
+      if (isPrismaForeignKeyError(error)) {
         throw new BadRequestException('Équipe ou article introuvable');
       }
       throw error;
@@ -140,10 +141,10 @@ export class MatchesService {
       });
       return this.mapToAdminDto(match);
     } catch (error) {
-      if (this.isPrismaNotFoundError(error)) {
+      if (isPrismaNotFoundError(error)) {
         throw new NotFoundException(`Match ${id} introuvable`);
       }
-      if (this.isPrismaFkError(error)) {
+      if (isPrismaForeignKeyError(error)) {
         throw new BadRequestException('Équipe ou article introuvable');
       }
       throw error;
@@ -155,7 +156,7 @@ export class MatchesService {
     try {
       await this.prisma.match.delete({ where: { id } });
     } catch (error) {
-      if (this.isPrismaNotFoundError(error)) {
+      if (isPrismaNotFoundError(error)) {
         throw new NotFoundException(`Match ${id} introuvable`);
       }
       throw error;
@@ -204,23 +205,5 @@ export class MatchesService {
       createdAt: match.createdAt,
       updatedAt: match.updatedAt,
     };
-  }
-
-  private isPrismaNotFoundError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: string }).code === 'P2025'
-    );
-  }
-
-  private isPrismaFkError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: string }).code === 'P2003'
-    );
   }
 }
