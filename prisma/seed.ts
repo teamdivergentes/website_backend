@@ -194,6 +194,11 @@ async function main() {
       description: 'Lien Twitch',
     },
     {
+      key: 'tiktok_url',
+      value: 'http://tiktok.com/@teamdivergentes',
+      description: 'Lien TikTok',
+    },
+    {
       key: 'mail_url',
       value: 'mailto:contact@teamdivergentes.fr',
       description: 'Lien email (affiche dans le footer)',
@@ -203,7 +208,7 @@ async function main() {
       value:
         'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
       description:
-        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
+        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord/TikTok sont deja inclus)',
     },
     {
       key: 'og_title',
