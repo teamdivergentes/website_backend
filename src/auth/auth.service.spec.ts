@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -13,6 +14,8 @@ jest.mock('bcrypt', () => ({
 
 describe('AuthService', () => {
   let service: AuthService;
+  let loggerWarnSpy: jest.SpyInstance;
+  let loggerLogSpy: jest.SpyInstance;
 
   const mockUsersService = {
     findByEmail: jest.fn(),
@@ -75,10 +78,14 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    loggerWarnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    loggerLogSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    loggerWarnSpy.mockRestore();
+    loggerLogSpy.mockRestore();
   });
 
   it('should be defined', () => {
@@ -134,6 +141,70 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'admin@example.com', password: 'wrongpassword' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    // SEC-013 : journalisation des échecs et succès
+    describe('SEC-013 — journalisation', () => {
+      it('devrait logger warn avec raison "email inconnu" si email non trouvé (sans mot de passe)', async () => {
+        mockUsersService.findByEmail.mockResolvedValue(null);
+
+        await expect(
+          service.login({ email: 'inconnu@example.com', password: 'WrongPass1' }),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(loggerWarnSpy).toHaveBeenCalledTimes(1);
+        const calls = loggerWarnSpy.mock.calls as [string][];
+        const message: string = calls[0][0];
+        expect(message).toContain('inconnu@example.com');
+        expect(message).toContain('email inconnu');
+        expect(message.toLowerCase()).not.toContain('wrongpass1');
+        expect(message.toLowerCase()).not.toContain('password');
+      });
+
+      it('devrait logger warn avec raison "mot de passe invalide" si mauvais mot de passe (sans le mot de passe)', async () => {
+        mockUsersService.findByEmail.mockResolvedValue(mockUser);
+        (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+        await expect(
+          service.login({ email: 'admin@example.com', password: 'WrongPass1' }),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(loggerWarnSpy).toHaveBeenCalledTimes(1);
+        const calls = loggerWarnSpy.mock.calls as [string][];
+        const message: string = calls[0][0];
+        expect(message).toContain('admin@example.com');
+        expect(message).toContain('mot de passe invalide');
+        expect(message.toLowerCase()).not.toContain('wrongpass1');
+      });
+
+      it('devrait logger warn avec raison "compte désactivé" si compte inactif (sans mot de passe)', async () => {
+        mockUsersService.findByEmail.mockResolvedValue({ ...mockUser, actif: false });
+
+        await expect(
+          service.login({ email: 'admin@example.com', password: 'WrongPass1' }),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(loggerWarnSpy).toHaveBeenCalledTimes(1);
+        const calls = loggerWarnSpy.mock.calls as [string][];
+        const message: string = calls[0][0];
+        expect(message).toContain('admin@example.com');
+        expect(message).toContain('compte désactivé');
+        expect(message.toLowerCase()).not.toContain('wrongpass1');
+      });
+
+      it('devrait logger log (info) avec email et userId sur succès de connexion', async () => {
+        mockUsersService.findByEmail.mockResolvedValue(mockUser);
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+        mockJwtService.signAsync.mockResolvedValue('jwt-token');
+
+        await service.login({ email: 'admin@example.com', password: 'Password1' });
+
+        expect(loggerLogSpy).toHaveBeenCalledTimes(1);
+        const calls = loggerLogSpy.mock.calls as [string][];
+        const message: string = calls[0][0];
+        expect(message).toContain('admin@example.com');
+        expect(message).toContain(String(mockUser.id));
+      });
     });
   });
 
