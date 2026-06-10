@@ -145,7 +145,10 @@ export class LinkMetaService {
    * Utilisé par fetchHtml pour gérer les redirections avec revalidation SSRF.
    */
   private async fetchOnce(url: URL, signal: AbortSignal): Promise<globalThis.Response> {
-    return fetch(url.toString(), {
+    // Sonar hotspot reviewed in code: this dynamic URL is validated by validateUrlWithDns
+    // before every request, and redirects are followed manually after DNS revalidation.
+    // prettier-ignore
+    return fetch(url.toString(), { // NOSONAR
       method: 'GET',
       headers: {
         'User-Agent': USER_AGENT,
