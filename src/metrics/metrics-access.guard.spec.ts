@@ -42,6 +42,12 @@ describe('MetricsAccessGuard', () => {
       expect(guard.canActivate(ctx)).toBe(true);
     });
 
+    it('autorise le loopback IPv4-mapped IPv6', () => {
+      const guard = new MetricsAccessGuard();
+      const ctx = makeContext('::ffff:127.0.0.1');
+      expect(guard.canActivate(ctx)).toBe(true);
+    });
+
     it('autorise la plage Docker 172.x.x.x', () => {
       const guard = new MetricsAccessGuard();
       const ctx = makeContext('172.20.0.5');
@@ -88,6 +94,13 @@ describe('MetricsAccessGuard', () => {
       process.env['METRICS_ALLOWED_IPS'] = '10.0.0.5';
       const guard = new MetricsAccessGuard();
       const ctx = makeContext('127.0.0.1');
+      expect(guard.canActivate(ctx)).toBe(true);
+    });
+
+    it('normalise les IP IPv4-mapped configurées', () => {
+      process.env['METRICS_ALLOWED_IPS'] = '10.0.0.5';
+      const guard = new MetricsAccessGuard();
+      const ctx = makeContext('::ffff:10.0.0.5');
       expect(guard.canActivate(ctx)).toBe(true);
     });
   });
