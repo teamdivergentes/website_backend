@@ -75,6 +75,8 @@ model Team {
   memberFieldsConfig Json?
   members            TeamMember[]
   coachingStaff      CoachingStaff[]
+  trophies           Trophy[]
+  matches            Match[]
 
   @@map("teams")
 }
@@ -217,6 +219,7 @@ model Article {
 
   type           ArticleType @relation(fields: [typeId], references: [id])
   user           User        @relation(fields: [userId], references: [id])
+  matches        Match[]
 
   @@index([typeId])
   @@index([published, featured])
@@ -282,4 +285,46 @@ model RecruitmentPost {
   updatedAt   DateTime @updatedAt
 
   @@map("recruitment_posts")
+}
+
+model Trophy {
+  id          Int      @id @default(autoincrement())
+  competition String
+  placement   Int
+  description String?
+  date        DateTime
+  image       String?
+  featured    Boolean  @default(false)
+  teamId      Int?
+  teamLabel   String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([teamId])
+  @@index([active, featured])
+  @@map("trophies")
+}
+
+model Match {
+  id            Int      @id @default(autoincrement())
+  teamId        Int
+  opponentName  String
+  opponentLogo  String?
+  scheduledAt   DateTime
+  competition   String?
+  streamUrl     String?
+  scoreDvg      Int?
+  scoreOpponent Int?
+  articleId     Int?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  article       Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+
+  @@index([teamId])
+  @@index([scheduledAt])
+  @@map("matches")
 }

@@ -635,11 +635,54 @@ jobs:
           SONAR_HOST_URL: https://sonarqube.tellebma.fr
 
       - name: Check SonarQube Quality Gate
+        id: sonar-qg
         uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
           SONAR_HOST_URL: https://sonarqube.tellebma.fr
+
+      # Diagnostic : dump des conditions Quality Gate sur echec.
+      # Aide a identifier la metrique bloquante sans acces a l'UI Sonar.
+      - name: Dump SonarQube Quality Gate conditions on failure
+        if: failure() && steps.sonar-qg.conclusion == 'failure'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DVG }}
+          SONAR_HOST_URL: https://sonarqube.tellebma.fr
+        run: |
+          PR_KEY="${{ github.event.pull_request.number }}"
+          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BASE="${SONAR_HOST_URL%/}"
+
+          echo "::group::Sonar diagnostic"
+          echo "PR_KEY=$PR_KEY"
+          echo "BRANCH=$BRANCH"
+
+          if [ -n "$PR_KEY" ]; then
+            URL_PR="$BASE/api/qualitygates/project_status?projectKey=dvg-backend&pullRequest=$PR_KEY"
+            echo "--- PR query: $URL_PR"
+            curl -sS -u "$SONAR_TOKEN:" -w "\nHTTP %{http_code}\n" "$URL_PR" | head -200
+          fi
+
+          URL_BR="$BASE/api/qualitygates/project_status?projectKey=dvg-backend&branch=$BRANCH"
+          echo "--- Branch query: $URL_BR"
+          curl -sS -u "$SONAR_TOKEN:" -w "\nHTTP %{http_code}\n" "$URL_BR" | head -200
+
+          URL_MAIN="$BASE/api/qualitygates/project_status?projectKey=dvg-backend"
+          echo "--- Main query: $URL_MAIN"
+          curl -sS -u "$SONAR_TOKEN:" -w "\nHTTP %{http_code}\n" "$URL_MAIN" | head -200
+
+          URL_ISSUES="$BASE/api/issues/search?componentKeys=dvg-backend&inNewCodePeriod=true&types=CODE_SMELL,BUG,VULNERABILITY&ps=50"
+          echo "--- New issues: $URL_ISSUES"
+          curl -sS -u "$SONAR_TOKEN:" "$URL_ISSUES" -o /tmp/issues.json && \
+            python3 -c "import json; d=json.load(open('/tmp/issues.json')); print(json.dumps([{'severity':i.get('severity'),'rule':i.get('rule'),'component':i.get('component'),'line':i.get('line'),'message':i.get('message')} for i in d.get('issues',[])], indent=2))" 2>&1 | head -200
+
+          URL_HOTSPOTS="$BASE/api/hotspots/search?projectKey=dvg-backend&status=TO_REVIEW&ps=50"
+          echo "--- Security hotspots: $URL_HOTSPOTS"
+          curl -sS -u "$SONAR_TOKEN:" "$URL_HOTSPOTS" -o /tmp/hotspots.json && \
+            python3 -c "import json; d=json.load(open('/tmp/hotspots.json')); print(json.dumps([{'rule':i.get('ruleKey'),'component':i.get('component'),'line':i.get('line'),'message':i.get('message')} for i in d.get('hotspots',[])], indent=2))" 2>&1 | head -200
+
+          echo "::endgroup::"
 
   # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
   # Sonar QG blocks Docker build -> no image is published if quality fails.

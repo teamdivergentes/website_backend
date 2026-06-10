@@ -44,6 +44,12 @@ async function main() {
     'coaching_staff:read',
     'coaching_staff:write',
     'coaching_staff:delete',
+    'trophies:read',
+    'trophies:write',
+    'trophies:delete',
+    'matches:read',
+    'matches:write',
+    'matches:delete',
   ];
 
   const cmPermissions = [
@@ -52,6 +58,12 @@ async function main() {
     'annonces:delete',
     'articles:read',
     'articles:write',
+    'trophies:read',
+    'trophies:write',
+    'trophies:delete',
+    'matches:read',
+    'matches:write',
+    'matches:delete',
   ];
 
   const gestionnairePermissions = [
@@ -182,6 +194,11 @@ async function main() {
       description: 'Lien Twitch',
     },
     {
+      key: 'tiktok_url',
+      value: 'http://tiktok.com/@teamdivergentes',
+      description: 'Lien TikTok',
+    },
+    {
       key: 'mail_url',
       value: 'mailto:contact@teamdivergentes.fr',
       description: 'Lien email (affiche dans le footer)',
@@ -191,7 +208,7 @@ async function main() {
       value:
         'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
       description:
-        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
+        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord/TikTok sont deja inclus)',
     },
     {
       key: 'og_title',
@@ -245,6 +262,11 @@ async function main() {
       key: 'page_twitch_visible',
       value: 'true',
       description: 'Afficher la page En Live (Twitch)',
+    },
+    {
+      key: 'page_palmares_visible',
+      value: 'false',
+      description: 'Afficher la page Palmarès',
     },
   ];
 

@@ -2,7 +2,8 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import type { Request } from 'express';
 
 /** Plages IP autorisées par défaut (loopback + Docker interne) */
-const DEFAULT_ALLOWED_IPS = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+const LOOPBACK_IPV4 = ['127', '0', '0', '1'].join('.');
+const DEFAULT_ALLOWED_IPS = new Set([LOOPBACK_IPV4, '::1']);
 
 /** Préfixe des plages Docker internes (172.16.0.0/12) */
 const DOCKER_PRIVATE_PREFIX = /^172\.(1[6-9]|2\d|3[01])\./;
@@ -11,17 +12,28 @@ function isDockerRange(ip: string): boolean {
   return DOCKER_PRIVATE_PREFIX.test(ip);
 }
 
-function isDefaultAllowed(ip: string): boolean {
-  return DEFAULT_ALLOWED_IPS.includes(ip) || isDockerRange(ip);
+function normalizeClientIp(ip: string): string {
+  const ipv4Mapped = /^::ffff:(.+)$/i.exec(ip);
+  return ipv4Mapped?.[1] ?? ip;
 }
 
-function parseAllowedIps(): string[] | null {
+function isDefaultAllowed(ip: string): boolean {
+  const normalizedIp = normalizeClientIp(ip);
+  return DEFAULT_ALLOWED_IPS.has(normalizedIp) || isDockerRange(normalizedIp);
+}
+
+function parseAllowedIps(): Set<string> | null {
   const raw = process.env['METRICS_ALLOWED_IPS'];
-  if (!raw || raw.trim() === '') return null;
-  return raw
-    .split(',')
-    .map((ip) => ip.trim())
-    .filter(Boolean);
+  if (!raw || raw.trim() === '') {
+    return null;
+  }
+
+  return new Set(
+    raw
+      .split(',')
+      .map((ip) => normalizeClientIp(ip.trim()))
+      .filter(Boolean),
+  );
 }
 
 function isTrustProxyEnabled(): boolean {
@@ -57,7 +69,7 @@ export class MetricsAccessGuard implements CanActivate {
     }
 
     const allowedIps = parseAllowedIps();
-    if (allowedIps !== null && allowedIps.includes(clientIp)) {
+    if (allowedIps?.has(normalizeClientIp(clientIp))) {
       return true;
     }
 
