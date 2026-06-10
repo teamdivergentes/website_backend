@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import type { Request } from 'express';
 
 /** Plages IP autorisées par défaut (loopback + Docker interne) */
-const DEFAULT_ALLOWED_IPS = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+const DEFAULT_ALLOWED_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /** Préfixe des plages Docker internes (172.16.0.0/12) */
 const DOCKER_PRIVATE_PREFIX = /^172\.(1[6-9]|2\d|3[01])\./;
@@ -12,7 +12,7 @@ function isDockerRange(ip: string): boolean {
 }
 
 function isDefaultAllowed(ip: string): boolean {
-  return DEFAULT_ALLOWED_IPS.includes(ip) || isDockerRange(ip);
+  return DEFAULT_ALLOWED_IPS.has(ip) || isDockerRange(ip);
 }
 
 function parseAllowedIps(): string[] | null {
@@ -57,7 +57,7 @@ export class MetricsAccessGuard implements CanActivate {
     }
 
     const allowedIps = parseAllowedIps();
-    if (allowedIps !== null && allowedIps.includes(clientIp)) {
+    if (allowedIps?.includes(clientIp)) {
       return true;
     }
 

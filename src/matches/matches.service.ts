@@ -73,7 +73,10 @@ export class MatchesService {
       orderBy = { scheduledAt: 'desc' };
     }
 
-    const take = filters.limit !== undefined ? Math.min(filters.limit, 50) : undefined;
+    let take: number | undefined;
+    if (filters.limit !== undefined) {
+      take = Math.min(filters.limit, 50);
+    }
 
     const matches = await this.prisma.match.findMany({
       where,

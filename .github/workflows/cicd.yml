@@ -677,6 +677,11 @@ jobs:
           curl -sS -u "$SONAR_TOKEN:" "$URL_ISSUES" -o /tmp/issues.json && \
             python3 -c "import json; d=json.load(open('/tmp/issues.json')); print(json.dumps([{'severity':i.get('severity'),'rule':i.get('rule'),'component':i.get('component'),'line':i.get('line'),'message':i.get('message')} for i in d.get('issues',[])], indent=2))" 2>&1 | head -200
 
+          URL_HOTSPOTS="$BASE/api/hotspots/search?projectKey=dvg-backend&status=TO_REVIEW&ps=50"
+          echo "--- Security hotspots: $URL_HOTSPOTS"
+          curl -sS -u "$SONAR_TOKEN:" "$URL_HOTSPOTS" -o /tmp/hotspots.json && \
+            python3 -c "import json; d=json.load(open('/tmp/hotspots.json')); print(json.dumps([{'rule':i.get('ruleKey'),'component':i.get('component'),'line':i.get('line'),'message':i.get('message')} for i in d.get('hotspots',[])], indent=2))" 2>&1 | head -200
+
           echo "::endgroup::"
 
   # Docker depends on fast jobs only (test-unit, not test-e2e) plus the Sonar QG.
