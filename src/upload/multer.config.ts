@@ -4,14 +4,7 @@ import { randomBytes } from 'crypto';
 import { BadRequestException } from '@nestjs/common';
 import { Request } from 'express';
 
-const ALLOWED_MIME_TYPES = [
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/svg+xml',
-];
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -33,7 +26,7 @@ export const multerConfig = {
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
       return cb(
         new BadRequestException(
-          `Type de fichier non autorisé. Formats acceptés: jpg, jpeg, png, webp, gif, svg`,
+          `Type de fichier non autorisé. Formats acceptés: jpg, jpeg, png, webp, gif`,
         ),
         false,
       );
