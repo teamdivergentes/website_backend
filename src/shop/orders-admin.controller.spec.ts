@@ -1,0 +1,65 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { Reflector } from '@nestjs/core';
+import { OrdersAdminController } from './orders-admin.controller';
+import { OrdersAdminService } from './orders-admin.service';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { PERMISSIONS } from '../common/constants/permissions';
+
+describe('OrdersAdminController', () => {
+  let controller: OrdersAdminController;
+
+  const mockService = {
+    findAll: jest.fn(),
+    getPendingBatch: jest.fn(),
+    markSent: jest.fn(),
+    update: jest.fn(),
+  };
+
+  beforeEach(async () => {
+    jest.resetAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [OrdersAdminController],
+      providers: [
+        { provide: OrdersAdminService, useValue: mockService },
+        PermissionsGuard,
+        Reflector,
+      ],
+    }).compile();
+    controller = module.get<OrdersAdminController>(OrdersAdminController);
+  });
+
+  it('devrait être défini', () => {
+    expect(controller).toBeDefined();
+  });
+
+  describe('PermissionsGuard metadata', () => {
+    const getPerms = (methodName: keyof typeof OrdersAdminController.prototype): string[] => {
+      const fn = OrdersAdminController.prototype[methodName] as object;
+      return Reflect.getMetadata('permissions', fn) as string[];
+    };
+
+    it('la liste exige commandes:read', () => {
+      expect(getPerms('findAll')).toContain(PERMISSIONS.COMMANDES_READ);
+    });
+
+    it('le lot en attente exige commandes:read', () => {
+      expect(getPerms('getPendingBatch')).toContain(PERMISSIONS.COMMANDES_READ);
+    });
+
+    it('le marquage comme transmis exige commandes:write', () => {
+      expect(getPerms('markSent')).toContain(PERMISSIONS.COMMANDES_WRITE);
+    });
+
+    it('la mise à jour exige commandes:write', () => {
+      expect(getPerms('update')).toContain(PERMISSIONS.COMMANDES_WRITE);
+    });
+  });
+
+  describe('findAll', () => {
+    it('transmet le filtre de statut au service', async () => {
+      mockService.findAll.mockResolvedValue([]);
+      await controller.findAll('SHIPPED');
+      expect(mockService.findAll).toHaveBeenCalledWith('SHIPPED');
+    });
+  });
+});
