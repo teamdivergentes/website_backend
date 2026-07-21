@@ -42,7 +42,9 @@ export class StripeService {
           },
         },
       ],
-      shipping_address_collection: { allowed_countries: ['FR', 'BE', 'CH', 'LU', 'DE', 'ES', 'IT'] },
+      shipping_address_collection: {
+        allowed_countries: ['FR', 'BE', 'CH', 'LU', 'DE', 'ES', 'IT'],
+      },
       ...(shippingRateId ? { shipping_options: [{ shipping_rate: shippingRateId }] } : {}),
       metadata: params.metadata,
       success_url: successUrl,
@@ -58,7 +60,9 @@ export class StripeService {
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) {
-      this.logger.error('STRIPE_WEBHOOK_SECRET absente : les webhooks ne peuvent pas être vérifiés');
+      this.logger.error(
+        'STRIPE_WEBHOOK_SECRET absente : les webhooks ne peuvent pas être vérifiés',
+      );
       throw new InternalServerErrorException('Webhook non configuré');
     }
     return this.getClient().webhooks.constructEvent(payload, signature, webhookSecret);

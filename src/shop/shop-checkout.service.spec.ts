@@ -17,8 +17,11 @@ describe('ShopCheckoutService', () => {
   });
 
   describe('createCheckout', () => {
-    it("utilise le prix du catalogue serveur et ignore tout prix envoyé par le client", async () => {
-      mockStripe.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://stripe/cs_1' });
+    it('utilise le prix du catalogue serveur et ignore tout prix envoyé par le client', async () => {
+      mockStripe.createCheckoutSession.mockResolvedValue({
+        id: 'cs_1',
+        url: 'https://stripe/cs_1',
+      });
 
       // Le DTO n'expose pas de prix, mais on simule un client hostile qui en injecterait un.
       await service.createCheckout({
@@ -34,13 +37,17 @@ describe('ShopCheckoutService', () => {
     });
 
     it('transmet le produit, la taille et la quantité en métadonnées', async () => {
-      mockStripe.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://stripe/cs_1' });
+      mockStripe.createCheckoutSession.mockResolvedValue({
+        id: 'cs_1',
+        url: 'https://stripe/cs_1',
+      });
 
       await service.createCheckout({ productId: 'maillotDvg_2023', size: 'L', quantity: 2 });
 
       expect(mockStripe.createCheckoutSession).toHaveBeenCalledWith(
         expect.objectContaining({
           quantity: 2,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           metadata: expect.objectContaining({
             productId: 'maillotDvg_2023',
             size: 'L',
@@ -51,7 +58,10 @@ describe('ShopCheckoutService', () => {
     });
 
     it("retourne l'URL de paiement renvoyée par Stripe", async () => {
-      mockStripe.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://stripe/cs_1' });
+      mockStripe.createCheckoutSession.mockResolvedValue({
+        id: 'cs_1',
+        url: 'https://stripe/cs_1',
+      });
 
       const result = await service.createCheckout({
         productId: 'tapisSourisDvg',
