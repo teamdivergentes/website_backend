@@ -6,8 +6,10 @@ import { ShopNotifierService } from './shop-notifier.service';
 import { OrderReferenceService } from './order-reference.service';
 import { StripeService } from './stripe.service';
 import { PrismaService } from '../prisma.service';
+import { ConfigModule } from '../config/config.module';
 
 @Module({
+  imports: [ConfigModule],
   controllers: [ShopController],
   providers: [
     ShopCheckoutService,
