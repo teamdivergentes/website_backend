@@ -20,6 +20,7 @@ describe('ArticlesService', () => {
     article: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -169,28 +170,44 @@ describe('ArticlesService', () => {
   // findBySlug
   // -------------------------------------------------------------------------
   describe('findBySlug', () => {
-    it("retourne l'article correspondant au slug sans userId ni user (SEC-006)", async () => {
-      mockPrismaService.article.findUnique.mockResolvedValue(mockArticle);
+    const mockPublishedArticle = { ...mockArticle, published: true };
+
+    it("retourne l'article publié correspondant au slug sans userId ni user (SEC-006)", async () => {
+      mockPrismaService.article.findFirst.mockResolvedValue(mockPublishedArticle);
 
       const result = await service.findBySlug('mon-article');
 
       // La réponse ne doit pas contenir userId ni user (SEC-006)
 
-      const { userId: _u, user: _usr, ...expectedArticle } = mockArticle;
+      const { userId: _u, user: _usr, ...expectedArticle } = mockPublishedArticle;
       expect(result).toEqual(expectedArticle);
-      expect(mockPrismaService.article.findUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { slug: 'mon-article' } }),
+    });
+
+    it('filtre uniquement les articles publiés (SEC-EPIC37-01)', async () => {
+      mockPrismaService.article.findFirst.mockResolvedValue(mockPublishedArticle);
+
+      await service.findBySlug('mon-article');
+
+      expect(mockPrismaService.article.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { slug: 'mon-article', published: true } }),
       );
     });
 
     it("lance NotFoundException si l'article n'existe pas", async () => {
-      mockPrismaService.article.findUnique.mockResolvedValue(null);
+      mockPrismaService.article.findFirst.mockResolvedValue(null);
 
       await expect(service.findBySlug('inexistant')).rejects.toThrow(NotFoundException);
     });
 
+    it('lance NotFoundException pour un slug existant mais non publié (SEC-EPIC37-01)', async () => {
+      // Le filtre where { published: true } exclut l'article non publié → findFirst renvoie null
+      mockPrismaService.article.findFirst.mockResolvedValue(null);
+
+      await expect(service.findBySlug('brouillon-secret')).rejects.toThrow(NotFoundException);
+    });
+
     it("lance BadGatewayException en cas d'erreur Prisma", async () => {
-      mockPrismaService.article.findUnique.mockRejectedValue(new Error('DB error'));
+      mockPrismaService.article.findFirst.mockRejectedValue(new Error('DB error'));
 
       await expect(service.findBySlug('mon-article')).rejects.toThrow(BadGatewayException);
     });
@@ -439,7 +456,7 @@ describe('ArticlesService', () => {
 
     describe('findBySlug — réponse publique sans userId ni user', () => {
       it('ne contient pas de champ userId ni user dans la réponse', async () => {
-        mockPrismaService.article.findUnique.mockResolvedValue(mockArticle);
+        mockPrismaService.article.findFirst.mockResolvedValue({ ...mockArticle, published: true });
 
         const result = await service.findBySlug('mon-article');
 
