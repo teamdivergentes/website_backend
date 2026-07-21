@@ -30,6 +30,10 @@ export class StripeService {
     const successUrl = process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci';
     const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique';
 
+    if (!shippingRateId) {
+      this.logger.warn('STRIPE_SHIPPING_RATE_ID absente : aucun frais de port ne sera facturé');
+    }
+
     const session = await this.getClient().checkout.sessions.create({
       mode: 'payment',
       line_items: [

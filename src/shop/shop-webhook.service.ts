@@ -4,12 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { StripeService } from './stripe.service';
 import { OrderReferenceService } from './order-reference.service';
 import { ShopNotifierService } from './shop-notifier.service';
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002'
-  );
-}
+import { isPrismaUniqueConstraintError } from '../common/utils/prisma-errors';
 
 @Injectable()
 export class ShopWebhookService {
@@ -87,7 +82,7 @@ export class ShopWebhookService {
         },
       });
     } catch (error) {
-      if (isUniqueConstraintError(error)) {
+      if (isPrismaUniqueConstraintError(error)) {
         // Stripe rejoue ses webhooks : un doublon est un succes, pas une erreur.
         this.logger.log(`Webhook rejoue pour la session ${session.id}, commande deja creee`);
         return null;

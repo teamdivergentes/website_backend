@@ -1,5 +1,6 @@
 const PRISMA_NOT_FOUND_CODE = 'P2025';
 const PRISMA_FOREIGN_KEY_CODE = 'P2003';
+const PRISMA_UNIQUE_CONSTRAINT_CODE = 'P2002';
 
 function hasCodeProperty(error: unknown): error is { code: unknown } {
   return typeof error === 'object' && error !== null && 'code' in error;
@@ -15,4 +16,8 @@ export function isPrismaNotFoundError(error: unknown): boolean {
 
 export function isPrismaForeignKeyError(error: unknown): boolean {
   return hasPrismaCode(error, PRISMA_FOREIGN_KEY_CODE);
+}
+
+export function isPrismaUniqueConstraintError(error: unknown): boolean {
+  return hasPrismaCode(error, PRISMA_UNIQUE_CONSTRAINT_CODE);
 }
