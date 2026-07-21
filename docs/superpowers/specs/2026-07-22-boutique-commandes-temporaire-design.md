@@ -113,9 +113,12 @@ front résout la description localement. L'API ne transporte aucun HTML.
 
 ## Modèle de données
 
+Le modèle suit la convention du repo : clé primaire `Int @default(autoincrement())`,
+`@@map` en snake_case, index explicites.
+
 ```prisma
 model Order {
-  id                    String       @id @default(uuid())
+  id                    Int          @id @default(autoincrement())
   reference             String       @unique   // "DVG-2026-0042"
   stripeSessionId       String       @unique   // clé d'idempotence
   stripePaymentIntentId String?
