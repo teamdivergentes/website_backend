@@ -105,6 +105,12 @@ Les produits sans taille (tapis de souris) ont `sizes: []` et le sélecteur n'ap
 `GET /shop/products` ne renvoie que les produits `active: true`. Les images restent des
 assets servis par le front ; le backend ne transporte que leurs chemins.
 
+**Les descriptions produit restent côté front.** Elles vivent dans
+`frontend/src/app/data/details-shopping-list.ts` (`DETAILS_SHOP_LIST`), sous forme de HTML
+injecté par `[innerHTML]` dans `shop-item.component`. Les faire transiter par l'API
+transformerait cet `innerHTML` en vecteur XSS. Le backend n'expose donc que `descKey`, et le
+front résout la description localement. L'API ne transporte aucun HTML.
+
 ## Modèle de données
 
 ```prisma
@@ -264,18 +270,34 @@ complète n'est pas validée en environnement de test.
 
 ## Configuration
 
-Variables d'environnement, aucune valeur en dur :
+Le projet répartit la configuration en deux endroits, et cette répartition est suivie :
+
+**Secrets d'infrastructure → variables d'environnement** (comme `JWT_SECRET`,
+`TWITCH_CLIENT_SECRET`), lues via `process.env` — `@nestjs/config` n'est pas installé.
+À documenter dans `.env.template`.
 
 | Variable | Rôle |
 |---|---|
 | `STRIPE_SECRET_KEY` | clé API Stripe |
 | `STRIPE_WEBHOOK_SECRET` | secret de signature du webhook |
 | `STRIPE_SHIPPING_RATE_ID` | tarif de port forfaitaire créé dans Stripe |
-| `SHOP_DISCORD_WEBHOOK_URL` | salon de notification DVG |
-| `SHOP_TEAM_EMAIL` | destinataire de la notification équipe |
+| `SHOP_SUCCESS_URL` / `SHOP_CANCEL_URL` | URLs de retour après paiement |
 
-L'envoi SMTP réutilise l'infrastructure existante (`contact.service.ts`,
-`recruitment/services/application-notifier.service.ts`).
+**Paramètres opérationnels → table `Config` en base**, lus via `ConfigService.getValue()`,
+comme `contact_smtp_host` et `contact_discord_webhook`. Éditables depuis l'admin sans
+déploiement.
+
+| Clé | Rôle |
+|---|---|
+| `shop_discord_webhook` | salon de notification DVG |
+| `shop_team_email` | destinataire de la notification équipe |
+
+Ces deux clés ne doivent **pas** être ajoutées à `src/config/public-config-keys.ts` :
+cette allow-list expose les valeurs via `GET /api/config`.
+
+L'envoi SMTP réutilise l'infrastructure existante : credentials SMTP déjà en base
+(`contact_smtp_host`, `contact_smtp_port`, `contact_smtp_user`, `contact_smtp_pass`),
+pattern de service repris de `recruitment/services/application-notifier.service.ts`.
 
 ## Migration vers la cible
 
