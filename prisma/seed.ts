@@ -66,6 +66,10 @@ async function main() {
     'matches:delete',
   ];
 
+  // Rôle Gestionnaire : gère l'organisation (équipes, jeux, sponsors, staff, recrutement,
+  // twitch, coaching) mais N'A PAS accès à l'éditorial matchs/palmarès.
+  // Exclusion volontaire de `matches:*` et `trophies:*` (réservés à Admin et CM).
+  // Ne PAS élargir ces permissions sans validation explicite du Product Owner.
   const gestionnairePermissions = [
     'teams:read',
     'teams:write',

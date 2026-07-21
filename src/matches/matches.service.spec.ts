@@ -14,6 +14,9 @@ describe('MatchesService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    team: {
+      findUnique: jest.fn(),
+    },
   };
 
   const now = new Date();
@@ -23,6 +26,7 @@ describe('MatchesService', () => {
   const sampleMatch = {
     id: 1,
     teamId: 2,
+    teamNameSnapshot: 'DVG LoL',
     opponentName: 'Team Alpha',
     opponentLogo: '/uploads/alpha.webp',
     scheduledAt: futureDate,
@@ -45,7 +49,7 @@ describe('MatchesService', () => {
     scoreDvg: 2,
     scoreOpponent: 1,
     articleId: 5,
-    article: { id: 5, slug: 'recap-match-alpha' },
+    article: { id: 5, slug: 'recap-match-alpha', published: true },
   };
 
   beforeEach(async () => {
@@ -148,6 +152,27 @@ describe('MatchesService', () => {
       expect(result[0].articleSlug).toBeNull();
     });
 
+    it('articleSlug null si article lié NON publié (SEC-EPIC37-01)', async () => {
+      const matchUnpublishedArticle = {
+        ...pastMatchWithScores,
+        article: { id: 5, slug: 'recap-brouillon', published: false },
+      };
+      mockPrisma.match.findMany.mockResolvedValue([matchUnpublishedArticle]);
+      const result = await service.findAllPublic({});
+      expect(result[0].articleSlug).toBeNull();
+      // articleId reste exposé (métier), seul le slug est masqué
+      expect(result[0].articleId).toBe(5);
+    });
+
+    it('teamName retombe sur teamNameSnapshot si équipe supprimée (B5)', async () => {
+      const matchWithoutTeam = { ...sampleMatch, teamId: null, team: null };
+      mockPrisma.match.findMany.mockResolvedValue([matchWithoutTeam]);
+      const result = await service.findAllPublic({});
+      expect(result[0].teamName).toBe('DVG LoL');
+      expect(result[0].teamId).toBeNull();
+      expect(result[0].teamSlug).toBeNull();
+    });
+
     it('filtre past exclut un match passé sans scores (where scoreDvg/scoreOpponent not null)', async () => {
       // On vérifie que le where force scoreDvg et scoreOpponent non-null → exclut logiquement
       // les matchs passés sans résultats saisis
@@ -191,6 +216,38 @@ describe('MatchesService', () => {
   // ─── create ──────────────────────────────────────────────────────────────────
 
   describe('create', () => {
+    beforeEach(() => {
+      // Par défaut l'équipe existe → snapshot renseigné (B5)
+      mockPrisma.team.findUnique.mockResolvedValue({ name: 'DVG LoL' });
+    });
+
+    it("renseigne teamNameSnapshot depuis l'équipe (B5)", async () => {
+      const dto: CreateMatchDto = {
+        teamId: 2,
+        opponentName: 'Team Alpha',
+        scheduledAt: '2025-09-15T15:00:00.000Z',
+      };
+      mockPrisma.match.create.mockResolvedValue({ ...sampleMatch });
+      await service.create(dto);
+      expect(mockPrisma.match.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          data: expect.objectContaining({ teamNameSnapshot: 'DVG LoL' }),
+        }),
+      );
+    });
+
+    it("lève BadRequestException si l'équipe n'existe pas (snapshot impossible)", async () => {
+      mockPrisma.team.findUnique.mockResolvedValue(null);
+      const dto: CreateMatchDto = {
+        teamId: 999,
+        opponentName: 'X',
+        scheduledAt: '2025-09-15T15:00:00.000Z',
+      };
+      await expect(service.create(dto)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.match.create).not.toHaveBeenCalled();
+    });
+
     it('crée un match avec les valeurs du DTO', async () => {
       const dto: CreateMatchDto = {
         teamId: 2,
@@ -272,18 +329,48 @@ describe('MatchesService', () => {
   // ─── update ──────────────────────────────────────────────────────────────────
 
   describe('update', () => {
+    beforeEach(() => {
+      // Par défaut, si un teamId est fourni, l'équipe existe (B5 : refresh snapshot)
+      mockPrisma.team.findUnique.mockResolvedValue({ name: 'DVG LoL' });
+    });
+
     it('lève NotFoundException si le match est introuvable (P2025)', async () => {
       mockPrisma.match.update.mockRejectedValue({ code: 'P2025', message: 'Not found' });
       await expect(service.update(999, { opponentName: 'X' })).rejects.toThrow(NotFoundException);
     });
 
-    it('lève BadRequestException si équipe ou article introuvable (P2003)', async () => {
+    it('lève BadRequestException si article introuvable (P2003)', async () => {
       mockPrisma.match.update.mockRejectedValue({ code: 'P2003', message: 'FK constraint' });
+      await expect(service.update(1, { articleId: 999 })).rejects.toThrow(BadRequestException);
+    });
+
+    it("lève BadRequestException si la nouvelle équipe n'existe pas", async () => {
+      mockPrisma.team.findUnique.mockResolvedValue(null);
       await expect(service.update(1, { teamId: 999 })).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.match.update).not.toHaveBeenCalled();
+    });
+
+    it('rafraîchit teamNameSnapshot quand teamId change (B5)', async () => {
+      mockPrisma.team.findUnique.mockResolvedValue({ name: 'DVG Valo' });
+      mockPrisma.match.update.mockResolvedValue(sampleMatch);
+      await service.update(1, { teamId: 3 });
+      expect(mockPrisma.match.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          data: expect.objectContaining({ teamId: 3, teamNameSnapshot: 'DVG Valo' }),
+        }),
+      );
     });
 
     it('lève BadRequestException si un seul score dans le payload update', async () => {
       await expect(service.update(1, { scoreDvg: 2 })).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.match.update).not.toHaveBeenCalled();
+    });
+
+    it('lève BadRequestException si scoreDvg:null explicite mais scoreOpponent renseigné (SEC-EPIC37-02)', async () => {
+      await expect(
+        service.update(1, { scoreDvg: null as unknown as number, scoreOpponent: 5 }),
+      ).rejects.toThrow(BadRequestException);
       expect(mockPrisma.match.update).not.toHaveBeenCalled();
     });
 
