@@ -328,3 +328,47 @@ model Match {
   @@index([scheduledAt])
   @@map("matches")
 }
+
+model Order {
+  id                    Int         @id @default(autoincrement())
+  reference             String      @unique
+  stripeSessionId       String      @unique
+  stripePaymentIntentId String?
+
+  productId             String
+  productName           String
+  size                  String?
+  quantity              Int
+  unitPriceCents        Int
+  shippingCents         Int
+  totalCents            Int
+  currency              String      @default("eur")
+
+  customerEmail         String
+  customerName          String
+  shippingAddress       Json
+
+  status                OrderStatus @default(PAID)
+  sentToMerchantAt      DateTime?
+  merchantBatchId       String?
+  trackingNumber        String?
+  adminNote             String?     @db.Text
+
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@index([status])
+  @@index([merchantBatchId])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PAID
+  SENT_TO_MERCHANT
+  IN_PRODUCTION
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
