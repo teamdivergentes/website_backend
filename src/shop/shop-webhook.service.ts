@@ -5,6 +5,7 @@ import { StripeService } from './stripe.service';
 import { OrderReferenceService } from './order-reference.service';
 import { ShopNotifierService } from './shop-notifier.service';
 import { isPrismaUniqueConstraintError } from '../common/utils/prisma-errors';
+import { Prisma } from '../../generated/prisma';
 
 @Injectable()
 export class ShopWebhookService {
@@ -77,7 +78,7 @@ export class ShopWebhookService {
           currency: session.currency ?? 'eur',
           customerEmail: session.customer_details?.email ?? '',
           customerName: session.customer_details?.name ?? '',
-          shippingAddress: shipping ?? {},
+          shippingAddress: (shipping ?? {}) as Prisma.InputJsonValue,
           status: 'PAID',
         },
       });
