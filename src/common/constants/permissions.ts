@@ -45,6 +45,10 @@ export const PERMISSIONS = {
   MATCHES_READ: 'matches:read',
   MATCHES_WRITE: 'matches:write',
   MATCHES_DELETE: 'matches:delete',
+
+  // Commandes (boutique)
+  COMMANDES_READ: 'commandes:read',
+  COMMANDES_WRITE: 'commandes:write',
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
