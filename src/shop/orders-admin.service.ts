@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { Order, OrderStatus } from '../../generated/prisma';
 import { PrismaService } from '../prisma.service';
 import { isPrismaNotFoundError } from '../common/utils/prisma-errors';
@@ -98,7 +98,7 @@ export function buildRecapLine(order: Order): string {
 }
 
 function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 export function buildCsvLine(order: Order): string {
