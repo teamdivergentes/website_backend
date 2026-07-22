@@ -37,7 +37,7 @@ export class ShopNotifierService {
       throw new Error(`Aucune notification envoyee pour la commande ${order.reference}`);
     }
     if (!results.email || !results.discord) {
-      const failed = !results.email ? 'email' : 'Discord';
+      const failed = results.email ? 'Discord' : 'email';
       this.logger.warn(
         `Commande ${order.reference} enregistree mais notification ${failed} en echec`,
       );
@@ -60,7 +60,7 @@ export class ShopNotifierService {
 
     const transporter = nodemailer.createTransport({
       host,
-      port: parseInt(port || '587', 10),
+      port: Number.parseInt(port || '587', 10),
       secure: port === '465',
       auth: { user, pass },
     });
@@ -106,11 +106,11 @@ export function formatEuros(cents: number): string {
 
 export function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 interface StripeAddress {
