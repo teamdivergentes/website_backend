@@ -156,19 +156,7 @@ export class MatchesService {
     try {
       const match = await this.prisma.match.update({
         where: { id },
-        data: {
-          ...(dto.teamId !== undefined && { teamId: dto.teamId }),
-          ...(teamNameSnapshot !== undefined && { teamNameSnapshot }),
-          ...(dto.opponentName !== undefined && { opponentName: dto.opponentName }),
-          ...(dto.opponentLogo !== undefined && { opponentLogo: dto.opponentLogo }),
-          ...(dto.scheduledAt !== undefined && { scheduledAt: new Date(dto.scheduledAt) }),
-          ...(dto.competition !== undefined && { competition: dto.competition }),
-          ...(dto.streamUrl !== undefined && { streamUrl: dto.streamUrl }),
-          ...(dto.scoreDvg !== undefined && { scoreDvg: dto.scoreDvg }),
-          ...(dto.scoreOpponent !== undefined && { scoreOpponent: dto.scoreOpponent }),
-          ...(dto.articleId !== undefined && { articleId: dto.articleId }),
-          ...(dto.active !== undefined && { active: dto.active }),
-        },
+        data: this.buildUpdateData(dto, teamNameSnapshot),
         include: MATCH_INCLUDE,
       });
       return this.mapToAdminDto(match);
@@ -181,6 +169,38 @@ export class MatchesService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Construit le payload de mise à jour en ne retenant que les champs
+   * réellement présents dans le DTO — un `undefined` transmis à Prisma
+   * écraserait la valeur existante.
+   *
+   * Extrait de `update()` : les onze conditions écrites en ligne y portaient la
+   * complexité cognitive à 19, au-delà du seuil de 15 (SonarQube S3776).
+   */
+  private buildUpdateData(
+    dto: UpdateMatchDto,
+    teamNameSnapshot: string | undefined,
+  ): Prisma.MatchUncheckedUpdateInput {
+    // `Unchecked` et non `MatchUpdateInput` : cette variante expose les clés
+    // étrangères scalaires (`teamId`, `articleId`), là où l'autre n'accepte que
+    // les relations imbriquées (`team`, `article`).
+    const data: Prisma.MatchUncheckedUpdateInput = {};
+
+    if (dto.teamId !== undefined) data.teamId = dto.teamId;
+    if (teamNameSnapshot !== undefined) data.teamNameSnapshot = teamNameSnapshot;
+    if (dto.opponentName !== undefined) data.opponentName = dto.opponentName;
+    if (dto.opponentLogo !== undefined) data.opponentLogo = dto.opponentLogo;
+    if (dto.scheduledAt !== undefined) data.scheduledAt = new Date(dto.scheduledAt);
+    if (dto.competition !== undefined) data.competition = dto.competition;
+    if (dto.streamUrl !== undefined) data.streamUrl = dto.streamUrl;
+    if (dto.scoreDvg !== undefined) data.scoreDvg = dto.scoreDvg;
+    if (dto.scoreOpponent !== undefined) data.scoreOpponent = dto.scoreOpponent;
+    if (dto.articleId !== undefined) data.articleId = dto.articleId;
+    if (dto.active !== undefined) data.active = dto.active;
+
+    return data;
   }
 
   // Hard delete assumé : la dépublication réversible passe par active=false
