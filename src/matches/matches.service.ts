@@ -7,7 +7,7 @@ import { isPrismaForeignKeyError, isPrismaNotFoundError } from '../common/utils/
 
 export interface MatchPublicDto {
   id: number;
-  teamId: number;
+  teamId: number | null;
   teamName: string | null;
   teamSlug: string | null;
   teamGame: string | null;
@@ -37,13 +37,15 @@ export interface MatchFilters {
 type MatchWithRelations = Prisma.MatchGetPayload<{
   include: {
     team: { select: { id: true; name: true; slug: true; game: true } };
-    article: { select: { id: true; slug: true } };
+    article: { select: { id: true; slug: true; published: true } };
   };
 }>;
 
+// article.published est sélectionné pour ne divulguer le slug (SEC-EPIC37-01)
+// que si l'article lié est effectivement publié.
 const MATCH_INCLUDE = {
   team: { select: { id: true, name: true, slug: true, game: true } },
-  article: { select: { id: true, slug: true } },
+  article: { select: { id: true, slug: true, published: true } },
 } as const;
 
 @Injectable()
@@ -98,10 +100,22 @@ export class MatchesService {
 
   async create(dto: CreateMatchDto): Promise<MatchAdminDto> {
     this.assertScoresPaired(dto.scoreDvg, dto.scoreOpponent);
+
+    // Snapshot du nom de l'équipe pour préserver l'affichage historique si
+    // l'équipe est supprimée par la suite (B5). teamId reste obligatoire à la création.
+    const team = await this.prisma.team.findUnique({
+      where: { id: dto.teamId },
+      select: { name: true },
+    });
+    if (!team) {
+      throw new BadRequestException('Équipe ou article introuvable');
+    }
+
     try {
       const match = await this.prisma.match.create({
         data: {
           teamId: dto.teamId,
+          teamNameSnapshot: team.name,
           opponentName: dto.opponentName,
           opponentLogo: dto.opponentLogo ?? null,
           scheduledAt: new Date(dto.scheduledAt),
@@ -125,21 +139,24 @@ export class MatchesService {
 
   async update(id: number, dto: UpdateMatchDto): Promise<MatchAdminDto> {
     this.assertScoresPaired(dto.scoreDvg, dto.scoreOpponent);
+
+    // Si l'équipe change, on rafraîchit le snapshot du nom (B5).
+    let teamNameSnapshot: string | undefined;
+    if (dto.teamId !== undefined) {
+      const team = await this.prisma.team.findUnique({
+        where: { id: dto.teamId },
+        select: { name: true },
+      });
+      if (!team) {
+        throw new BadRequestException('Équipe ou article introuvable');
+      }
+      teamNameSnapshot = team.name;
+    }
+
     try {
       const match = await this.prisma.match.update({
         where: { id },
-        data: {
-          ...(dto.teamId !== undefined && { teamId: dto.teamId }),
-          ...(dto.opponentName !== undefined && { opponentName: dto.opponentName }),
-          ...(dto.opponentLogo !== undefined && { opponentLogo: dto.opponentLogo }),
-          ...(dto.scheduledAt !== undefined && { scheduledAt: new Date(dto.scheduledAt) }),
-          ...(dto.competition !== undefined && { competition: dto.competition }),
-          ...(dto.streamUrl !== undefined && { streamUrl: dto.streamUrl }),
-          ...(dto.scoreDvg !== undefined && { scoreDvg: dto.scoreDvg }),
-          ...(dto.scoreOpponent !== undefined && { scoreOpponent: dto.scoreOpponent }),
-          ...(dto.articleId !== undefined && { articleId: dto.articleId }),
-          ...(dto.active !== undefined && { active: dto.active }),
-        },
+        data: this.buildUpdateData(dto, teamNameSnapshot),
         include: MATCH_INCLUDE,
       });
       return this.mapToAdminDto(match);
@@ -152,6 +169,38 @@ export class MatchesService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Construit le payload de mise à jour en ne retenant que les champs
+   * réellement présents dans le DTO — un `undefined` transmis à Prisma
+   * écraserait la valeur existante.
+   *
+   * Extrait de `update()` : les onze conditions écrites en ligne y portaient la
+   * complexité cognitive à 19, au-delà du seuil de 15 (SonarQube S3776).
+   */
+  private buildUpdateData(
+    dto: UpdateMatchDto,
+    teamNameSnapshot: string | undefined,
+  ): Prisma.MatchUncheckedUpdateInput {
+    // `Unchecked` et non `MatchUpdateInput` : cette variante expose les clés
+    // étrangères scalaires (`teamId`, `articleId`), là où l'autre n'accepte que
+    // les relations imbriquées (`team`, `article`).
+    const data: Prisma.MatchUncheckedUpdateInput = {};
+
+    if (dto.teamId !== undefined) data.teamId = dto.teamId;
+    if (teamNameSnapshot !== undefined) data.teamNameSnapshot = teamNameSnapshot;
+    if (dto.opponentName !== undefined) data.opponentName = dto.opponentName;
+    if (dto.opponentLogo !== undefined) data.opponentLogo = dto.opponentLogo;
+    if (dto.scheduledAt !== undefined) data.scheduledAt = new Date(dto.scheduledAt);
+    if (dto.competition !== undefined) data.competition = dto.competition;
+    if (dto.streamUrl !== undefined) data.streamUrl = dto.streamUrl;
+    if (dto.scoreDvg !== undefined) data.scoreDvg = dto.scoreDvg;
+    if (dto.scoreOpponent !== undefined) data.scoreOpponent = dto.scoreOpponent;
+    if (dto.articleId !== undefined) data.articleId = dto.articleId;
+    if (dto.active !== undefined) data.active = dto.active;
+
+    return data;
   }
 
   // Hard delete assumé : la dépublication réversible passe par active=false
@@ -172,11 +221,13 @@ export class MatchesService {
   // Pour l'update : si exactement un des deux scores est présent dans le payload → 400.
   // La saisie de résultat envoie toujours les deux scores ensemble.
   private assertScoresPaired(
-    scoreDvg: number | undefined,
-    scoreOpponent: number | undefined,
+    scoreDvg: number | null | undefined,
+    scoreOpponent: number | null | undefined,
   ): void {
-    const hasDvg = scoreDvg !== undefined;
-    const hasOpp = scoreOpponent !== undefined;
+    // SEC-EPIC37-02 : un null explicite (PATCH { scoreDvg: null, scoreOpponent: 5 })
+    // compte comme « non renseigné » → doit lever une 400 si l'autre score est présent.
+    const hasDvg = scoreDvg !== undefined && scoreDvg !== null;
+    const hasOpp = scoreOpponent !== undefined && scoreOpponent !== null;
     if (hasDvg !== hasOpp) {
       throw new BadRequestException('Les deux scores doivent être renseignés ensemble');
     }
@@ -186,7 +237,9 @@ export class MatchesService {
     return {
       id: match.id,
       teamId: match.teamId,
-      teamName: match.team?.name ?? null,
+      // Équipe courante si elle existe encore, sinon nom figé au moment du match
+      // (B5 : préservation de l'historique après suppression d'équipe).
+      teamName: match.team?.name ?? match.teamNameSnapshot ?? null,
       teamSlug: match.team?.slug ?? null,
       teamGame: match.team?.game ?? null,
       opponentName: match.opponentName,
@@ -197,7 +250,8 @@ export class MatchesService {
       scoreDvg: match.scoreDvg,
       scoreOpponent: match.scoreOpponent,
       articleId: match.articleId,
-      articleSlug: match.article?.slug ?? null,
+      // SEC-EPIC37-01 : ne jamais exposer le slug d'un article non publié
+      articleSlug: match.article?.published === true ? match.article.slug : null,
     };
   }
 

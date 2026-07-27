@@ -42,7 +42,8 @@ export class MatchesController {
 
     const parsedTeamId = parseOptionalIntegerQueryParam(
       teamId,
-      'Le paramètre teamId doit être un entier valide',
+      'Le paramètre teamId doit être un entier ≥ 1',
+      { min: 1 },
     );
     if (parsedTeamId !== undefined) {
       filters.teamId = parsedTeamId;

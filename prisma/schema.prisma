@@ -308,21 +308,22 @@ model Trophy {
 }
 
 model Match {
-  id            Int      @id @default(autoincrement())
-  teamId        Int
-  opponentName  String
-  opponentLogo  String?
-  scheduledAt   DateTime
-  competition   String?
-  streamUrl     String?
-  scoreDvg      Int?
-  scoreOpponent Int?
-  articleId     Int?
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  article       Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  id               Int      @id @default(autoincrement())
+  teamId           Int?
+  teamNameSnapshot String?
+  opponentName     String
+  opponentLogo     String?
+  scheduledAt      DateTime
+  competition      String?
+  streamUrl        String?
+  scoreDvg         Int?
+  scoreOpponent    Int?
+  articleId        Int?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  team             Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  article          Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
 
   @@index([teamId])
   @@index([scheduledAt])

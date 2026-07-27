@@ -133,8 +133,10 @@ export class ArticlesService {
 
   async findBySlug(slug: string): Promise<ArticlePublic> {
     try {
-      const article = await this.prisma.article.findUnique({
-        where: { slug },
+      // SEC-EPIC37-01 : endpoint public → ne jamais servir un article non publié.
+      // Aligné sur findAll()/findHomepage() qui filtrent published=true.
+      const article = await this.prisma.article.findFirst({
+        where: { slug, published: true },
         include: {
           type: true,
           user: { select: { id: true } },
