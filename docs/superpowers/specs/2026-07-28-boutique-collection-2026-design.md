@@ -138,15 +138,19 @@ model ShopSettings {                           // singleton, id = 1
   @@map("shop_settings")
 }
 
-model ShopOrder {
+// Le modèle Order existe déjà (migration du 22/07, table `orders`) : il est
+// étendu plutôt que remplacé, pour éviter un renommage de table qui toucherait
+// tout le code admin sans rien apporter.
+model Order {
   id                    Int         @id @default(autoincrement())
   reference             String      @unique    // "DVG-2026-0042"
   stripeSessionId       String      @unique    // clé d'idempotence
   stripePaymentIntentId String?
 
-  customerEmail         String
-  customerName          String
-  shippingAddress       Json
+  // Renseignés par le webhook : inconnus tant que le client n'a pas payé.
+  customerEmail         String      @default("")
+  customerName          String      @default("")
+  shippingAddress       Json        @default("{}")
 
   subtotalCents         Int
   shippingCents         Int
@@ -159,13 +163,13 @@ model ShopOrder {
   trackingNumber        String?
   adminNote             String?     @db.Text
 
-  items                 ShopOrderItem[]
+  items                 OrderItem[]
 
   @@index([status])
-  @@map("shop_orders")
+  @@map("orders")
 }
 
-model ShopOrderItem {
+model OrderItem {
   id               Int     @id @default(autoincrement())
   orderId          Int
   productId        Int?                        // SetNull : le produit peut disparaître
@@ -177,10 +181,15 @@ model ShopOrderItem {
   flockingFeeCents Int                         // instantané
   lineTotalCents   Int
 
-  @@map("shop_order_items")
+  @@map("order_items")
 }
 
 enum OrderStatus {
+  /// Session de paiement créée, paiement pas encore confirmé. Les lignes sont
+  /// persistées dès le checkout car les métadonnées Stripe (500 caractères par
+  /// valeur) ne peuvent pas porter un panier multi-articles avec flocages.
+  /// Seul le webhook signé fait passer une commande en PAID.
+  PENDING
   PAID
   SENT_TO_MERCHANT
   IN_PRODUCTION
@@ -192,7 +201,7 @@ enum OrderStatus {
 ```
 
 **`reference`** suit `DVG-{année}-{séquence 4 chiffres}`, alimentée par une **séquence
-PostgreSQL dédiée** (`shop_order_reference_seq`) et non par un `COUNT(*)` : deux webhooks
+PostgreSQL dédiée** (`order_reference_seq`, créée le 22/07) et non par un `COUNT(*)` : deux webhooks
 traités en parallèle produiraient sinon la même référence. La séquence n'est pas remise à
 zéro chaque année — l'année est un préfixe lisible, pas une contrainte de numérotation.
 
