@@ -50,6 +50,14 @@ async function main() {
     'matches:read',
     'matches:write',
     'matches:delete',
+    // Boutique. Les migrations 20260722120000 et 20260728120000 ajoutent ces
+    // permissions au role Admin existant, mais sur une base neuve elles
+    // s'appliquent AVANT que le seed ne cree le role : le seed ecrasait ensuite
+    // le tableau et l'admin se retrouvait sans acces aux ecrans boutique.
+    'commandes:read',
+    'commandes:write',
+    'boutique:read',
+    'boutique:write',
   ];
 
   const cmPermissions = [
