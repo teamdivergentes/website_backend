@@ -2,9 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma.service';
 import { StripeService } from './stripe.service';
-import { OrderReferenceService } from './order-reference.service';
-import { ShopNotifierService } from './shop-notifier.service';
-import { isPrismaUniqueConstraintError } from '../common/utils/prisma-errors';
+import { ShopNotifierService, OrderWithItems } from './shop-notifier.service';
 import { Prisma } from '../../generated/prisma';
 
 @Injectable()
@@ -14,7 +12,6 @@ export class ShopWebhookService {
   constructor(
     private readonly stripe: StripeService,
     private readonly prisma: PrismaService,
-    private readonly reference: OrderReferenceService,
     private readonly notifier: ShopNotifierService,
   ) {}
 
@@ -25,7 +22,7 @@ export class ShopWebhookService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       // Surface d'attaque principale : sans cette verification, n'importe qui
-      // pourrait creer des commandes marquees payees.
+      // pourrait marquer des commandes comme payees.
       this.logger.warn(`Webhook Stripe a signature invalide rejete: ${message}`);
       throw new BadRequestException('Signature invalide');
     }
@@ -34,8 +31,7 @@ export class ShopWebhookService {
       return;
     }
 
-    const session = event.data.object;
-    const order = await this.createOrder(session);
+    const order = await this.markPaid(event.data.object);
     if (!order) {
       return;
     }
@@ -49,11 +45,18 @@ export class ShopWebhookService {
     }
   }
 
-  private async createOrder(session: Stripe.Checkout.Session) {
-    const metadata = session.metadata ?? {};
-    const quantity = Number(metadata.quantity ?? '1');
-    const unitPriceCents = Number(metadata.unitPriceCents ?? '0');
-    const shippingCents = session.shipping_cost?.amount_total ?? 0;
+  /**
+   * Passe la commande de PENDING a PAID.
+   * Retourne `null` si aucune commande n'a ete basculee — soit le webhook est
+   * rejoue (Stripe le fait volontiers), soit la session est inconnue. Dans les
+   * deux cas, aucune notification ne doit repartir.
+   */
+  private async markPaid(session: Stripe.Checkout.Session): Promise<OrderWithItems | null> {
+    const orderId = Number(session.metadata?.orderId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      this.logger.warn(`Session ${session.id} sans orderId exploitable dans les metadonnees`);
+      return null;
+    }
 
     const shipping = (
       session as unknown as {
@@ -61,34 +64,31 @@ export class ShopWebhookService {
       }
     ).collected_information?.shipping_details;
 
-    try {
-      return await this.prisma.order.create({
-        data: {
-          reference: await this.reference.generate(),
-          stripeSessionId: session.id,
-          stripePaymentIntentId:
-            typeof session.payment_intent === 'string' ? session.payment_intent : null,
-          productId: metadata.productId ?? 'inconnu',
-          productName: metadata.productName ?? 'Produit inconnu',
-          size: metadata.size ? metadata.size : null,
-          quantity,
-          unitPriceCents,
-          shippingCents,
-          totalCents: session.amount_total ?? unitPriceCents * quantity + shippingCents,
-          currency: session.currency ?? 'eur',
-          customerEmail: session.customer_details?.email ?? '',
-          customerName: session.customer_details?.name ?? '',
-          shippingAddress: (shipping ?? {}) as Prisma.InputJsonValue,
-          status: 'PAID',
-        },
-      });
-    } catch (error) {
-      if (isPrismaUniqueConstraintError(error)) {
-        // Stripe rejoue ses webhooks : un doublon est un succes, pas une erreur.
-        this.logger.log(`Webhook rejoue pour la session ${session.id}, commande deja creee`);
-        return null;
-      }
-      throw error;
+    // Le filtre sur status PENDING porte l'idempotence : un rejeu ne met a jour
+    // aucune ligne et ne declenche donc pas de seconde notification.
+    const { count } = await this.prisma.order.updateMany({
+      where: { id: orderId, status: 'PENDING' },
+      data: {
+        status: 'PAID',
+        stripeSessionId: session.id,
+        stripePaymentIntentId:
+          typeof session.payment_intent === 'string' ? session.payment_intent : null,
+        customerEmail: session.customer_details?.email ?? '',
+        customerName: session.customer_details?.name ?? '',
+        shippingAddress: (shipping ?? {}) as Prisma.InputJsonValue,
+        shippingCents: session.shipping_cost?.amount_total ?? undefined,
+        totalCents: session.amount_total ?? undefined,
+      },
+    });
+
+    if (count === 0) {
+      this.logger.log(`Webhook rejoue pour la session ${session.id}, commande deja traitee`);
+      return null;
     }
+
+    return this.prisma.order.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { items: true },
+    });
   }
 }

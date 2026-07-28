@@ -1,10 +1,17 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 
-export interface CheckoutSessionParams {
-  productName: string;
-  unitPriceCents: number;
+export interface CheckoutLine {
+  /** Libelle affiche sur la page Stripe et sur le recu client. */
+  label: string;
+  unitAmountCents: number;
   quantity: number;
+}
+
+export interface CheckoutSessionParams {
+  lines: CheckoutLine[];
+  shippingCents: number;
+  currency: string;
   metadata: Record<string, string>;
 }
 
@@ -26,30 +33,34 @@ export class StripeService {
   }
 
   async createCheckoutSession(params: CheckoutSessionParams): Promise<{ id: string; url: string }> {
-    const shippingRateId = process.env.STRIPE_SHIPPING_RATE_ID;
     const successUrl = process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci';
-    const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique';
-
-    if (!shippingRateId) {
-      this.logger.warn('STRIPE_SHIPPING_RATE_ID absente : aucun frais de port ne sera facturé');
-    }
+    const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique/panier';
 
     const session = await this.getClient().checkout.sessions.create({
       mode: 'payment',
-      line_items: [
+      line_items: params.lines.map((line) => ({
+        quantity: line.quantity,
+        price_data: {
+          currency: params.currency,
+          unit_amount: line.unitAmountCents,
+          product_data: { name: line.label },
+        },
+      })),
+      // France uniquement : le tarif de port est unifie et ne couvre pas
+      // l'international (cf. spec 2026-07-28).
+      shipping_address_collection: { allowed_countries: ['FR'] },
+      // Tarif inline plutot qu'un shipping_rate pre-cree dans Stripe : le
+      // montant vit en base et doit pouvoir changer depuis l'admin sans
+      // resynchroniser un objet Stripe.
+      shipping_options: [
         {
-          quantity: params.quantity,
-          price_data: {
-            currency: 'eur',
-            unit_amount: params.unitPriceCents,
-            product_data: { name: params.productName },
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: params.shippingCents, currency: params.currency },
+            display_name: 'Livraison France',
           },
         },
       ],
-      shipping_address_collection: {
-        allowed_countries: ['FR', 'BE', 'CH', 'LU', 'DE', 'ES', 'IT'],
-      },
-      ...(shippingRateId ? { shipping_options: [{ shipping_rate: shippingRateId }] } : {}),
       metadata: params.metadata,
       success_url: successUrl,
       cancel_url: cancelUrl,

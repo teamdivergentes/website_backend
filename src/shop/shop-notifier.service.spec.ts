@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as nodemailer from 'nodemailer';
 import { ShopNotifierService } from './shop-notifier.service';
+import { ShopSettingsService } from './shop-settings.service';
 import { ConfigService } from '../config/config.service';
 import {
   buildOrderDiscordEmbed,
@@ -18,18 +19,26 @@ jest.mock('nodemailer', () => ({
 const order = {
   id: 1,
   reference: 'DVG-2026-0042',
-  productName: 'MAILLOT 2023',
-  size: 'M',
-  quantity: 2,
-  unitPriceCents: 3990,
-  shippingCents: 400,
-  totalCents: 8380,
+  subtotalCents: 10980,
+  shippingCents: 590,
+  totalCents: 11570,
   customerEmail: 'client@example.com',
   customerName: 'Jean Dupont',
   shippingAddress: {
     name: 'Jean Dupont',
     address: { line1: '1 rue du Test', postal_code: '75001', city: 'Paris', country: 'FR' },
   },
+  items: [
+    {
+      productName: 'Maillot 2026 — DVG × Joker',
+      size: 'M',
+      flockingText: 'Snake',
+      quantity: 2,
+      unitPriceCents: 4990,
+      flockingFeeCents: 500,
+      lineTotalCents: 10980,
+    },
+  ],
 } as never;
 
 describe('shop-notifier helpers', () => {
@@ -53,21 +62,45 @@ describe('shop-notifier helpers', () => {
   });
 
   describe('buildOrderEmailText', () => {
-    it('contient la référence, le produit, la taille et le total', () => {
+    it('contient la référence, l’article, la taille et le total', () => {
       const text = buildOrderEmailText(order);
       expect(text).toContain('DVG-2026-0042');
-      expect(text).toContain('MAILLOT 2023');
-      expect(text).toContain('M');
-      expect(text).toContain('83.80');
+      expect(text).toContain('Maillot 2026 — DVG × Joker');
+      expect(text).toContain('taille M');
+      expect(text).toContain('115.70');
+    });
+
+    it('fait apparaître le flocage, information recopiée pour le fabricant', () => {
+      expect(buildOrderEmailText(order)).toContain('flocage « Snake »');
+    });
+
+    it('indique explicitement l’absence de flocage', () => {
+      const sansFlocage = {
+        ...(order as object),
+        items: [{ productName: 'Maillot', size: 'L', flockingText: null, quantity: 1 }],
+      } as never;
+      expect(buildOrderEmailText(sansFlocage)).toContain('sans flocage');
     });
   });
 
   describe('buildOrderEmailHtml', () => {
     it('échappe le HTML présent dans les données client', () => {
-      const hostile = { ...order, customerName: '<script>alert(1)</script>' } as never;
+      const hostile = { ...(order as object), customerName: '<script>alert(1)</script>' } as never;
       const html = buildOrderEmailHtml(hostile);
       expect(html).not.toContain('<script>');
       expect(html).toContain('&lt;script&gt;');
+    });
+
+    it('échappe le flocage, qui est une saisie client', () => {
+      const hostile = {
+        ...(order as object),
+        items: [
+          { productName: '<img src=x onerror=1>', size: 'M', flockingText: null, quantity: 1 },
+        ],
+      } as never;
+      const html = buildOrderEmailHtml(hostile);
+      expect(html).not.toContain('<img');
+      expect(html).toContain('&lt;img');
     });
   });
 
@@ -78,7 +111,7 @@ describe('shop-notifier helpers', () => {
       expect(embed.color).toBe(0x32d299);
       const names = embed.fields.map((f) => f.name);
       expect(names).toEqual(
-        expect.arrayContaining(['Produit', 'Client', 'Total', 'Adresse de livraison']),
+        expect.arrayContaining(['Articles', 'Client', 'Total', 'Adresse de livraison']),
       );
     });
   });
@@ -89,6 +122,10 @@ describe('ShopNotifierService.notifyNewOrder', () => {
 
   const mockConfigService = {
     getValue: jest.fn(),
+  };
+
+  const mockSettingsService = {
+    get: jest.fn().mockResolvedValue({ ordersNotifyEmail: 'boutique@example.com' }),
   };
 
   const mockSendMail = jest.fn();
@@ -105,7 +142,11 @@ describe('ShopNotifierService.notifyNewOrder', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ShopNotifierService, { provide: ConfigService, useValue: mockConfigService }],
+      providers: [
+        ShopNotifierService,
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: ShopSettingsService, useValue: mockSettingsService },
+      ],
     }).compile();
 
     service = module.get<ShopNotifierService>(ShopNotifierService);

@@ -1,0 +1,184 @@
+import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
+export class CreateShopProductDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Le slug est obligatoire' })
+  @MaxLength(80)
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
+    message: 'Le slug ne peut contenir que des minuscules, chiffres et tirets',
+  })
+  slug: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Le nom est obligatoire' })
+  @MaxLength(120)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  shortDescription?: string;
+
+  /** Texte brut : il est rendu par interpolation cote front, jamais en innerHTML. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  description?: string;
+
+  @IsInt({ message: 'Le prix doit être un entier (en centimes)' })
+  @Min(0, { message: 'Le prix ne peut pas être négatif' })
+  @Max(500000, { message: 'Le prix ne peut pas dépasser 5 000 €' })
+  priceCents: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageFront?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageBack?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageCard?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowFlocking?: boolean;
+
+  @IsOptional()
+  @IsInt({ message: 'Le surcoût de flocage doit être un entier (en centimes)' })
+  @Min(0)
+  @Max(100000)
+  flockingFeeCents?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  flockingTopPct?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  flockingLeftPct?: number;
+
+  @IsOptional()
+  @IsInt()
+  teamId?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  position?: number;
+
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Au moins une taille est obligatoire' })
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  @MaxLength(10, { each: true })
+  sizes: string[];
+}
+
+export class UpdateShopProductDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  description?: string;
+
+  @IsOptional()
+  @IsInt({ message: 'Le prix doit être un entier (en centimes)' })
+  @Min(0)
+  @Max(500000)
+  priceCents?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageFront?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageBack?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageCard?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowFlocking?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  flockingFeeCents?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  flockingTopPct?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  flockingLeftPct?: number;
+
+  @IsOptional()
+  @IsInt()
+  teamId?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  position?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Au moins une taille est obligatoire' })
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  @MaxLength(10, { each: true })
+  sizes?: string[];
+}

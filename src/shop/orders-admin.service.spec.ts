@@ -13,12 +13,20 @@ describe('OrdersAdminService', () => {
   const pendingOrder = {
     id: 1,
     reference: 'DVG-2026-0042',
-    productName: 'MAILLOT 2023',
-    size: 'M',
-    quantity: 2,
-    unitPriceCents: 3990,
-    shippingCents: 400,
-    totalCents: 8380,
+    items: [
+      {
+        productName: 'Maillot 2026 — DVG × Joker',
+        size: 'M',
+        flockingText: 'Snake',
+        quantity: 2,
+        unitPriceCents: 4990,
+        flockingFeeCents: 500,
+        lineTotalCents: 10980,
+      },
+    ],
+    subtotalCents: 10980,
+    shippingCents: 590,
+    totalCents: 11570,
     customerEmail: 'client@example.com',
     customerName: 'Jean Dupont',
     shippingAddress: {
@@ -42,8 +50,10 @@ describe('OrdersAdminService', () => {
 
       await service.findAll();
 
+      // Les PENDING sont des sessions de paiement abandonnees, pas des commandes.
       expect(mockPrisma.order.findMany).toHaveBeenCalledWith({
-        where: {},
+        where: { status: { not: 'PENDING' } },
+        include: { items: true },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -55,6 +65,7 @@ describe('OrdersAdminService', () => {
 
       expect(mockPrisma.order.findMany).toHaveBeenCalledWith({
         where: { status: 'SHIPPED' },
+        include: { items: true },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -68,6 +79,7 @@ describe('OrdersAdminService', () => {
 
       expect(mockPrisma.order.findMany).toHaveBeenCalledWith({
         where: { status: 'PAID' },
+        include: { items: true },
         orderBy: { createdAt: 'asc' },
       });
     });
@@ -79,8 +91,8 @@ describe('OrdersAdminService', () => {
 
       expect(batch.count).toBe(1);
       expect(batch.recapText).toContain('DVG-2026-0042');
-      expect(batch.recapText).toContain('MAILLOT 2023');
-      expect(batch.recapText).toContain('M');
+      expect(batch.recapText).toContain('Maillot 2026 — DVG × Joker');
+      expect(batch.recapText).toContain('Snake');
       expect(batch.recapText).toContain('1 rue du Test');
     });
 
@@ -103,6 +115,38 @@ describe('OrdersAdminService', () => {
       const batch = await service.getPendingBatch();
 
       expect(batch.csv).toContain('Jean ""Le Grand"" Dupont');
+    });
+
+    it('produit une ligne CSV par article, pas par commande', async () => {
+      mockPrisma.order.findMany.mockResolvedValue([
+        {
+          ...pendingOrder,
+          items: [
+            { productName: 'Maillot', size: 'M', flockingText: 'A', quantity: 1 },
+            { productName: 'Maillot', size: 'L', flockingText: null, quantity: 2 },
+          ],
+        },
+      ]);
+
+      const batch = await service.getPendingBatch();
+
+      // 1 en-tete + 2 articles : c'est ce que le fabricant doit produire.
+      expect(batch.csv.trim().split('\n')).toHaveLength(3);
+    });
+
+    it('neutralise l’injection de formule dans le CSV', async () => {
+      // Le flocage autorise le tiret : un tableur interprete `-1+1` comme une
+      // formule, y compris apres avoir retire les guillemets.
+      mockPrisma.order.findMany.mockResolvedValue([
+        {
+          ...pendingOrder,
+          items: [{ productName: 'Maillot', size: 'M', flockingText: '-1-1', quantity: 1 }],
+        },
+      ]);
+
+      const batch = await service.getPendingBatch();
+
+      expect(batch.csv).toContain(`"'-1-1"`);
     });
 
     it('retourne un lot vide sans erreur', async () => {
@@ -151,6 +195,7 @@ describe('OrdersAdminService', () => {
 
       expect(mockPrisma.order.update).toHaveBeenCalledWith({
         where: { id: 1 },
+        include: { items: true },
         data: { trackingNumber: 'AB123' },
       });
     });

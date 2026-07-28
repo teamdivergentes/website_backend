@@ -1,27 +1,34 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Order, OrderStatus } from '../../generated/prisma';
+import { OrderStatus } from '../../generated/prisma';
 import { PrismaService } from '../prisma.service';
 import { isPrismaNotFoundError } from '../common/utils/prisma-errors';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { formatAddress, formatEuros } from './shop-notifier.service';
+import { formatAddress, formatEuros, OrderWithItems } from './shop-notifier.service';
 
 export interface PendingBatch {
   count: number;
-  orders: Order[];
+  orders: OrderWithItems[];
   recapText: string;
   csv: string;
 }
 
-const CSV_HEADER = 'reference,produit,taille,quantite,client,email,adresse,total_eur';
+const CSV_HEADER =
+  'reference,produit,taille,flocage,quantite,client,email,adresse,total_commande_eur';
 
 @Injectable()
 export class OrdersAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(status?: OrderStatus): Promise<Order[]> {
+  /**
+   * Les commandes PENDING sont exclues par defaut : ce sont des sessions de
+   * paiement abandonnees, pas des commandes. Elles restent consultables en
+   * filtrant explicitement dessus.
+   */
+  findAll(status?: OrderStatus): Promise<OrderWithItems[]> {
     return this.prisma.order.findMany({
-      where: status ? { status } : {},
+      where: status ? { status } : { status: { not: 'PENDING' } },
+      include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -29,6 +36,7 @@ export class OrdersAdminService {
   async getPendingBatch(): Promise<PendingBatch> {
     const orders = await this.prisma.order.findMany({
       where: { status: 'PAID' },
+      include: { items: true },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -36,7 +44,7 @@ export class OrdersAdminService {
       count: orders.length,
       orders,
       recapText: orders.map((order) => buildRecapLine(order)).join('\n'),
-      csv: [CSV_HEADER, ...orders.map((order) => buildCsvLine(order))].join('\n'),
+      csv: [CSV_HEADER, ...orders.flatMap((order) => buildCsvLines(order))].join('\n'),
     };
   }
 
@@ -62,10 +70,11 @@ export class OrdersAdminService {
     return { count: result.count, batchId };
   }
 
-  async update(id: number, dto: UpdateOrderDto): Promise<Order> {
+  async update(id: number, dto: UpdateOrderDto): Promise<OrderWithItems> {
     try {
       return await this.prisma.order.update({
         where: { id },
+        include: { items: true },
         data: {
           ...(dto.status !== undefined && { status: dto.status }),
           ...(dto.trackingNumber !== undefined && { trackingNumber: dto.trackingNumber }),
@@ -83,35 +92,57 @@ export class OrdersAdminService {
 
 // Pure helper functions (no DI)
 
-function describeSize(order: Order): string {
-  return order.size ?? '—';
+function describeFlocking(flockingText: string | null): string {
+  return flockingText ?? 'sans flocage';
 }
 
-export function buildRecapLine(order: Order): string {
+export function buildRecapLine(order: OrderWithItems): string {
+  const items = order.items
+    .map(
+      (item) =>
+        `${item.productName} (${item.size}, ${describeFlocking(item.flockingText)}) x${item.quantity}`,
+    )
+    .join(' + ');
+
   return [
     order.reference,
-    `${order.productName} (${describeSize(order)}) x${order.quantity}`,
+    items,
     order.customerName,
     formatAddress(order.shippingAddress),
     `${formatEuros(order.totalCents)} €`,
   ].join(' | ');
 }
 
+/**
+ * Neutralise l'injection de formule.
+ *
+ * Un tableur interprete une cellule commencant par `=`, `+`, `-`, `@`, une
+ * tabulation ou un retour chariot comme une formule, y compris apres avoir
+ * retire les guillemets. Le flocage est une saisie client : meme si son charset
+ * exclut deja `=`, `+` et `@`, il autorise le tiret, et ce fichier est ouvert
+ * dans Excel par un humain.
+ */
 function csvCell(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
+  const dangerous = /^[=+\-@\t\r]/.test(value);
+  const safe = dangerous ? `'${value}` : value;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
-export function buildCsvLine(order: Order): string {
-  return [
-    order.reference,
-    order.productName,
-    describeSize(order),
-    String(order.quantity),
-    order.customerName,
-    order.customerEmail,
-    formatAddress(order.shippingAddress),
-    formatEuros(order.totalCents),
-  ]
-    .map(csvCell)
-    .join(',');
+/** Une ligne par article : c'est ce que le fabricant doit produire. */
+export function buildCsvLines(order: OrderWithItems): string[] {
+  return order.items.map((item) =>
+    [
+      order.reference,
+      item.productName,
+      item.size,
+      describeFlocking(item.flockingText),
+      String(item.quantity),
+      order.customerName,
+      order.customerEmail,
+      formatAddress(order.shippingAddress),
+      formatEuros(order.totalCents),
+    ]
+      .map(csvCell)
+      .join(','),
+  );
 }
