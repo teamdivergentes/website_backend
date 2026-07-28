@@ -709,6 +709,110 @@ async function main() {
 
   console.log('✓ Catégories d\'articles seedées:', articleTypeNames.length);
 
+  // ---------------------------------------------------------------------------
+  // Boutique — collection 2026
+  // Spec : docs/superpowers/specs/2026-07-28-boutique-collection-2026-design.md
+  // ---------------------------------------------------------------------------
+
+  await prisma.shopSettings.upsert({
+    where: { id: 1 },
+    update: {},
+    // shopEnabled reste faux : la boutique ne s'ouvre qu'une fois les cles
+    // Stripe de production en place et les prix reels saisis depuis l'admin.
+    create: { id: 1, shippingFeeCents: 590, currency: 'eur', shopEnabled: false },
+  });
+
+  const TEXTILE_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+
+  // Les prix sont provisoires : ils sont editables depuis l'admin sans
+  // redeploiement, le seed ne fait qu'amorcer le catalogue.
+  const shopProductsSeed = [
+    {
+      slug: 'maillot-2026-dvg',
+      name: 'Maillot 2026 — Team Divergentes',
+      shortDescription: 'Le maillot officiel de la structure, saison 2026.',
+      description:
+        "Maille sublimee 100% polyester europeen, grammage 160 g/m². Un tissu doux et " +
+        'anti-transpirant qui apporte confort et legerete en toute circonstance. ' +
+        'Fabrique en Europe.',
+      priceCents: 4990,
+      imageFront: null,
+      imageBack: null,
+      teamSlug: null,
+      // Aucun visuel disponible au 28/07 : reste inactif jusqu'a reception du PNG.
+      active: false,
+      position: 0,
+    },
+    {
+      slug: 'maillot-2026-joker',
+      name: 'Maillot 2026 — DVG × Joker',
+      shortDescription: "Aux couleurs de l'equipe EVA Joker.",
+      description:
+        "Maille sublimee 100% polyester europeen, grammage 160 g/m². Un tissu doux et " +
+        'anti-transpirant qui apporte confort et legerete en toute circonstance. ' +
+        'Fabrique en Europe.',
+      priceCents: 4990,
+      imageFront: 'assets/img/shop/maillot-2026-joker-front.png',
+      imageBack: 'assets/img/shop/maillot-2026-joker-back.png',
+      teamSlug: 'eva-joker',
+      active: true,
+      position: 1,
+    },
+    {
+      slug: 'maillot-2026-mystic',
+      name: 'Maillot 2026 — DVG × Mystic',
+      shortDescription: "Aux couleurs de l'equipe EVA Mystic.",
+      description:
+        "Maille sublimee 100% polyester europeen, grammage 160 g/m². Un tissu doux et " +
+        'anti-transpirant qui apporte confort et legerete en toute circonstance. ' +
+        'Fabrique en Europe.',
+      priceCents: 4990,
+      imageFront: 'assets/img/shop/maillot-2026-mystic-front.jpg',
+      // Pas de visuel de dos au 28/07 (render 3D seul, en attente du mockup).
+      imageBack: null,
+      teamSlug: 'eva-mystic',
+      active: false,
+      position: 2,
+    },
+  ];
+
+  for (const p of shopProductsSeed) {
+    // Les equipes EVA n'existent qu'en production : en local le lien reste nul
+    // plutot que de faire echouer le seed.
+    const team = p.teamSlug ? await prisma.team.findUnique({ where: { slug: p.teamSlug } }) : null;
+
+    const product = await prisma.shopProduct.upsert({
+      where: { slug: p.slug },
+      // Pas de mise a jour du prix ni de l'activation : ils sont pilotes depuis
+      // l'admin, un re-seed ne doit pas ecraser un reglage metier.
+      update: { name: p.name, shortDescription: p.shortDescription, description: p.description },
+      create: {
+        slug: p.slug,
+        name: p.name,
+        shortDescription: p.shortDescription,
+        description: p.description,
+        priceCents: p.priceCents,
+        imageFront: p.imageFront,
+        imageBack: p.imageBack,
+        teamId: team?.id ?? null,
+        allowFlocking: true,
+        flockingFeeCents: 0,
+        active: p.active,
+        position: p.position,
+      },
+    });
+
+    for (const [index, label] of TEXTILE_SIZES.entries()) {
+      await prisma.shopProductSize.upsert({
+        where: { productId_label: { productId: product.id, label } },
+        update: { position: index },
+        create: { productId: product.id, label, position: index },
+      });
+    }
+  }
+
+  console.log('✓ Boutique seedée:', shopProductsSeed.length, 'maillots');
+
   console.log('Seed completed successfully!');
 }
 

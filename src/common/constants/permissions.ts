@@ -49,6 +49,10 @@ export const PERMISSIONS = {
   // Commandes (boutique)
   COMMANDES_READ: 'commandes:read',
   COMMANDES_WRITE: 'commandes:write',
+
+  // Boutique (catalogue et reglages)
+  BOUTIQUE_READ: 'boutique:read',
+  BOUTIQUE_WRITE: 'boutique:write',
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);

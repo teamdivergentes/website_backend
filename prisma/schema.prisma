@@ -77,6 +77,7 @@ model Team {
   coachingStaff      CoachingStaff[]
   trophies           Trophy[]
   matches            Match[]
+  shopProducts       ShopProduct[]
 
   @@map("teams")
 }
@@ -330,24 +331,79 @@ model Match {
   @@map("matches")
 }
 
+/// Catalogue boutique. Editable depuis l'admin : prix, visuels et activation
+/// changent sans redeploiement.
+model ShopProduct {
+  id               Int               @id @default(autoincrement())
+  slug             String            @unique
+  name             String
+  shortDescription String?
+  /// Texte brut, jamais du HTML : il est rendu par interpolation cote front.
+  description      String?           @db.Text
+  priceCents       Int
+  imageFront       String?
+  imageBack        String?
+  imageCard        String?
+  allowFlocking    Boolean           @default(true)
+  flockingFeeCents Int               @default(0)
+  /// Position de l'apercu du flocage sur l'image de dos, en % (affichage seul).
+  flockingTopPct   Float             @default(32)
+  flockingLeftPct  Float             @default(50)
+  teamId           Int?
+  /// Faux par defaut : un produit sans visuel ne doit pas atterrir en vitrine.
+  active           Boolean           @default(false)
+  position         Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  sizes            ShopProductSize[]
+  orderItems       OrderItem[]
+
+  @@index([active, position])
+  @@index([teamId])
+  @@map("shop_products")
+}
+
+model ShopProductSize {
+  id        Int         @id @default(autoincrement())
+  productId Int
+  label     String
+  position  Int         @default(0)
+  product   ShopProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, label])
+  @@index([productId])
+  @@map("shop_product_sizes")
+}
+
+/// Singleton (id = 1). Parametres operationnels de la boutique.
+model ShopSettings {
+  id                Int      @id @default(1)
+  shippingFeeCents  Int      @default(590)
+  currency          String   @default("eur")
+  ordersNotifyEmail String?
+  /// Permet de fermer la boutique sans depublier chaque produit.
+  shopEnabled       Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+
+  @@map("shop_settings")
+}
+
 model Order {
   id                    Int         @id @default(autoincrement())
   reference             String      @unique
   stripeSessionId       String      @unique
   stripePaymentIntentId String?
 
-  productId             String
-  productName           String
-  size                  String?
-  quantity              Int
-  unitPriceCents        Int
+  subtotalCents         Int         @default(0)
   shippingCents         Int
   totalCents            Int
   currency              String      @default("eur")
 
-  customerEmail         String
-  customerName          String
-  shippingAddress       Json
+  /// Renseignes par le webhook : inconnus tant que le client n'a pas paye.
+  customerEmail         String      @default("")
+  customerName          String      @default("")
+  shippingAddress       Json        @default("{}")
 
   status                OrderStatus @default(PAID)
   sentToMerchantAt      DateTime?
@@ -357,6 +413,7 @@ model Order {
 
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
+  items                 OrderItem[]
 
   @@index([status])
   @@index([merchantBatchId])
@@ -364,7 +421,34 @@ model Order {
   @@map("orders")
 }
 
+/// Ligne de commande. Tous les libelles et montants sont des instantanes figes
+/// a l'achat : le catalogue etant editable a chaud, une commande de mars doit
+/// rester lisible avec le prix de mars.
+model OrderItem {
+  id               Int          @id @default(autoincrement())
+  orderId          Int
+  productId        Int?
+  productName      String
+  size             String
+  flockingText     String?
+  quantity         Int
+  unitPriceCents   Int
+  flockingFeeCents Int          @default(0)
+  lineTotalCents   Int
+  order            Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          ShopProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
 enum OrderStatus {
+  /// Session de paiement creee, paiement pas encore confirme. Les lignes sont
+  /// persistees des le checkout car les metadonnees Stripe (500 caracteres par
+  /// valeur) ne peuvent pas porter un panier multi-articles avec flocages.
+  /// Seul le webhook signe fait passer une commande en PAID.
+  PENDING
   PAID
   SENT_TO_MERCHANT
   IN_PRODUCTION
