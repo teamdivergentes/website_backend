@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayNotEmpty,
@@ -11,7 +12,33 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+/**
+ * Un visuel de la galerie. L'ordre du tableau fait l'ordre d'affichage : la
+ * position n'est pas transmise, elle serait une seconde source de verite que
+ * rien ne garantirait coherente avec l'ordre recu.
+ */
+export class ShopProductImageDto {
+  @IsString()
+  @IsNotEmpty({ message: "L'adresse du visuel est obligatoire" })
+  @MaxLength(300)
+  url: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Le libellé du visuel est obligatoire' })
+  @MaxLength(40)
+  label: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isBack?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isCard?: boolean;
+}
 
 export class CreateShopProductDto {
   @IsString()
@@ -44,19 +71,11 @@ export class CreateShopProductDto {
   priceCents: number;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  imageFront?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  imageBack?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  imageCard?: string;
+  @IsArray()
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => ShopProductImageDto)
+  images?: ShopProductImageDto[];
 
   @IsOptional()
   @IsBoolean()
@@ -125,19 +144,11 @@ export class UpdateShopProductDto {
   priceCents?: number;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  imageFront?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  imageBack?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  imageCard?: string;
+  @IsArray()
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => ShopProductImageDto)
+  images?: ShopProductImageDto[];
 
   @IsOptional()
   @IsBoolean()

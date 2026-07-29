@@ -11,14 +11,16 @@ const JOKER = {
   shortDescription: null,
   description: 'Polyester européen',
   priceCents: 4990,
-  imageFront: 'assets/img/shop/joker-front.png',
-  imageBack: 'assets/img/shop/joker-back.png',
-  imageCard: null,
   allowFlocking: true,
   flockingFeeCents: 500,
   flockingTopPct: 32,
   flockingLeftPct: 50,
   sizes: [{ label: 'M' }, { label: 'L' }],
+  images: [
+    { url: 'assets/img/shop/joker-front.webp', label: 'face', isBack: false, isCard: false },
+    { url: 'assets/img/shop/joker-back.webp', label: 'dos', isBack: true, isCard: false },
+    { url: 'assets/img/shop/joker-porte.jpg', label: 'porté', isBack: false, isCard: true },
+  ],
 };
 
 describe('ShopProductsService', () => {
@@ -167,6 +169,107 @@ describe('ShopProductsService', () => {
       await expect(
         service.create({ slug: 'vide', name: 'Test', priceCents: 100, sizes: ['  ', ''] }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('galerie de visuels', () => {
+    /** Les visuels tels que le service les a préparés pour Prisma. */
+    async function createdImages(images: { url: string; label: string; isCard?: boolean }[]) {
+      mockPrisma.shopProduct.create.mockResolvedValue(JOKER);
+      await service.create({
+        slug: 'maillot-test',
+        name: 'Test',
+        priceCents: 4990,
+        sizes: ['M'],
+        images,
+      });
+
+      const calls = mockPrisma.shopProduct.create.mock.calls as unknown as {
+        data: {
+          images: {
+            create: { url: string; label: string; position: number; isCard: boolean }[];
+          };
+        };
+      }[][];
+      return calls[0][0].data.images.create;
+    }
+
+    it('numérote les positions dans l’ordre reçu', async () => {
+      const created = await createdImages([
+        { url: 'a.webp', label: 'face' },
+        { url: 'b.webp', label: 'dos' },
+        { url: 'c.jpg', label: 'porté' },
+      ]);
+
+      expect(created.map((image) => image.position)).toEqual([0, 1, 2]);
+      expect(created.map((image) => image.label)).toEqual(['face', 'dos', 'porté']);
+    });
+
+    it('écarte les doublons d’adresse plutôt que de les empiler', async () => {
+      const created = await createdImages([
+        { url: 'a.webp', label: 'face' },
+        { url: ' a.webp ', label: 'face bis' },
+      ]);
+
+      expect(created).toHaveLength(1);
+    });
+
+    it('retient la vue d’ouverture comme vignette quand aucune n’est désignée', async () => {
+      const created = await createdImages([
+        { url: 'a.webp', label: 'face' },
+        { url: 'b.webp', label: 'dos' },
+      ]);
+
+      expect(created.map((image) => image.isCard)).toEqual([true, false]);
+    });
+
+    it('respecte la vignette désignée', async () => {
+      const created = await createdImages([
+        { url: 'a.webp', label: 'face' },
+        { url: 'b.jpg', label: 'porté', isCard: true },
+      ]);
+
+      expect(created.map((image) => image.isCard)).toEqual([false, true]);
+    });
+
+    it('tranche une double désignation au lieu de la rejeter', async () => {
+      // Deux vignettes n'est pas une faute de saisie mais une ambiguïté : la
+      // première l'emporte, et l'écran montre le résultat.
+      const created = await createdImages([
+        { url: 'a.webp', label: 'face', isCard: true },
+        { url: 'b.jpg', label: 'porté', isCard: true },
+      ]);
+
+      expect(created.map((image) => image.isCard)).toEqual([true, false]);
+    });
+
+    it('expose la vignette et la galerie ordonnée au public', async () => {
+      mockPrisma.shopProduct.findFirst.mockResolvedValue(JOKER);
+
+      const product = await service.findPublicBySlug('maillot-2026-joker');
+
+      expect(product.images.map((image) => image.label)).toEqual(['face', 'dos', 'porté']);
+      expect(product.cardImage).toBe('assets/img/shop/joker-porte.jpg');
+    });
+
+    it('replie la vignette sur la première image quand aucune n’est marquée', async () => {
+      mockPrisma.shopProduct.findFirst.mockResolvedValue({
+        ...JOKER,
+        images: [{ url: 'a.webp', label: 'face', isBack: false, isCard: false }],
+      });
+
+      const product = await service.findPublicBySlug('maillot-2026-joker');
+
+      expect(product.cardImage).toBe('a.webp');
+    });
+
+    it('rend une vignette nulle sur un produit sans visuel, sans lever d’erreur', async () => {
+      mockPrisma.shopProduct.findFirst.mockResolvedValue({ ...JOKER, images: [] });
+
+      const product = await service.findPublicBySlug('maillot-2026-joker');
+
+      expect(product.cardImage).toBeNull();
+      expect(product.images).toEqual([]);
     });
   });
 });

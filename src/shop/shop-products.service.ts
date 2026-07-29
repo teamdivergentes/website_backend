@@ -1,8 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { ShopSettingsService } from './shop-settings.service';
-import { CreateShopProductDto, UpdateShopProductDto } from './dto/shop-product.dto';
+import {
+  CreateShopProductDto,
+  ShopProductImageDto,
+  UpdateShopProductDto,
+} from './dto/shop-product.dto';
 import { isPrismaUniqueConstraintError } from '../common/utils/prisma-errors';
+
+/** Un visuel tel que le front l'affiche dans le rail de la fiche produit. */
+export interface PublicProductImage {
+  url: string;
+  label: string;
+  isBack: boolean;
+}
 
 /** Vue publique d'un produit : ni cout interne, ni champ d'administration. */
 export interface PublicShopProduct {
@@ -12,9 +23,10 @@ export interface PublicShopProduct {
   shortDescription: string | null;
   description: string | null;
   priceCents: number;
-  imageFront: string | null;
-  imageBack: string | null;
-  imageCard: string | null;
+  /** Galerie ordonnee. La premiere entree est la vue d'ouverture de la fiche. */
+  images: PublicProductImage[];
+  /** Vignette de la liste boutique, a defaut la premiere image. */
+  cardImage: string | null;
   allowFlocking: boolean;
   flockingFeeCents: number;
   flockingTopPct: number;
@@ -34,7 +46,10 @@ export interface PublicCatalog {
   shopEnabled: boolean;
 }
 
-const withSizes = { sizes: { orderBy: { position: 'asc' } } } as const;
+const withSizes = {
+  sizes: { orderBy: { position: 'asc' } },
+  images: { orderBy: { position: 'asc' } },
+} as const;
 
 @Injectable()
 export class ShopProductsService {
@@ -106,12 +121,13 @@ export class ShopProductsService {
   }
 
   async create(dto: CreateShopProductDto) {
-    const { sizes, ...data } = dto;
+    const { sizes, images, ...data } = dto;
     try {
       return await this.prisma.shopProduct.create({
         data: {
           ...data,
           sizes: { create: normalizeSizes(sizes) },
+          images: { create: normalizeImages(images ?? []) },
         },
         include: withSizes,
       });
@@ -125,7 +141,7 @@ export class ShopProductsService {
 
   async update(id: number, dto: UpdateShopProductDto) {
     await this.findOneForAdmin(id);
-    const { sizes, ...data } = dto;
+    const { sizes, images, ...data } = dto;
 
     return this.prisma.$transaction(async (tx) => {
       if (sizes) {
@@ -134,6 +150,14 @@ export class ShopProductsService {
         await tx.shopProductSize.deleteMany({ where: { productId: id } });
         await tx.shopProductSize.createMany({
           data: normalizeSizes(sizes).map((size) => ({ ...size, productId: id })),
+        });
+      }
+      if (images) {
+        // Meme raisonnement que les tailles : l'ordre recu fait foi, et les
+        // commandes passees ne referencent pas ces visuels.
+        await tx.shopProductImage.deleteMany({ where: { productId: id } });
+        await tx.shopProductImage.createMany({
+          data: normalizeImages(images).map((image) => ({ ...image, productId: id })),
         });
       }
       return tx.shopProduct.update({ where: { id }, data, include: withSizes });
@@ -167,6 +191,56 @@ function normalizeSizes(sizes: string[]): { label: string; position: number }[] 
   return normalized;
 }
 
+interface NormalizedImage {
+  url: string;
+  label: string;
+  position: number;
+  isBack: boolean;
+  isCard: boolean;
+}
+
+/**
+ * Met la galerie en forme : ordre du tableau, doublons d'adresse ecartes, et
+ * une seule vignette de vitrine.
+ *
+ * La vignette est unique par construction plutot que par contrainte de base :
+ * deux images marquees vitrine ne sont pas une erreur de saisie a rejeter, mais
+ * une ambiguite a trancher — la premiere gagne, l'ecran affiche le resultat.
+ */
+function normalizeImages(images: ShopProductImageDto[]): NormalizedImage[] {
+  const seen = new Set<string>();
+  const normalized: NormalizedImage[] = [];
+
+  for (const raw of images) {
+    const url = raw.url.trim();
+    const label = raw.label.trim();
+    if (url.length === 0 || label.length === 0 || seen.has(url)) {
+      continue;
+    }
+    seen.add(url);
+    normalized.push({
+      url,
+      label,
+      position: normalized.length,
+      isBack: raw.isBack ?? false,
+      isCard: raw.isCard ?? false,
+    });
+  }
+
+  const firstCard = normalized.findIndex((image) => image.isCard);
+  for (const image of normalized) {
+    image.isCard = false;
+  }
+  // Sans choix explicite, la vue d'ouverture fait la vignette : c'est ce que
+  // l'oeil attend, et cela evite une liste sans aucune image en vitrine.
+  const cardIndex = firstCard === -1 ? 0 : firstCard;
+  if (normalized[cardIndex]) {
+    normalized[cardIndex].isCard = true;
+  }
+
+  return normalized;
+}
+
 type ProductWithSizes = {
   id: number;
   slug: string;
@@ -174,17 +248,22 @@ type ProductWithSizes = {
   shortDescription: string | null;
   description: string | null;
   priceCents: number;
-  imageFront: string | null;
-  imageBack: string | null;
-  imageCard: string | null;
   allowFlocking: boolean;
   flockingFeeCents: number;
   flockingTopPct: number;
   flockingLeftPct: number;
   sizes: { label: string }[];
+  images: { url: string; label: string; isBack: boolean; isCard: boolean }[];
 };
 
 function toPublicProduct(product: ProductWithSizes): PublicShopProduct {
+  const images = product.images.map((image) => ({
+    url: image.url,
+    label: image.label,
+    isBack: image.isBack,
+  }));
+  const card = product.images.find((image) => image.isCard) ?? product.images[0];
+
   return {
     id: product.id,
     slug: product.slug,
@@ -192,9 +271,8 @@ function toPublicProduct(product: ProductWithSizes): PublicShopProduct {
     shortDescription: product.shortDescription,
     description: product.description,
     priceCents: product.priceCents,
-    imageFront: product.imageFront,
-    imageBack: product.imageBack,
-    imageCard: product.imageCard,
+    images,
+    cardImage: card?.url ?? null,
     allowFlocking: product.allowFlocking,
     flockingFeeCents: product.flockingFeeCents,
     flockingTopPct: product.flockingTopPct,
