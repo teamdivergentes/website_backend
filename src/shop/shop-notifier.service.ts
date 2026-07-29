@@ -16,19 +16,42 @@ export class ShopNotifierService {
   ) {}
 
   /**
-   * Notifie l'equipe d'une nouvelle commande payee, par mail et sur Discord.
-   * Chaque canal a son propre try/catch : un canal en echec n'empeche pas l'autre.
-   * La methode ne rejette que si les deux canaux echouent.
+   * Notifie une nouvelle commande payee sur trois canaux independants :
+   * mail equipe, mail de confirmation au client (obligation legale, art.
+   * L221-13 C. conso) et Discord. Chaque canal a son propre try/catch : un
+   * canal en echec n'empeche pas les autres. Le mail client est le plus
+   * important des trois (c'est la seule confirmation ecrite du client sur
+   * un support durable) : son echec est journalise en `error` pour permettre
+   * un renvoi manuel.
+   *
+   * Semantique du throw : la commande est deja actee comme payee avant
+   * l'appel (cf. ShopWebhookService.markPaid) et l'appelant capture
+   * systematiquement l'exception pour ne jamais faire echouer le webhook
+   * Stripe. On ne leve donc une erreur que si les TROIS canaux ont echoue,
+   * ce qui signalerait une panne generale (SMTP + Discord tous les deux
+   * indisponibles) meritant une alerte forte plutot qu'un simple warn.
+   * Avant l'ajout du mail client, la regle portait sur les deux seuls
+   * canaux existants (equipe + Discord) ; elle est etendue a l'identique.
    */
   async notifyNewOrder(order: OrderWithItems): Promise<void> {
-    const results = { email: false, discord: false };
+    const results = { teamEmail: false, customerEmail: false, discord: false };
 
     try {
-      await this.sendEmail(order);
-      results.email = true;
+      await this.sendTeamEmail(order);
+      results.teamEmail = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Mail de commande ${order.reference} en echec: ${message}`);
+      this.logger.error(`Mail equipe pour la commande ${order.reference} en echec: ${message}`);
+    }
+
+    try {
+      await this.sendCustomerEmail(order);
+      results.customerEmail = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Mail de confirmation client pour la commande ${order.reference} en echec: ${message}`,
+      );
     }
 
     try {
@@ -39,33 +62,40 @@ export class ShopNotifierService {
       this.logger.error(`Webhook Discord pour ${order.reference} en echec: ${message}`);
     }
 
-    if (!results.email && !results.discord) {
+    const failedChannels = Object.entries(results)
+      .filter(([, ok]) => !ok)
+      .map(([channel]) => channel);
+
+    if (failedChannels.length === 3) {
       throw new Error(`Aucune notification envoyee pour la commande ${order.reference}`);
     }
-    if (!results.email || !results.discord) {
-      const failed = results.email ? 'Discord' : 'email';
+    if (failedChannels.length > 0) {
       this.logger.warn(
-        `Commande ${order.reference} enregistree mais notification ${failed} en echec`,
+        `Commande ${order.reference} enregistree mais notification(s) en echec : ${failedChannels.join(', ')}`,
       );
     }
   }
 
-  private async sendEmail(order: OrderWithItems): Promise<void> {
-    const [host, port, user, pass, legacyRecipient, settings] = await Promise.all([
+  /**
+   * Cree un transporteur SMTP a partir de la config stockee en base.
+   * Partage entre le mail equipe et le mail client : les deux canaux mail
+   * echouent ensemble si le SMTP est mal configure, ce qui est le
+   * comportement attendu (meme infrastructure d'envoi).
+   */
+  private async createTransporter(): Promise<{
+    transporter: nodemailer.Transporter;
+    user: string;
+  }> {
+    const [host, port, user, pass] = await Promise.all([
       this.config.getValue('contact_smtp_host'),
       this.config.getValue('contact_smtp_port'),
       this.config.getValue('contact_smtp_user'),
       this.config.getValue('contact_smtp_pass'),
-      this.config.getValue('shop_team_email'),
-      this.settings.get(),
     ]);
 
     if (!host || !user || !pass) {
       throw new Error('SMTP configuration missing in database');
     }
-    // Le destinataire est desormais un reglage boutique ; `shop_team_email`
-    // reste consulte en repli pour les bases anterieures a la migration.
-    const to = settings.ordersNotifyEmail || legacyRecipient || user;
 
     const transporter = nodemailer.createTransport({
       host,
@@ -73,6 +103,18 @@ export class ShopNotifierService {
       secure: port === '465',
       auth: { user, pass },
     });
+    return { transporter, user };
+  }
+
+  private async sendTeamEmail(order: OrderWithItems): Promise<void> {
+    const [{ transporter, user }, legacyRecipient, settings] = await Promise.all([
+      this.createTransporter(),
+      this.config.getValue('shop_team_email'),
+      this.settings.get(),
+    ]);
+    // Le destinataire est desormais un reglage boutique ; `shop_team_email`
+    // reste consulte en repli pour les bases anterieures a la migration.
+    const to = settings.ordersNotifyEmail || legacyRecipient || user;
 
     await transporter.sendMail({
       from: user,
@@ -80,6 +122,21 @@ export class ShopNotifierService {
       subject: `Nouvelle commande boutique ${order.reference}`,
       text: buildOrderEmailText(order),
       html: buildOrderEmailHtml(order),
+    });
+  }
+
+  private async sendCustomerEmail(order: OrderWithItems): Promise<void> {
+    if (!order.customerEmail) {
+      throw new Error('Adresse e-mail client manquante');
+    }
+    const { transporter, user } = await this.createTransporter();
+
+    await transporter.sendMail({
+      from: user,
+      to: order.customerEmail,
+      subject: `Confirmation de votre commande ${order.reference}`,
+      text: buildCustomerOrderEmailText(order),
+      html: buildCustomerOrderEmailHtml(order),
     });
   }
 
@@ -149,6 +206,102 @@ export function describeItem(item: OrderItem): string {
   return `${item.productName} — taille ${item.size}${flocking} × ${item.quantity}`;
 }
 
+/**
+ * Variante de `describeItem` pour le mail client : pas de tiret cadratin
+ * (regle de style pour la copie client) et prix unitaire affiche, attendu
+ * par l'information precontractuelle recapitulee (art. L221-13 C. conso).
+ */
+export function describeCustomerItem(item: OrderItem): string {
+  const flocking = item.flockingText ? `flocage : « ${item.flockingText} »` : 'sans flocage';
+  return `${item.productName}, taille ${item.size}, ${flocking}, quantité ${item.quantity}, prix unitaire ${formatEuros(item.unitPriceCents)} €`;
+}
+
+/**
+ * URL publique du site, utilisee pour construire les liens legaux du mail
+ * client. Pas de domaine en dur : `SHOP_PUBLIC_URL` prevaut si definie,
+ * sinon on derive l'origine de `SHOP_SUCCESS_URL` (deja utilisee par
+ * StripeService pour la redirection post-paiement).
+ */
+export function getShopPublicOrigin(): string {
+  const explicit = process.env.SHOP_PUBLIC_URL?.trim();
+  if (explicit) {
+    return explicit.replace(/\/+$/, '');
+  }
+  const successUrl = process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci';
+  try {
+    return new URL(successUrl).origin;
+  } catch {
+    return 'http://localhost:4200';
+  }
+}
+
+const deliveryDelayLogger = new Logger('ShopDeliveryDelay');
+
+/**
+ * Delai de livraison annonce au client, lu depuis `SHOP_DELIVERY_DELAY_TEXT`.
+ *
+ * Aucune donnee de ce type n'existe en base a ce jour, et le delai reel n'a pas
+ * encore ete confirme par l'atelier. Le repli ne l'invente donc pas : il enonce
+ * le delai suppletif de l'article L216-1 du code de la consommation, qui est
+ * precisement celui qui s'applique quand aucun delai n'a ete convenu. Annoncer
+ * une duree plus courte tiree de nulle part engagerait l'association sur une
+ * promesse que personne n'a validee, et son depassement ouvrirait la resolution
+ * de la vente.
+ */
+export function getDeliveryDelayText(): string {
+  const configured = process.env.SHOP_DELIVERY_DELAY_TEXT?.trim();
+  if (configured) {
+    return configured;
+  }
+  deliveryDelayLogger.error(
+    'SHOP_DELIVERY_DELAY_TEXT absente : le mail client annonce le delai legal de 30 jours ' +
+      "(art. L216-1). Renseigner le delai reel de l'atelier avant l'ouverture de la boutique.",
+  );
+  return 'au plus tard 30 jours après la validation de votre commande (article L216-1 du Code de la consommation)';
+}
+
+export interface ShopLegalLinks {
+  cgv: string;
+  retractation: string;
+  confidentialite: string;
+}
+
+export function buildLegalLinks(origin: string): ShopLegalLinks {
+  return {
+    cgv: `${origin}/conditions-generales-de-vente`,
+    retractation: `${origin}/retractation`,
+    confidentialite: `${origin}/politique-de-confidentialite`,
+  };
+}
+
+type FlockingState = 'none' | 'all' | 'mixed';
+
+function orderFlockingState(order: OrderWithItems): FlockingState {
+  const flockedCount = order.items.filter((item) => !!item.flockingText).length;
+  if (flockedCount === 0) return 'none';
+  if (flockedCount === order.items.length) return 'all';
+  return 'mixed';
+}
+
+/**
+ * Le texte du droit de retractation doit etre juridiquement exact pour
+ * CETTE commande : un maillot floque est un bien confectionne selon les
+ * specifications du consommateur (art. L221-28 3° C. conso), exclu du
+ * droit de retractation de 14 jours (art. L221-18 C. conso). Une commande
+ * mixte doit distinguer les deux regimes plutot que d'annoncer un droit
+ * uniforme qui serait faux pour une partie des articles.
+ */
+export function buildRetractationParagraph(order: OrderWithItems): string {
+  const state = orderFlockingState(order);
+  if (state === 'none') {
+    return "Conformément à l'article L221-18 du Code de la consommation, vous disposez d'un délai de 14 jours à compter de la réception de votre commande pour exercer votre droit de rétractation, sans avoir à justifier de motifs ni à payer de pénalités.";
+  }
+  if (state === 'all') {
+    return "Votre commande comporte uniquement des articles personnalisés (flocage). Conformément à l'article L221-28 3° du Code de la consommation, le droit de rétractation ne s'applique pas aux biens confectionnés selon vos spécifications ou nettement personnalisés : vous ne disposez donc pas d'un droit de rétractation sur cette commande.";
+  }
+  return "Votre commande comporte à la fois des articles standards et des articles personnalisés (flocage). Conformément à l'article L221-18 du Code de la consommation, vous disposez d'un délai de 14 jours à compter de la réception pour exercer votre droit de rétractation sur les articles non personnalisés. Conformément à l'article L221-28 3° du même code, ce droit ne s'applique en revanche pas aux articles personnalisés (flocage).";
+}
+
 export function buildOrderEmailText(order: OrderWithItems): string {
   return [
     `Nouvelle commande ${order.reference}`,
@@ -184,21 +337,113 @@ ${row('Total', `${formatEuros(order.totalCents)} €`)}
 </table>`;
 }
 
+/**
+ * Mail de confirmation envoye au client (art. L221-13 C. conso) : reprend
+ * les informations precontractuelles sur un support durable, ce que le recu
+ * Stripe seul ne fait pas. Version texte, cf. `buildCustomerOrderEmailHtml`
+ * pour la version HTML.
+ */
+export function buildCustomerOrderEmailText(order: OrderWithItems): string {
+  const links = buildLegalLinks(getShopPublicOrigin());
+
+  return [
+    `Bonjour ${order.customerName},`,
+    '',
+    `Nous vous confirmons la réception de votre commande ${order.reference}, réglée avec succès.`,
+    '',
+    'Détail de votre commande :',
+    ...order.items.map((item) => `  - ${describeCustomerItem(item)}`),
+    '',
+    `Sous-total : ${formatEuros(order.subtotalCents)} €`,
+    `Frais de port : ${formatEuros(order.shippingCents)} €`,
+    `Total payé : ${formatEuros(order.totalCents)} €`,
+    '',
+    'Adresse de livraison :',
+    formatAddress(order.shippingAddress),
+    '',
+    `Délai de livraison estimé : ${getDeliveryDelayText()}.`,
+    '',
+    'Droit de rétractation :',
+    buildRetractationParagraph(order),
+    '',
+    'Garanties légales :',
+    'Votre commande bénéficie de la garantie légale de conformité (articles L217-3 et suivants du Code de la consommation) ainsi que de la garantie contre les vices cachés (articles 1641 et suivants du Code civil). En cas de défaut constaté, contactez-nous pour faire valoir vos droits.',
+    '',
+    'Pour en savoir plus :',
+    `Conditions générales de vente : ${links.cgv}`,
+    `Droit de rétractation (modalités et formulaire) : ${links.retractation}`,
+    `Politique de confidentialité : ${links.confidentialite}`,
+    '',
+    'Merci de votre confiance,',
+    "L'équipe Team Divergentes",
+  ].join('\n');
+}
+
+/**
+ * Version HTML du mail client. escapeHtml systematique sur les champs
+ * saisis par le client (nom, flocage recopie via describeCustomerItem,
+ * adresse) : ce sont des donnees non fiables injectees dans du HTML.
+ */
+export function buildCustomerOrderEmailHtml(order: OrderWithItems): string {
+  const links = buildLegalLinks(getShopPublicOrigin());
+  const row = (label: string, value: string): string =>
+    `<tr><td style="padding:4px 12px 4px 0;"><strong>${label}</strong></td><td>${escapeHtml(value)}</td></tr>`;
+
+  const items = order.items
+    .map((item) => `<li>${escapeHtml(describeCustomerItem(item))}</li>`)
+    .join('\n');
+
+  return `<h2>Confirmation de votre commande ${escapeHtml(order.reference)}</h2>
+<p>Bonjour ${escapeHtml(order.customerName)},</p>
+<p>Nous vous confirmons la réception de votre commande, réglée avec succès.</p>
+<h3>Détail de votre commande</h3>
+<ul>
+${items}
+</ul>
+<table>
+${row('Sous-total', `${formatEuros(order.subtotalCents)} €`)}
+${row('Frais de port', `${formatEuros(order.shippingCents)} €`)}
+${row('Total payé', `${formatEuros(order.totalCents)} €`)}
+${row('Adresse de livraison', formatAddress(order.shippingAddress))}
+${row('Délai de livraison estimé', `${getDeliveryDelayText()}.`)}
+</table>
+<h3>Droit de rétractation</h3>
+<p>${escapeHtml(buildRetractationParagraph(order))}</p>
+<h3>Garanties légales</h3>
+<p>Votre commande bénéficie de la garantie légale de conformité (articles L217-3 et suivants du Code de la consommation) ainsi que de la garantie contre les vices cachés (articles 1641 et suivants du Code civil). En cas de défaut constaté, contactez-nous pour faire valoir vos droits.</p>
+<h3>Pour en savoir plus</h3>
+<ul>
+<li><a href="${escapeHtml(links.cgv)}">Conditions générales de vente</a></li>
+<li><a href="${escapeHtml(links.retractation)}">Droit de rétractation (modalités et formulaire)</a></li>
+<li><a href="${escapeHtml(links.confidentialite)}">Politique de confidentialité</a></li>
+</ul>
+<p>Merci de votre confiance,<br>L'équipe Team Divergentes</p>`;
+}
+
 export interface DiscordEmbed {
   title: string;
   color: number;
   fields: { name: string; value: string; inline?: boolean }[];
 }
 
+/**
+ * L'embed Discord ne porte plus aucune donnee personnelle du client (nom,
+ * e-mail, adresse) : ces informations partaient sans necessite vers un
+ * sous-traitant americain (Discord Inc.), ce qui constituait un exces de
+ * collecte au regard du RGPD. L'equipe consulte le back-office pour les
+ * coordonnees ; le flocage reste, il est necessaire a la production.
+ */
 export function buildOrderDiscordEmbed(order: OrderWithItems): DiscordEmbed {
   return {
     title: `🛒 Nouvelle commande ${order.reference}`,
     color: 0x32d299,
     fields: [
       { name: 'Articles', value: order.items.map((item) => `• ${describeItem(item)}`).join('\n') },
-      { name: 'Client', value: `${order.customerName} (${order.customerEmail})` },
       { name: 'Total', value: `${formatEuros(order.totalCents)} €`, inline: true },
-      { name: 'Adresse de livraison', value: formatAddress(order.shippingAddress) },
+      {
+        name: 'Coordonnées client',
+        value: 'Voir le back-office boutique pour le nom, l’e-mail et l’adresse de livraison.',
+      },
     ],
   };
 }
