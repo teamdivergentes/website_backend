@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma.service';
 import { ShopSettingsService } from './shop-settings.service';
 import { assertFlockingAllowed, normalizeFlocking } from './shop-flocking';
 import { CheckoutItemDto } from './dto/create-checkout.dto';
+import { shippingCost, shippingPrice, unitCost } from './shop-costs';
+import { ShippingMethod } from '../../generated/prisma';
 
 /** Nombre total d'articles accepte dans un panier, toutes lignes confondues. */
 export const MAX_CART_ITEMS = 20;
@@ -26,6 +28,15 @@ export interface PricedCart {
   shippingCents: number;
   totalCents: number;
   currency: string;
+  shippingMethod: ShippingMethod;
+  /** Vrai quand la franchise de port s'est appliquee. */
+  shippingIsFree: boolean;
+  /**
+   * Couts a figer sur la commande. Ils ne doivent jamais quitter le serveur
+   * vers un client public : ils renseignent sur les marges fournisseurs.
+   */
+  unitCostCents: number;
+  shippingCostCents: number;
 }
 
 @Injectable()
@@ -43,7 +54,10 @@ export class ShopPricingService {
    * quantites et un texte de flocage ; tous les prix sont resolus depuis la
    * base. Sans cela, un panier forge permet d'acheter un maillot a 0,01 €.
    */
-  async priceCart(items: CheckoutItemDto[]): Promise<PricedCart> {
+  async priceCart(
+    items: CheckoutItemDto[],
+    method: ShippingMethod = 'STANDARD',
+  ): Promise<PricedCart> {
     const settings = await this.settings.get();
     if (!settings.shopEnabled) {
       throw new ForbiddenException('La boutique est actuellement fermée');
@@ -95,8 +109,9 @@ export class ShopPricingService {
     });
 
     const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
-    // Tarif unifie : compte une seule fois, quel que soit le nombre d'articles.
-    const shippingCents = settings.shippingFeeCents;
+    // Le port se compte une fois par colis, pas par article, et s'efface
+    // au-dela du seuil de franchise.
+    const shippingCents = shippingPrice(settings, method, subtotalCents);
 
     return {
       lines,
@@ -104,6 +119,10 @@ export class ShopPricingService {
       shippingCents,
       totalCents: subtotalCents + shippingCents,
       currency: settings.currency,
+      shippingMethod: method,
+      shippingIsFree: shippingCents === 0,
+      unitCostCents: unitCost(settings).totalCents,
+      shippingCostCents: shippingCost(settings, method),
     };
   }
 }

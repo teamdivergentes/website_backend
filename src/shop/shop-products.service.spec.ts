@@ -38,7 +38,16 @@ describe('ShopProductsService', () => {
     jest.resetAllMocks();
     mockSettings.get.mockResolvedValue({
       shopEnabled: true,
-      shippingFeeCents: 590,
+      shippingStandardCents: 500,
+      shippingExpressCents: 1000,
+      freeShippingThresholdCents: 12000,
+      costProductionCents: 1600,
+      costPartnerCents: 700,
+      costPartnerEnabled: false,
+      costEcommerceCents: 300,
+      costFlockingCents: 0,
+      costShippingStandardCents: 900,
+      costShippingExpressCents: 1200,
       currency: 'eur',
     });
 
@@ -58,7 +67,9 @@ describe('ShopProductsService', () => {
 
       const catalog = await service.findPublicCatalog();
 
-      expect(catalog.shippingFeeCents).toBe(590);
+      expect(catalog.shippingStandardCents).toBe(500);
+      expect(catalog.shippingExpressCents).toBe(1000);
+      expect(catalog.freeShippingThresholdCents).toBe(12000);
       expect(catalog.products).toHaveLength(1);
       expect(catalog.products[0].sizes).toEqual(['M', 'L']);
     });
@@ -76,7 +87,16 @@ describe('ShopProductsService', () => {
     it('ne divulgue ni catalogue ni prix quand la boutique est fermée', async () => {
       mockSettings.get.mockResolvedValue({
         shopEnabled: false,
-        shippingFeeCents: 590,
+        shippingStandardCents: 500,
+        shippingExpressCents: 1000,
+        freeShippingThresholdCents: 12000,
+        costProductionCents: 1600,
+        costPartnerCents: 700,
+        costPartnerEnabled: false,
+        costEcommerceCents: 300,
+        costFlockingCents: 0,
+        costShippingStandardCents: 900,
+        costShippingExpressCents: 1200,
         currency: 'eur',
       });
 

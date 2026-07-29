@@ -24,6 +24,22 @@ const SANS_FLOCAGE = {
   sizes: [{ label: 'M' }],
 };
 
+/** Grille 2026 : port 5 € / 10 €, offert des 120 €, couts hors partenaire. */
+const REGLAGES = {
+  shopEnabled: true,
+  shippingStandardCents: 500,
+  shippingExpressCents: 1000,
+  freeShippingThresholdCents: 12000,
+  costProductionCents: 1600,
+  costPartnerCents: 700,
+  costPartnerEnabled: false,
+  costEcommerceCents: 300,
+  costFlockingCents: 0,
+  costShippingStandardCents: 900,
+  costShippingExpressCents: 1200,
+  currency: 'eur',
+};
+
 describe('ShopPricingService', () => {
   let service: ShopPricingService;
 
@@ -32,11 +48,7 @@ describe('ShopPricingService', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
-    mockSettings.get.mockResolvedValue({
-      shopEnabled: true,
-      shippingFeeCents: 590,
-      currency: 'eur',
-    });
+    mockSettings.get.mockResolvedValue(REGLAGES);
     mockPrisma.shopProduct.findMany.mockResolvedValue([JOKER, SANS_FLOCAGE]);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -58,19 +70,15 @@ describe('ShopPricingService', () => {
 
       expect(cart.lines[0].unitPriceCents).toBe(4990);
       expect(cart.subtotalCents).toBe(4990);
-      expect(cart.totalCents).toBe(4990 + 590);
+      expect(cart.totalCents).toBe(4990 + 500);
     });
 
     it('lit les frais de port depuis les réglages, pas depuis le panier', async () => {
-      mockSettings.get.mockResolvedValue({
-        shopEnabled: true,
-        shippingFeeCents: 1200,
-        currency: 'eur',
-      });
+      mockSettings.get.mockResolvedValue(REGLAGES);
 
-      const cart = await service.priceCart([{ productId: 1, size: 'M', quantity: 1 }]);
+      const cart = await service.priceCart([{ productId: 1, size: 'M', quantity: 1 }], 'EXPRESS');
 
-      expect(cart.shippingCents).toBe(1200);
+      expect(cart.shippingCents).toBe(1000);
     });
   });
 
@@ -163,11 +171,7 @@ describe('ShopPricingService', () => {
     });
 
     it('refuse de tarifer quand la boutique est fermée', async () => {
-      mockSettings.get.mockResolvedValue({
-        shopEnabled: false,
-        shippingFeeCents: 590,
-        currency: 'eur',
-      });
+      mockSettings.get.mockResolvedValue({ ...REGLAGES, shopEnabled: false });
 
       await expect(service.priceCart([{ productId: 1, size: 'M', quantity: 1 }])).rejects.toThrow(
         ForbiddenException,
@@ -177,14 +181,44 @@ describe('ShopPricingService', () => {
 
   describe('frais de port', () => {
     it('ne compte les frais de port qu’une fois, quel que soit le nombre d’articles', async () => {
+      // Franchise ecartee : ce test porte sur le comptage du colis, pas sur le
+      // seuil de gratuite, qui a son propre cas plus bas.
+      mockSettings.get.mockResolvedValue({ ...REGLAGES, freeShippingThresholdCents: 0 });
+
       const cart = await service.priceCart([
         { productId: 1, size: 'M', quantity: 3 },
         { productId: 2, size: 'M', quantity: 2 },
       ]);
 
-      expect(cart.shippingCents).toBe(590);
+      expect(cart.shippingCents).toBe(500);
       expect(cart.subtotalCents).toBe(4990 * 3 + 4990 * 2);
-      expect(cart.totalCents).toBe(cart.subtotalCents + 590);
+      expect(cart.totalCents).toBe(cart.subtotalCents + 500);
+    });
+
+    it('facture le mode rapide plus cher que le standard', async () => {
+      mockSettings.get.mockResolvedValue({ ...REGLAGES, freeShippingThresholdCents: 0 });
+
+      const cart = await service.priceCart([{ productId: 1, size: 'M', quantity: 1 }], 'EXPRESS');
+
+      expect(cart.shippingCents).toBe(1000);
+      expect(cart.shippingMethod).toBe('EXPRESS');
+    });
+
+    it('offre le port des que le panier atteint le seuil', async () => {
+      // 4990 x 3 = 14 970, au-dela des 120 € de franchise.
+      const cart = await service.priceCart([{ productId: 1, size: 'M', quantity: 3 }]);
+
+      expect(cart.shippingCents).toBe(0);
+      expect(cart.shippingIsFree).toBe(true);
+      expect(cart.totalCents).toBe(cart.subtotalCents);
+    });
+
+    it('fige les couts du moment pour que la marge ne bouge plus ensuite', async () => {
+      const cart = await service.priceCart([{ productId: 1, size: 'M', quantity: 1 }]);
+
+      // 16 € de production + 3 € ecommerce, partenaire inactif.
+      expect(cart.unitCostCents).toBe(1900);
+      expect(cart.shippingCostCents).toBe(900);
     });
   });
 });

@@ -26,7 +26,7 @@ export class ShopCheckoutService {
    * pouvoir faire passer la commande en `PAID`.
    */
   async createCheckout(dto: CreateCheckoutDto): Promise<{ url: string }> {
-    const cart = await this.pricing.priceCart(dto.items);
+    const cart = await this.pricing.priceCart(dto.items, dto.shippingMethod ?? 'STANDARD');
     const reference = await this.reference.generate();
 
     const order = await this.prisma.order.create({
@@ -40,6 +40,11 @@ export class ShopCheckoutService {
         shippingCents: cart.shippingCents,
         totalCents: cart.totalCents,
         currency: cart.currency,
+        shippingMethod: cart.shippingMethod,
+        // Couts figes a l'instant de l'achat : une marge se lit telle qu'elle a
+        // ete degagee, pas telle qu'elle serait aux tarifs d'aujourd'hui.
+        unitCostCents: cart.unitCostCents,
+        shippingCostCents: cart.shippingCostCents,
         items: {
           create: cart.lines.map((line) => ({
             productId: line.productId,

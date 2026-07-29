@@ -24,7 +24,11 @@ export interface PublicShopProduct {
 
 export interface PublicCatalog {
   products: PublicShopProduct[];
-  shippingFeeCents: number;
+  /** Tarifs de livraison factures au client, par mode. */
+  shippingStandardCents: number;
+  shippingExpressCents: number;
+  /** Panier a partir duquel le port est offert. 0 = pas de franchise. */
+  freeShippingThresholdCents: number;
   currency: string;
   /** Permet au front d'afficher un message de fermeture plutot qu'une page vide. */
   shopEnabled: boolean;
@@ -58,7 +62,9 @@ export class ShopProductsService {
 
     return {
       products: products.map(toPublicProduct),
-      shippingFeeCents: settings.shippingFeeCents,
+      shippingStandardCents: settings.shippingStandardCents,
+      shippingExpressCents: settings.shippingExpressCents,
+      freeShippingThresholdCents: settings.freeShippingThresholdCents,
       currency: settings.currency,
       shopEnabled: settings.shopEnabled,
     };

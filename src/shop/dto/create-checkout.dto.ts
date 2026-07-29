@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  IsIn,
   ArrayNotEmpty,
   IsArray,
   IsInt,
@@ -43,6 +44,15 @@ export class CheckoutItemDto {
 }
 
 export class CreateCheckoutDto {
+  /**
+   * Mode de livraison retenu. Absent, la commande part en standard : c'est
+   * l'option la moins chere pour le client, donc le repli le moins hostile.
+   * Le tarif associe n'est jamais lu depuis la requete, seulement le choix.
+   */
+  @IsOptional()
+  @IsIn(['STANDARD', 'EXPRESS'], { message: 'Le mode de livraison est invalide' })
+  shippingMethod?: 'STANDARD' | 'EXPRESS';
+
   @IsArray()
   @ArrayNotEmpty({ message: 'Le panier est vide' })
   @ArrayMaxSize(10, { message: 'Le panier ne peut pas contenir plus de 10 lignes' })
