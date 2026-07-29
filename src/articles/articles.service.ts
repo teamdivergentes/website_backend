@@ -50,8 +50,11 @@ export class ArticlesService {
   }
 
   async findAll(query: ArticlesQueryDto): Promise<PaginatedResponse<ArticleWithRelations>> {
-    const { page = 1, limit = 20 } = query;
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = query;
     const where = buildArticleWhere(query);
+    // sortBy est contraint par une liste blanche dans le DTO : la valeur ne peut
+    // pas designer une colonne arbitraire du modele.
+    const orderBy = { [sortBy]: sortOrder };
 
     try {
       const [articles, total] = await Promise.all([
@@ -63,7 +66,7 @@ export class ArticlesService {
           },
           skip: (page - 1) * limit,
           take: limit,
-          orderBy: { createdAt: 'desc' },
+          orderBy,
         }),
         this.prisma.article.count({ where }),
       ]);
