@@ -799,8 +799,7 @@ async function main() {
         "La déclinaison d'EVA Mystic. Les deux titres de champion de France, 2022 et " +
         "2023, sont inscrits sur le vêtement : ce n'est pas un ornement, c'est ce que la " +
         "section est allée chercher. Un maillot d'esport ne sert pas à courir, il sert à " +
-        'dire de quel côté on est assis. C\'est aussi le seul des trois que les joueurs ' +
-        "ont porté devant l'objectif : le vert ne se pose pas à plat, il suit l'épaule.",
+        'dire de quel côté on est assis.',
       priceCents: 4000,
       images: [
         { url: 'assets/img/shop/maillot-2026-mystic-front.webp', label: 'face' },
