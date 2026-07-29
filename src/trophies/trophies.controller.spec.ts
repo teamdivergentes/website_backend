@@ -60,7 +60,10 @@ describe('TrophiesController', () => {
 
   describe('PermissionsGuard metadata', () => {
     const getPerms = (methodName: keyof typeof TrophiesController.prototype): string[] => {
-      const fn = TrophiesController.prototype[methodName] as object;
+      // Passe par le descripteur plutot que par un acces direct : on ne veut que
+      // les metadonnees posees par le decorateur, jamais appeler la methode.
+      const fn = Object.getOwnPropertyDescriptor(TrophiesController.prototype, methodName)
+        ?.value as object;
       return Reflect.getMetadata('permissions', fn) as string[];
     };
 
