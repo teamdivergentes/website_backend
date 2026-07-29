@@ -762,7 +762,7 @@ async function main() {
         { url: 'assets/img/shop/maillot-2026-dvg-back.webp', label: 'dos', isBack: true },
         {
           url: 'assets/img/shop/maillot-2026-dvg-back-name.webp',
-          label: 'dos, exemple de flocage',
+          label: 'dos floqué',
         },
       ],
       teamSlug: null,
@@ -784,7 +784,7 @@ async function main() {
         { url: 'assets/img/shop/maillot-2026-joker-back.webp', label: 'dos', isBack: true },
         {
           url: 'assets/img/shop/maillot-2026-joker-back-name.webp',
-          label: 'dos, exemple de flocage',
+          label: 'dos floqué',
         },
       ],
       teamSlug: 'eva-joker',
@@ -807,16 +807,16 @@ async function main() {
         { url: 'assets/img/shop/maillot-2026-mystic-back.webp', label: 'dos', isBack: true },
         {
           url: 'assets/img/shop/maillot-2026-mystic-back-name.webp',
-          label: 'dos, exemple de flocage',
+          label: 'dos floqué',
         },
         // Seule Mystic a ete shootee portee. La vue portee fait la vignette :
         // un maillot sur des epaules se lit mieux qu'un maillot a plat.
         {
           url: 'assets/img/shop/maillot-2026-mystic-porte-face.jpg',
-          label: 'porté, face',
+          label: 'porté',
           isCard: true,
         },
-        { url: 'assets/img/shop/maillot-2026-mystic-porte-dos.jpg', label: 'porté, dos' },
+        { url: 'assets/img/shop/maillot-2026-mystic-porte-dos.jpg', label: 'porté dos' },
       ],
       teamSlug: 'eva-mystic',
       active: false,
