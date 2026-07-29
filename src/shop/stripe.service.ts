@@ -8,6 +8,14 @@ export interface CheckoutLine {
   quantity: number;
 }
 
+/**
+ * Ce que Stripe sait d'une session de paiement.
+ * - `paid` : le paiement a abouti, meme si notre webhook ne l'a jamais vu
+ * - `unpaid` : la session est close sans paiement, plus rien ne peut aboutir
+ * - `unknown` : Stripe n'a pas repondu, ou la session peut encore aboutir
+ */
+export type CheckoutSessionOutcome = 'paid' | 'unpaid' | 'unknown';
+
 export interface CheckoutSessionParams {
   lines: CheckoutLine[];
   shippingCents: number;
@@ -70,6 +78,36 @@ export class StripeService {
       throw new InternalServerErrorException('Session de paiement invalide');
     }
     return { id: session.id, url: session.url };
+  }
+
+  /**
+   * Verdict de Stripe sur une session de paiement.
+   * `unknown` n'est pas une erreur mais une abstention : l'appelant ne doit
+   * alors rien detruire.
+   */
+  async getSessionOutcome(sessionId: string): Promise<CheckoutSessionOutcome> {
+    try {
+      const session = await this.getClient().checkout.sessions.retrieve(sessionId);
+
+      // `no_payment_required` couvre les totaux a zero : la commande est due,
+      // meme sans mouvement d'argent.
+      if (session.payment_status === 'paid' || session.payment_status === 'no_payment_required') {
+        return 'paid';
+      }
+      // Seule une session expiree est definitivement close. Une session
+      // `open`, ou `complete` avec un paiement differe, peut encore aboutir :
+      // on s'abstient plutot que de detruire une commande qui sera payee.
+      return session.status === 'expired' ? 'unpaid' : 'unknown';
+    } catch (error) {
+      // Session inconnue de Stripe : plus rien ne peut aboutir, la commande
+      // locale est un residu. Toute autre panne est une abstention.
+      if (error instanceof Stripe.errors.StripeError && error.code === 'resource_missing') {
+        return 'unpaid';
+      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Statut de la session ${sessionId} indisponible: ${message}`);
+      return 'unknown';
+    }
   }
 
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
