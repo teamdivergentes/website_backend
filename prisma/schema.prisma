@@ -379,11 +379,39 @@ model ShopProductSize {
 /// Singleton (id = 1). Parametres operationnels de la boutique.
 model ShopSettings {
   id                Int      @id @default(1)
-  shippingFeeCents  Int      @default(590)
   currency          String   @default("eur")
   ordersNotifyEmail String?
   /// Permet de fermer la boutique sans depublier chaque produit.
   shopEnabled       Boolean  @default(false)
+
+  // --- Ce que paie le client -------------------------------------------
+  /// Livraison standard facturee au client.
+  shippingStandardCents      Int @default(500)
+  /// Livraison rapide facturee au client.
+  shippingExpressCents       Int @default(1000)
+  /// Panier a partir duquel la livraison est offerte, quel que soit le mode.
+  /// 0 desactive la franchise.
+  freeShippingThresholdCents Int @default(12000)
+
+  // --- Ce que ca coute a la structure ----------------------------------
+  // Ces montants ne sont jamais exposes au public : ils ne servent qu'au
+  // calcul de marge de l'espace d'administration.
+  /// Fabrication d'un maillot chez le fournisseur.
+  costProductionCents        Int     @default(1600)
+  /// Commission d'un partenaire, par maillot. Desactivee tant que
+  /// `costPartnerEnabled` est faux : le partenariat n'existe pas au lancement.
+  costPartnerCents           Int     @default(700)
+  costPartnerEnabled         Boolean @default(false)
+  /// Frais de plateforme et de paiement, par maillot.
+  costEcommerceCents         Int     @default(300)
+  /// Cout fournisseur du flocage. Inconnu a ce jour, provisionne a zero :
+  /// une marge calculee avec un cout invente serait pire qu'une marge large.
+  costFlockingCents          Int     @default(0)
+  /// Cout reel d'un colis, par mode. La livraison est vendue a perte, c'est
+  /// assume : ces montants le rendent visible plutot que de le masquer.
+  costShippingStandardCents  Int     @default(900)
+  costShippingExpressCents   Int     @default(1200)
+
   updatedAt         DateTime @updatedAt
 
   @@map("shop_settings")
@@ -399,6 +427,14 @@ model Order {
   shippingCents         Int
   totalCents            Int
   currency              String      @default("eur")
+  shippingMethod        ShippingMethod @default(STANDARD)
+
+  /// Couts figes a l'achat. Une marge est une photographie : si le tarif du
+  /// fournisseur change demain, les commandes d'hier ne doivent pas changer de
+  /// marge pour autant. `unitCostCents` inclut deja la commission partenaire
+  /// si elle etait active au moment de la commande.
+  unitCostCents         Int         @default(0)
+  shippingCostCents     Int         @default(0)
 
   /// Renseignes par le webhook : inconnus tant que le client n'a pas paye.
   customerEmail         String      @default("")
@@ -441,6 +477,11 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
   @@map("order_items")
+}
+
+enum ShippingMethod {
+  STANDARD
+  EXPRESS
 }
 
 enum OrderStatus {

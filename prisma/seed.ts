@@ -727,7 +727,16 @@ async function main() {
     update: {},
     // shopEnabled reste faux : la boutique ne s'ouvre qu'une fois les cles
     // Stripe de production en place et les prix reels saisis depuis l'admin.
-    create: { id: 1, shippingFeeCents: 590, currency: 'eur', shopEnabled: false },
+    // Tarifs de la grille 2026 : port standard 5 €, rapide 10 €, offert des
+    // 120 € de panier, ce qui correspond a trois maillots.
+    create: {
+      id: 1,
+      shippingStandardCents: 500,
+      shippingExpressCents: 1000,
+      freeShippingThresholdCents: 12000,
+      currency: 'eur',
+      shopEnabled: false,
+    },
   });
 
   const TEXTILE_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
@@ -744,11 +753,12 @@ async function main() {
         'Il reprend les codes posés en 2017 : noir profond, vert Divergentes, logo ' +
         "sublimé dans la maille plutôt qu'imprimé dessus. Celui qu'on met quand on " +
         'vient représenter DVG en entier.',
-      priceCents: 4990,
-      imageFront: null,
-      imageBack: null,
+      priceCents: 4000,
+      imageFront: 'assets/img/shop/maillot-2026-dvg-front.webp',
+      // Dos SANS flocage : c'est le fond sur lequel composer l'apercu du pseudo.
+      // La variante `-back-name` porte le placeholder du fabricant.
+      imageBack: 'assets/img/shop/maillot-2026-dvg-back.webp',
       teamSlug: null,
-      // Aucun visuel disponible au 28/07 : reste inactif jusqu'a reception du PNG.
       active: false,
       position: 0,
     },
@@ -761,9 +771,9 @@ async function main() {
         "maillot de structure : seuls les liserés, l'habillage des manches et le blason " +
         'de la section changent. Le vert monte sur les épaules, le motif reprend ' +
         "l'univers de l'équipe.",
-      priceCents: 4990,
-      imageFront: 'assets/img/shop/maillot-2026-joker-front.png',
-      imageBack: 'assets/img/shop/maillot-2026-joker-back.png',
+      priceCents: 4000,
+      imageFront: 'assets/img/shop/maillot-2026-joker-front.webp',
+      imageBack: 'assets/img/shop/maillot-2026-joker-back.webp',
       teamSlug: 'eva-joker',
       active: true,
       position: 1,
@@ -776,12 +786,12 @@ async function main() {
         "La déclinaison d'EVA Mystic. Le vêtement est rigoureusement identique aux deux " +
         "autres, seul l'habillage appartient à la section. Le flocage se fait au pseudo " +
         'et non au numéro.',
-      priceCents: 4990,
-      imageFront: 'assets/img/shop/maillot-2026-mystic-front.jpg',
-      imageBack: 'assets/img/shop/maillot-2026-mystic-back.jpg',
-      // Vue portee du shooting, utilisee comme vignette dans « les autres
-      // declinaisons » de la fiche produit.
-      imageCard: 'assets/img/shop/maillot-2026-mystic-porte.jpg',
+      priceCents: 4000,
+      imageFront: 'assets/img/shop/maillot-2026-mystic-front.webp',
+      imageBack: 'assets/img/shop/maillot-2026-mystic-back.webp',
+      // Seule Mystic a ete shootee portee : la vue portee sert de vignette dans
+      // « les autres declinaisons ».
+      imageCard: 'assets/img/shop/maillot-2026-mystic-porte-face.jpg',
       teamSlug: 'eva-mystic',
       active: false,
       position: 2,
@@ -809,7 +819,7 @@ async function main() {
         imageCard: 'imageCard' in p ? (p as { imageCard?: string }).imageCard : null,
         teamId: team?.id ?? null,
         allowFlocking: true,
-        flockingFeeCents: 0,
+        flockingFeeCents: 500,
         active: p.active,
         position: p.position,
       },
