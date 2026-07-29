@@ -13,7 +13,7 @@ import { OrderStatus } from '../../generated/prisma';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/permissions.decorator';
 import { PERMISSIONS } from '../common/constants/permissions';
-import { OrdersAdminService, PendingBatch } from './orders-admin.service';
+import { OrdersAdminService, PendingBatch, OrderWithMargin } from './orders-admin.service';
 import { OrderWithItems } from './shop-notifier.service';
 import { UpdateOrderDto } from './dto/update-order.dto';
 
@@ -24,7 +24,7 @@ export class OrdersAdminController {
   @Get('api/admin/orders')
   @UseGuards(PermissionsGuard)
   @RequirePermission(PERMISSIONS.COMMANDES_READ)
-  findAll(@Query('status') status?: string): Promise<OrderWithItems[]> {
+  findAll(@Query('status') status?: string): Promise<OrderWithMargin[]> {
     return this.ordersService.findAll(status as OrderStatus | undefined);
   }
 

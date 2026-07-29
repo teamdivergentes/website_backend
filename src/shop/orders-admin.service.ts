@@ -5,6 +5,12 @@ import { PrismaService } from '../prisma.service';
 import { isPrismaNotFoundError } from '../common/utils/prisma-errors';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { formatAddress, formatEuros, OrderWithItems } from './shop-notifier.service';
+import { OrderMargin, orderMargin } from './shop-costs';
+
+/** Une commande, augmentee de sa marge. Ne quitte jamais l'administration. */
+export interface OrderWithMargin extends OrderWithItems {
+  margin: OrderMargin;
+}
 
 export interface PendingBatch {
   count: number;
@@ -21,16 +27,38 @@ export class OrdersAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Ajoute a chaque commande la marge qu'elle a degagee, calculee a partir des
+   * couts figes a l'achat et non des tarifs du jour. Reserve a
+   * l'administration : ces montants renseignent sur les marges fournisseurs.
+   */
+  private withMargin(order: OrderWithItems): OrderWithMargin {
+    const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+
+    return {
+      ...order,
+      margin: orderMargin({
+        totalCents: order.totalCents,
+        unitCostCents: order.unitCostCents,
+        shippingCostCents: order.shippingCostCents,
+        shippingCents: order.shippingCents,
+        totalQuantity,
+      }),
+    };
+  }
+
+  /**
    * Les commandes PENDING sont exclues par defaut : ce sont des sessions de
    * paiement abandonnees, pas des commandes. Elles restent consultables en
    * filtrant explicitement dessus.
    */
-  findAll(status?: OrderStatus): Promise<OrderWithItems[]> {
-    return this.prisma.order.findMany({
+  async findAll(status?: OrderStatus): Promise<OrderWithMargin[]> {
+    const orders = await this.prisma.order.findMany({
       where: status ? { status } : { status: { not: 'PENDING' } },
       include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
+
+    return orders.map((order) => this.withMargin(order));
   }
 
   async getPendingBatch(): Promise<PendingBatch> {
