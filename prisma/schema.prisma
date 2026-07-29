@@ -341,9 +341,6 @@ model ShopProduct {
   /// Texte brut, jamais du HTML : il est rendu par interpolation cote front.
   description      String?           @db.Text
   priceCents       Int
-  imageFront       String?
-  imageBack        String?
-  imageCard        String?
   allowFlocking    Boolean           @default(true)
   flockingFeeCents Int               @default(0)
   /// Position de l'apercu du flocage sur l'image de dos, en % (affichage seul).
@@ -357,6 +354,7 @@ model ShopProduct {
   updatedAt        DateTime          @updatedAt
   team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
   sizes            ShopProductSize[]
+  images           ShopProductImage[]
   orderItems       OrderItem[]
 
   @@index([active, position])
@@ -374,6 +372,28 @@ model ShopProductSize {
   @@unique([productId, label])
   @@index([productId])
   @@map("shop_product_sizes")
+}
+
+/// Visuel d'un produit. Une collection plutot que des colonnes fixes : chaque
+/// declinaison n'a pas le meme nombre de vues, et en ajouter une ne doit pas
+/// demander une migration.
+model ShopProductImage {
+  id        Int         @id @default(autoincrement())
+  productId Int
+  url       String
+  /// Ce qui est ecrit sous la vignette du rail : « face », « dos », « porte ».
+  label     String
+  /// Ordre d'affichage. La position 0 est la vue d'ouverture de la fiche.
+  position  Int         @default(0)
+  /// Vue de dos : l'apercu du flocage doit savoir sur quelle image se poser.
+  isBack    Boolean     @default(false)
+  /// Vignette de la liste boutique. Au plus une par produit, le service s'en
+  /// assure ; a defaut c'est la premiere image qui sert.
+  isCard    Boolean     @default(false)
+  product   ShopProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, position])
+  @@map("shop_product_images")
 }
 
 /// Singleton (id = 1). Parametres operationnels de la boutique.
