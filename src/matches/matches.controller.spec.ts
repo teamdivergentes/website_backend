@@ -84,7 +84,10 @@ describe('MatchesController', () => {
 
   describe('PermissionsGuard metadata', () => {
     const getPerms = (methodName: keyof typeof MatchesController.prototype): string[] => {
-      const fn = MatchesController.prototype[methodName] as object;
+      // Passe par le descripteur plutot que par un acces direct : on ne veut que
+      // les metadonnees posees par le decorateur, jamais appeler la methode.
+      const fn = Object.getOwnPropertyDescriptor(MatchesController.prototype, methodName)
+        ?.value as object;
       return Reflect.getMetadata('permissions', fn) as string[];
     };
 

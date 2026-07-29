@@ -14,6 +14,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { memoryStorage } from 'multer';
 import { RecruitmentService } from './recruitment.service';
 import { CreateRecruitmentDto } from './dto/create-recruitment.dto';
@@ -47,6 +48,7 @@ export class RecruitmentController {
 
   @Public()
   @Post('apply')
+  @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 candidatures par minute
   @UseInterceptors(
     FileFieldsInterceptor(
       [
