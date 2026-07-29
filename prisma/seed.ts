@@ -778,8 +778,10 @@ async function main() {
         'et non au numéro.',
       priceCents: 4990,
       imageFront: 'assets/img/shop/maillot-2026-mystic-front.jpg',
-      // Pas de visuel de dos au 28/07 (render 3D seul, en attente du mockup).
-      imageBack: null,
+      imageBack: 'assets/img/shop/maillot-2026-mystic-back.jpg',
+      // Vue portee du shooting, utilisee comme vignette dans « les autres
+      // declinaisons » de la fiche produit.
+      imageCard: 'assets/img/shop/maillot-2026-mystic-porte.jpg',
       teamSlug: 'eva-mystic',
       active: false,
       position: 2,
@@ -804,6 +806,7 @@ async function main() {
         priceCents: p.priceCents,
         imageFront: p.imageFront,
         imageBack: p.imageBack,
+        imageCard: 'imageCard' in p ? (p as { imageCard?: string }).imageCard : null,
         teamId: team?.id ?? null,
         allowFlocking: true,
         flockingFeeCents: 0,
