@@ -754,10 +754,17 @@ async function main() {
         "sublimé dans la maille plutôt qu'imprimé dessus. Celui qu'on met quand on " +
         'vient représenter DVG en entier.',
       priceCents: 4000,
-      imageFront: 'assets/img/shop/maillot-2026-dvg-front.webp',
-      // Dos SANS flocage : c'est le fond sur lequel composer l'apercu du pseudo.
-      // La variante `-back-name` porte le placeholder du fabricant.
-      imageBack: 'assets/img/shop/maillot-2026-dvg-back.webp',
+      images: [
+        { url: 'assets/img/shop/maillot-2026-dvg-front.webp', label: 'face' },
+        // Dos SANS flocage : c'est le fond sur lequel composer l'apercu du
+        // pseudo, d'ou `isBack`. La variante `-back-name` montre un exemple
+        // floque et ne doit surtout pas servir de fond a l'apercu.
+        { url: 'assets/img/shop/maillot-2026-dvg-back.webp', label: 'dos', isBack: true },
+        {
+          url: 'assets/img/shop/maillot-2026-dvg-back-name.webp',
+          label: 'dos, exemple de flocage',
+        },
+      ],
       teamSlug: null,
       active: false,
       position: 0,
@@ -772,8 +779,14 @@ async function main() {
         'de la section changent. Le vert monte sur les épaules, le motif reprend ' +
         "l'univers de l'équipe.",
       priceCents: 4000,
-      imageFront: 'assets/img/shop/maillot-2026-joker-front.webp',
-      imageBack: 'assets/img/shop/maillot-2026-joker-back.webp',
+      images: [
+        { url: 'assets/img/shop/maillot-2026-joker-front.webp', label: 'face' },
+        { url: 'assets/img/shop/maillot-2026-joker-back.webp', label: 'dos', isBack: true },
+        {
+          url: 'assets/img/shop/maillot-2026-joker-back-name.webp',
+          label: 'dos, exemple de flocage',
+        },
+      ],
       teamSlug: 'eva-joker',
       active: true,
       position: 1,
@@ -783,15 +796,28 @@ async function main() {
       name: 'Maillot 2026 — DVG × Mystic',
       shortDescription: "Aux couleurs de l'équipe EVA Mystic.",
       description:
-        "La déclinaison d'EVA Mystic. Le vêtement est rigoureusement identique aux deux " +
-        "autres, seul l'habillage appartient à la section. Le flocage se fait au pseudo " +
-        'et non au numéro.',
+        "La déclinaison d'EVA Mystic. Les deux titres de champion de France, 2022 et " +
+        "2023, sont inscrits sur le vêtement : ce n'est pas un ornement, c'est ce que la " +
+        "section est allée chercher. Un maillot d'esport ne sert pas à courir, il sert à " +
+        'dire de quel côté on est assis. C\'est aussi le seul des trois que les joueurs ' +
+        "ont porté devant l'objectif : le vert ne se pose pas à plat, il suit l'épaule.",
       priceCents: 4000,
-      imageFront: 'assets/img/shop/maillot-2026-mystic-front.webp',
-      imageBack: 'assets/img/shop/maillot-2026-mystic-back.webp',
-      // Seule Mystic a ete shootee portee : la vue portee sert de vignette dans
-      // « les autres declinaisons ».
-      imageCard: 'assets/img/shop/maillot-2026-mystic-porte-face.jpg',
+      images: [
+        { url: 'assets/img/shop/maillot-2026-mystic-front.webp', label: 'face' },
+        { url: 'assets/img/shop/maillot-2026-mystic-back.webp', label: 'dos', isBack: true },
+        {
+          url: 'assets/img/shop/maillot-2026-mystic-back-name.webp',
+          label: 'dos, exemple de flocage',
+        },
+        // Seule Mystic a ete shootee portee. La vue portee fait la vignette :
+        // un maillot sur des epaules se lit mieux qu'un maillot a plat.
+        {
+          url: 'assets/img/shop/maillot-2026-mystic-porte-face.jpg',
+          label: 'porté, face',
+          isCard: true,
+        },
+        { url: 'assets/img/shop/maillot-2026-mystic-porte-dos.jpg', label: 'porté, dos' },
+      ],
       teamSlug: 'eva-mystic',
       active: false,
       position: 2,
@@ -814,9 +840,6 @@ async function main() {
         shortDescription: p.shortDescription,
         description: p.description,
         priceCents: p.priceCents,
-        imageFront: p.imageFront,
-        imageBack: p.imageBack,
-        imageCard: 'imageCard' in p ? (p as { imageCard?: string }).imageCard : null,
         teamId: team?.id ?? null,
         allowFlocking: true,
         flockingFeeCents: 500,
@@ -824,6 +847,23 @@ async function main() {
         position: p.position,
       },
     });
+
+    // Les visuels sont repris a chaque seed : ils vivent dans le depot, pas dans
+    // l'admin, et un renommage de fichier doit se propager. La galerie editee
+    // depuis l'admin n'est ecrasee que si elle porte encore les visuels du seed.
+    const existingImages = await prisma.shopProductImage.count({ where: { productId: product.id } });
+    if (existingImages === 0) {
+      await prisma.shopProductImage.createMany({
+        data: p.images.map((image, index) => ({
+          productId: product.id,
+          url: image.url,
+          label: image.label,
+          position: index,
+          isBack: 'isBack' in image ? Boolean(image.isBack) : false,
+          isCard: 'isCard' in image ? Boolean(image.isCard) : index === 0,
+        })),
+      });
+    }
 
     for (const [index, label] of TEXTILE_SIZES.entries()) {
       await prisma.shopProductSize.upsert({
