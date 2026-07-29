@@ -1,59 +1,480 @@
-# ============================================================
-# Smoke test du self-hosted runner VPS.
+# =============================================================================
+# Supervision des runners self-hosted de l'organisation teamdivergentes
+# =============================================================================
 #
-# Objectif : prouver que le runner ciblant les labels
-# [self-hosted, linux, vps, docker] accepte et execute un job
-# sans dependre d'aucun job ubuntu-latest (donc independant du
-# billing GitHub Actions hosted).
+# POURQUOI CE WORKFLOW (incident du 2026-07-22, CI gelee ~9h)
+# -----------------------------------------------------------
+# GitHub a deprecie la version de runner deployee sur le VPS (v2.333.1). Le
+# runner s'authentifiait, s'enregistrait et affichait « Listening for Jobs »,
+# mais GitHub refusait de lui router le moindre job :
 #
-# Usage : declenchement manuel via workflow_dispatch.
-# ============================================================
+#     An error occurred: Runner version v2.333.1 is deprecated
+#     and cannot receive messages.
+#
+# Cote UI GitHub Actions : AUCUNE erreur. Les runs restaient simplement
+# `queued` indefiniment. Dernier run reussi le 2026-07-19 20:31, panne
+# decouverte ~9h plus tard, par hasard.
+#
+# L'ancienne version de ce fichier etait structurellement incapable de voir
+# quoi que ce soit :
+#   - `on: workflow_dispatch` seul  -> ne se declenchait jamais tout seul ;
+#   - `runs-on: [self-hosted, ...]` -> ne pouvait pas tourner precisement
+#     quand les runners etaient hors service.
+# Le seul outil de diagnostic etait indisponible quand on en avait besoin.
+#
+# CE QUE LE WORKFLOW VERIFIE MAINTENANT (toutes les 15 min, sur ubuntu-latest)
+# ---------------------------------------------------------------------------
+#   1. DISPONIBILITE : au moins 1 runner `online` sur l'org.
+#   2. ENGORGEMENT   : aucun run `queued` depuis plus de N minutes (defaut 30).
+#      -> c'est CE controle qui aurait detecte l'incident, ou la flotte etait
+#         « online » mais ne consommait aucun job.
+#   3. OBSOLESCENCE  : alerte des que l'ecart entre la version deployee et la
+#      derniere release `actions/runner` atteint N versions mineures
+#      (defaut 3 — l'ecart exact constate lors de l'incident).
+#      -> anticipe la PROCHAINE depreciation avant qu'elle ne gele la CI.
+#
+# GARANTIE : ce workflow est totalement isole. Il n'est appele par aucun autre
+# workflow (`workflow_call` absent) et aucun autre workflow n'en depend : il ne
+# peut donc jamais faire echouer une autre CI.
+#
+# NOTE : les workflows `schedule` ne s'executent que depuis la branche par
+# defaut du repo. Tant que cette PR n'est pas mergee, seul `workflow_dispatch`
+# est disponible pour tester.
+# =============================================================================
 
-name: Runner Check (self-hosted)
+name: Runner Check (supervision)
 
 on:
-  push:
-    paths:
-      - '.github/workflows/runner-check.yml'
+  # Toutes les 15 minutes. GitHub peut retarder voire sauter un declenchement
+  # en periode de forte charge : la fenetre de detection reelle est donc de
+  # l'ordre de 15-30 min, ce qui reste sans commune mesure avec les 9h de
+  # l'incident.
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      queued_threshold_minutes:
+        description: 'Anciennete max toleree (minutes) pour un run queued'
+        required: false
+        default: '30'
+      version_gap_threshold:
+        description: 'Ecart (versions mineures) avec actions/runner declenchant une alerte'
+        required: false
+        default: '3'
 
 permissions: {}
 
 concurrency:
-  group: runner-check-${{ github.ref }}
-  cancel-in-progress: true
+  group: runner-check-${{ github.workflow }}
+  # Surtout pas de cancel-in-progress : on ne veut pas qu'un declenchement
+  # planifie annule une alerte en cours d'envoi.
+  cancel-in-progress: false
+
+env:
+  RUNNER_ORG: teamdivergentes
+
+  # Repos dont on surveille la file d'attente. Les deux repos partagent la meme
+  # flotte de runners d'org : un engorgement cote frontend est aussi le signe
+  # d'une panne cote backend, et reciproquement.
+  WATCHED_REPOS: 'teamdivergentes/website_backend teamdivergentes/website_frontend'
+
+  # Version de runner pinnee cote Ansible (repo `vps`, variable
+  # `github_runner_tag`). Utilisee UNIQUEMENT en repli : l'API GitHub
+  # n'expose pas systematiquement le champ `version` des runners.
+  # /!\ A garder synchronise avec le repo `vps` lors de chaque bump.
+  PINNED_RUNNER_VERSION: '2.336.0'
+
+  DEFAULT_QUEUED_THRESHOLD_MINUTES: '30'
+  DEFAULT_VERSION_GAP_THRESHOLD: '3'
 
 jobs:
-  ping:
-    runs-on: [self-hosted, linux, vps, docker]
-    timeout-minutes: 5
+  # ---------------------------------------------------------------------------
+  # DEDOUBLONNAGE DES ALERTES
+  # ---------------------------------------------------------------------------
+  # Les deux repos (website_backend et website_frontend) surveillent la MEME
+  # flotte de runners d'org. Sans garde-fou, chaque panne declencherait deux
+  # alertes Discord identiques toutes les 15 min.
+  #
+  # Approche retenue : REPO PROPRIETAIRE (plutot qu'une frequence decalee).
+  #   - `website_backend` est proprietaire du check planifie ;
+  #   - `website_frontend` heberge le MEME fichier, a l'octet pres, mais son
+  #     execution planifiee est court-circuitee par la condition ci-dessous.
+  #
+  # Pourquoi proprietaire plutot que frequence decalee : un decalage horaire
+  # ne supprime pas le doublon, il l'etale (2 alertes decalees de ~7 min pour
+  # une seule panne). Le repo proprietaire garantit UNE alerte par panne, et
+  # la liste `WATCHED_REPOS` assure que la file d'attente des DEUX repos reste
+  # surveillee depuis ce point unique.
+  #
+  # Pourquoi le fichier reste identique dans les deux repos : symetrie exigee
+  # par l'US, diff trivial a maintenir, et bascule du proprietaire = une seule
+  # ligne a changer. En cas d'archivage du backend, il suffit d'inverser la
+  # condition cote frontend pour reprendre la supervision.
+  #
+  # `workflow_dispatch` reste pleinement fonctionnel dans LES DEUX repos : un
+  # humain doit pouvoir diagnostiquer depuis n'importe ou, doublon ou pas.
+  # ---------------------------------------------------------------------------
+  probe:
+    name: Sonde runners (org)
+    # NB : le contexte `env` n'est pas disponible dans un `if:` de job, d'ou le
+    # nom de repo en dur. Repo proprietaire du check planifie :
+    if: github.event_name != 'schedule' || github.repository == 'teamdivergentes/website_backend'
+    # ubiquite volontaire : ubuntu-latest, JAMAIS self-hosted. C'est le coeur
+    # du correctif — la sonde doit survivre a la panne qu'elle surveille.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Repli quand DEPLOY_TOKEN est absent : lecture des runs du repo courant.
+      actions: read
+    outputs:
+      alert: ${{ steps.check.outputs.alert }}
+      fleet_healthy: ${{ steps.check.outputs.fleet_healthy }}
+      headline: ${{ steps.check.outputs.headline }}
+      details: ${{ steps.check.outputs.details }}
     steps:
-      - name: Identite runner
+      - name: Sonder la flotte de runners
+        id: check
+        env:
+          # DEPLOY_TOKEN (PAT deja utilise par cicd.yml pour des appels API
+          # inter-repos) est prefere : le GITHUB_TOKEN par defaut n'a pas la
+          # portee `admin:org` requise par /orgs/{org}/actions/runners, ni
+          # l'acces aux runs de l'autre repo. Repli sur GITHUB_TOKEN pour que
+          # les controles encore possibles s'executent quand meme.
+          SUPERVISION_TOKEN: ${{ secrets.DEPLOY_TOKEN || github.token }}
+          TOKEN_KIND: ${{ secrets.DEPLOY_TOKEN && 'DEPLOY_TOKEN (PAT)' || 'GITHUB_TOKEN (repli)' }}
+          # RUNNER_ORG / WATCHED_REPOS / PINNED_RUNNER_VERSION sont herites du
+          # bloc `env` de niveau workflow.
+          QUEUED_THRESHOLD_MINUTES: ${{ inputs.queued_threshold_minutes || env.DEFAULT_QUEUED_THRESHOLD_MINUTES }}
+          VERSION_GAP_THRESHOLD: ${{ inputs.version_gap_threshold || env.DEFAULT_VERSION_GAP_THRESHOLD }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          echo "Runner name : ${RUNNER_NAME}"
-          echo "Runner OS   : ${RUNNER_OS}"
-          echo "Runner arch : ${RUNNER_ARCH}"
-          echo "Workspace   : ${GITHUB_WORKSPACE}"
-          uname -a
-          whoami
+          # `set +e` explicite : GitHub lance les `run` avec `-e` par defaut.
+          # Ce job ne doit JAMAIS s'interrompre en cours de route — un echec
+          # ici = pas de notification = angle mort, exactement le probleme que
+          # l'on corrige.
+          set +e
+          set -uo pipefail
 
-      - name: Ressources hote
-        run: |
-          echo "=== CPU ==="
-          nproc
-          echo "=== Memoire ==="
-          free -h
-          echo "=== Disque ==="
-          df -h / /tmp 2>/dev/null || df -h /
+          API='https://api.github.com'
+          ALERTS=''      # lignes de detail, une par anomalie
+          ALERT=0
+          FLEET_HEALTHY=0
+          HEADLINE=''
 
-      - name: Acces Docker
-        run: |
-          docker version
-          docker info --format '{{.ServerVersion}}'
-          docker ps --format 'table {{.Names}}\t{{.Status}}' | head -20
+          add_alert() { ALERTS="${ALERTS}${1}"$'\n'; ALERT=1; }
 
-      - name: Reseau
+          # -------------------------------------------------------------------
+          # Appel API avec 3 tentatives. Un 5xx transitoire de GitHub ne doit
+          # jamais etre interprete comme « les runners sont morts ».
+          # HTTP_CODE et BODY sont poses en variables globales.
+          # -------------------------------------------------------------------
+          api_get() {
+            local url="$1" attempt raw
+            for attempt in 1 2 3; do
+              raw=$(curl -sS -m 30 -w $'\n%{http_code}' \
+                -H 'Accept: application/vnd.github+json' \
+                -H "Authorization: Bearer ${SUPERVISION_TOKEN}" \
+                -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "$url" 2>/dev/null)
+              HTTP_CODE=$(printf '%s' "$raw" | tail -n1)
+              BODY=$(printf '%s' "$raw" | sed '$d')
+              case "$HTTP_CODE" in
+                200) return 0 ;;
+                401|403|404) return 1 ;;   # probleme de portee de token : inutile de reessayer
+                *) sleep $(( attempt * 3 )) ;;
+              esac
+            done
+            return 1
+          }
+
+          echo "Token utilise : ${TOKEN_KIND}"
+          echo "Seuils : queued > ${QUEUED_THRESHOLD_MINUTES} min | ecart version > ${VERSION_GAP_THRESHOLD}"
+          echo
+
+          # ===================================================================
+          # 1) DISPONIBILITE — au moins un runner `online` sur l'org
+          # ===================================================================
+          RUNNERS_KNOWN=0
+          ONLINE=0
+          TOTAL=0
+          BUSY=0
+          RUNNER_DETAIL='inconnu'
+          RUNNER_VERSIONS=''
+
+          if api_get "${API}/orgs/${RUNNER_ORG}/actions/runners?per_page=100"; then
+            RUNNERS_KNOWN=1
+            TOTAL=$(printf '%s' "$BODY" | jq -r '.total_count // 0')
+            ONLINE=$(printf '%s' "$BODY" | jq -r '[.runners[]? | select(.status == "online")] | length')
+            BUSY=$(printf '%s' "$BODY" | jq -r '[.runners[]? | select(.busy == true)] | length')
+            RUNNER_DETAIL=$(printf '%s' "$BODY" | jq -r '
+              [.runners[]? | "\(.name) (\(.status)\(if .busy then ", busy" else "" end))"] | join(", ")
+            ')
+            [ -z "$RUNNER_DETAIL" ] && RUNNER_DETAIL='aucun runner enregistre'
+            # `version` n'est pas garanti par l'API : peut ressortir vide.
+            RUNNER_VERSIONS=$(printf '%s' "$BODY" | jq -r '[.runners[]?.version // empty] | unique | join(" ")')
+
+            echo "Runners org : ${ONLINE}/${TOTAL} online (${BUSY} busy) -> ${RUNNER_DETAIL}"
+
+            if [ "$ONLINE" -lt 1 ]; then
+              add_alert "🔴 **Aucun runner online** — ${TOTAL} runner(s) enregistre(s) : ${RUNNER_DETAIL}"
+              HEADLINE='FLOTTE HS - aucun runner online'
+            fi
+          else
+            # 403 attendu si DEPLOY_TOKEN n'a pas la portee admin:org. On ne
+            # transforme SURTOUT PAS ca en fausse alerte de panne.
+            echo "::warning title=Supervision partielle::API /orgs/${RUNNER_ORG}/actions/runners a repondu HTTP ${HTTP_CODE:-?} avec ${TOKEN_KIND}. Controles disponibilite et version desactives (portee admin:org / Administration:read requise)."
+            RUNNER_DETAIL="non lisible (HTTP ${HTTP_CODE:-?})"
+          fi
+
+          # ===================================================================
+          # 2) ENGORGEMENT — des runs `queued` depuis trop longtemps
+          # -------------------------------------------------------------------
+          # C'est LE controle qui aurait leve l'incident du 2026-07-22 : les
+          # runners etaient « online » et « Listening for Jobs », mais GitHub
+          # ne leur routait rien. Seule la file d'attente le montrait.
+          # ===================================================================
+          NOW=$(date -u +%s)
+          STUCK_TOTAL=0
+          OLDEST_MIN=0
+          OLDEST_URL=''
+          QUEUE_KNOWN=0
+
+          for repo in ${WATCHED_REPOS}; do
+            if ! api_get "${API}/repos/${repo}/actions/runs?status=queued&per_page=100"; then
+              echo "::warning title=File d'attente illisible::${repo} a repondu HTTP ${HTTP_CODE:-?} (${TOKEN_KIND})."
+              continue
+            fi
+            QUEUE_KNOWN=1
+            queued=$(printf '%s' "$BODY" | jq -r '.total_count // 0')
+            echo "File ${repo} : ${queued} run(s) queued"
+
+            while IFS=$'\t' read -r created url name; do
+              [ -z "${created:-}" ] && continue
+              started=$(date -u -d "$created" +%s 2>/dev/null) || continue
+              age_min=$(( (NOW - started) / 60 ))
+              [ "$age_min" -le "$QUEUED_THRESHOLD_MINUTES" ] && continue
+              STUCK_TOTAL=$(( STUCK_TOTAL + 1 ))
+              echo "  bloque depuis ${age_min} min : ${name} — ${url}"
+              if [ "$age_min" -gt "$OLDEST_MIN" ]; then
+                OLDEST_MIN="$age_min"
+                OLDEST_URL="$url"
+              fi
+            done < <(printf '%s' "$BODY" | jq -r '.workflow_runs[]? | [.created_at, .html_url, .name] | @tsv')
+          done
+
+          if [ "$STUCK_TOTAL" -gt 0 ]; then
+            add_alert "🟠 **${STUCK_TOTAL} run(s) bloque(s) en \`queued\`** — le plus ancien depuis ${OLDEST_MIN} min (seuil ${QUEUED_THRESHOLD_MINUTES} min). Symptome typique d'un runner enregistre mais qui ne recoit aucun job (version depreciee, cf. incident du 2026-07-22)."
+            [ -n "$OLDEST_URL" ] && ALERTS="${ALERTS}↳ ${OLDEST_URL}"$'\n'
+            [ -z "$HEADLINE" ] && HEADLINE="FILE BLOQUEE - ${STUCK_TOTAL} run(s) queued > ${QUEUED_THRESHOLD_MINUTES}min"
+          fi
+
+          # ===================================================================
+          # 3) OBSOLESCENCE — ecart avec la derniere release actions/runner
+          # -------------------------------------------------------------------
+          # GitHub deprecie les vieilles versions sans preavis exploitable. On
+          # veut le savoir AVANT que la flotte ne soit blacklistee.
+          # ===================================================================
+          LATEST_VERSION=''
+          if api_get "${API}/repos/actions/runner/releases/latest"; then
+            LATEST_VERSION=$(printf '%s' "$BODY" | jq -r '.tag_name // empty' | sed 's/^v//')
+          else
+            echo "::warning title=Version amont inconnue::Impossible de lire actions/runner releases/latest (HTTP ${HTTP_CODE:-?})."
+          fi
+
+          # Repli sur la version pinnee cote Ansible quand l'API ne renvoie pas
+          # le champ `version` des runners (non garanti par le schema GitHub).
+          VERSION_SOURCE='API runners'
+          if [ -z "$RUNNER_VERSIONS" ]; then
+            RUNNER_VERSIONS="$PINNED_RUNNER_VERSION"
+            VERSION_SOURCE='pin Ansible (repo vps, github_runner_tag)'
+          fi
+
+          if [ -n "$LATEST_VERSION" ]; then
+            latest_minor=$(printf '%s' "$LATEST_VERSION" | cut -d. -f2)
+            echo "Derniere release actions/runner : ${LATEST_VERSION} | deploye : ${RUNNER_VERSIONS} (source : ${VERSION_SOURCE})"
+            for v in ${RUNNER_VERSIONS}; do
+              cur_minor=$(printf '%s' "$v" | cut -d. -f2)
+              case "${latest_minor}${cur_minor}" in
+                ''|*[!0-9]*) echo "::warning::Versions non comparables (${v} vs ${LATEST_VERSION})"; continue ;;
+              esac
+              gap=$(( latest_minor - cur_minor ))
+              # Comparaison `>=` et non `>` : le 2026-07-22, la version
+              # depreciee etait 2.333.1 alors que l'amont etait en 2.336.0,
+              # soit un ecart de tout juste 3. Un `>` strict aurait laisse
+              # passer l'incident reel a seuil egal.
+              if [ "$gap" -ge "$VERSION_GAP_THRESHOLD" ]; then
+                add_alert "🟡 **Runner obsolete** — version \`${v}\` contre \`${LATEST_VERSION}\` en amont (${gap} versions de retard, seuil ${VERSION_GAP_THRESHOLD}). Source : ${VERSION_SOURCE}. Bumper \`github_runner_tag\` dans le repo \`vps\` AVANT que GitHub ne deprecie la version et ne gele la CI."
+                [ -z "$HEADLINE" ] && HEADLINE="RUNNER OBSOLETE - ${v} vs ${LATEST_VERSION}"
+              fi
+            done
+          fi
+
+          # ===================================================================
+          # 4) SUPERVISION AVEUGLE — token sans portee suffisante
+          # -------------------------------------------------------------------
+          # Ne jamais alerter « panne » sur un 403 (ce serait un faux positif
+          # toutes les 15 min). Mais ne pas rester muet non plus : un token
+          # sans portee = angle mort, c'est-a-dire la cause profonde de cet
+          # EPIC. Compromis : une alerte de configuration au plus une fois par
+          # jour (creneau ~09h UTC), plus a chaque declenchement manuel.
+          # ===================================================================
+          if [ "$RUNNERS_KNOWN" -eq 0 ] || [ "$QUEUE_KNOWN" -eq 0 ]; then
+            hour=$(date -u +%H); minute=$(date -u +%M)
+            if [ "$EVENT_NAME" != 'schedule' ] || { [ "$hour" = '09' ] && [ "$minute" -lt 15 ]; }; then
+              add_alert "⚙️ **Supervision partielle** — l'API GitHub a refuse une lecture avec ${TOKEN_KIND} (runners lisibles : ${RUNNERS_KNOWN}, files lisibles : ${QUEUE_KNOWN}). Donner la portee \`admin:org\` / \`Administration: read\` au PAT \`DEPLOY_TOKEN\`, sinon la panne du 2026-07-22 resterait invisible."
+              [ -z "$HEADLINE" ] && HEADLINE='SUPERVISION PARTIELLE - portee token insuffisante'
+            fi
+          fi
+
+          # ===================================================================
+          # Synthese
+          # ===================================================================
+          # `fleet_healthy` = on a la PREUVE que la flotte consomme des jobs
+          # (au moins un runner online ET aucune file bloquee). Cette sortie
+          # decide du canal d'alerte utilise en aval (cf. jobs `notify-*`).
+          if [ "$RUNNERS_KNOWN" -eq 1 ] && [ "$ONLINE" -ge 1 ] && [ "$STUCK_TOTAL" -eq 0 ]; then
+            FLEET_HEALTHY=1
+          fi
+
+          [ "$ALERT" -eq 1 ] || HEADLINE='OK'
+          [ -n "$ALERTS" ] || ALERTS='Aucune anomalie detectee.'
+
+          {
+            echo "### Supervision runners — org \`${RUNNER_ORG}\`"
+            echo
+            echo "| Controle | Resultat |"
+            echo "| --- | --- |"
+            echo "| Disponibilite | ${ONLINE}/${TOTAL} online — ${RUNNER_DETAIL} |"
+            echo "| Engorgement | ${STUCK_TOTAL} run(s) queued > ${QUEUED_THRESHOLD_MINUTES} min |"
+            echo "| Version | deploye ${RUNNER_VERSIONS} / amont ${LATEST_VERSION:-inconnu} |"
+            echo "| Token | ${TOKEN_KIND} |"
+            echo
+            echo "$ALERTS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "alert=$( [ "$ALERT" -eq 1 ] && echo true || echo false )"
+            echo "fleet_healthy=$( [ "$FLEET_HEALTHY" -eq 1 ] && echo true || echo false )"
+            echo "headline=${HEADLINE}"
+            echo 'details<<RUNNER_CHECK_EOF'
+            printf '%s\n' "${ALERTS%$'\n'}"
+            echo 'RUNNER_CHECK_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          # Sortie toujours verte : l'etat reel est porte par les outputs, pas
+          # par le code retour. Le job `alert-status` marquera le run en rouge.
+          exit 0
+
+  # ---------------------------------------------------------------------------
+  # ALERTE — cas ou la flotte self-hosted repond encore
+  # ---------------------------------------------------------------------------
+  # Reutilise le workflow d'alerte existant `discord-notify.yml`.
+  #
+  # ATTENTION : `discord-notify.yml` tourne lui-meme sur
+  # `runs-on: [self-hosted, linux, vps, docker]`. Il ne peut donc PAS servir a
+  # annoncer une panne de ces memes runners : l'alerte resterait `queued` pour
+  # toujours, exactement comme les runs de l'incident du 2026-07-22.
+  # On ne l'emprunte donc que lorsqu'on a la preuve que la flotte consomme des
+  # jobs (`fleet_healthy == true`), c'est-a-dire pour les anomalies non
+  # bloquantes : runner obsolete, portee de token insuffisante.
+  # -> Correctif de fond hors perimetre de cette US : rendre le `runs-on` de
+  #    `discord-notify.yml` parametrable pour router 100% des alertes ici.
+  # ---------------------------------------------------------------------------
+  notify-degraded:
+    name: Alerte Discord (flotte operationnelle)
+    needs: probe
+    if: needs.probe.outputs.alert == 'true' && needs.probe.outputs.fleet_healthy == 'true'
+    uses: ./.github/workflows/discord-notify.yml
+    with:
+      environment: SUPERVISION RUNNERS — ${{ needs.probe.outputs.headline }}
+      status: cancelled  # -> embed orange (avertissement), pas rouge
+      repository: ${{ github.repository }}
+      actor: runner-check
+      sha: ${{ github.sha }}
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    secrets:
+      DISCORD_DEPLOY_WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+
+  # ---------------------------------------------------------------------------
+  # ALERTE — cas critique : la flotte self-hosted ne repond plus
+  # ---------------------------------------------------------------------------
+  # Envoi direct depuis ubuntu-latest, sans aucune dependance a la flotte
+  # surveillee. C'est le chemin d'alerte qui manquait le 2026-07-22 : tout
+  # canal passant par un runner self-hosted est inutilisable au moment precis
+  # ou l'alerte doit partir.
+  # Mutuellement exclusif avec `notify-degraded` (conditions opposees sur
+  # `fleet_healthy`) : jamais de double notification.
+  # ---------------------------------------------------------------------------
+  notify-outage:
+    name: Alerte Discord (flotte indisponible)
+    needs: probe
+    if: needs.probe.outputs.alert == 'true' && needs.probe.outputs.fleet_healthy != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Envoyer l'alerte Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          HEADLINE: ${{ needs.probe.outputs.headline }}
+          DETAILS: ${{ needs.probe.outputs.details }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          ip -br addr show 2>/dev/null || ifconfig -a 2>/dev/null | head -20
-          curl -sS -o /dev/null -w "ghcr.io HTTP %{http_code} en %{time_total}s\n" https://ghcr.io/v2/ || true
-          curl -sS -o /dev/null -w "github.com HTTP %{http_code} en %{time_total}s\n" https://github.com || true
+          # `set +e` : une alerte qui echoue ne doit pas masquer le diagnostic.
+          set +e
+          set -uo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+            echo "::warning title=Alerte non envoyee::Secret DISCORD_DEPLOY_WEBHOOK absent."
+            exit 0
+          fi
+
+          DESCRIPTION="${DETAILS}"$'\n\n'"[Voir le diagnostic complet](${RUN_URL})"
+
+          payload=$(jq -n \
+            --arg title "🚨 Runners CI — ${HEADLINE}" \
+            --arg desc "$DESCRIPTION" \
+            --arg repo "$REPOSITORY" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{embeds: [{
+              title: $title,
+              description: $desc,
+              color: 15158332,
+              fields: [
+                {name: "Surveille par", value: $repo, inline: true},
+                {name: "Sonde", value: "ubuntu-latest (hors flotte VPS)", inline: true}
+              ],
+              timestamp: $ts
+            }]}')
+
+          # Jamais bloquant : un webhook Discord injoignable ne doit pas
+          # masquer le diagnostic, deja consultable dans le step summary.
+          curl -sS -m 30 -X POST "$DISCORD_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "$payload" \
+            || echo "::warning title=Alerte non envoyee::Echec de l'appel au webhook Discord."
+          exit 0
+
+  # ---------------------------------------------------------------------------
+  # Marque le run en rouge quand une anomalie est detectee : l'onglet Actions
+  # devient un second canal de detection, independant de Discord.
+  # `needs: probe` uniquement (jamais les jobs `notify-*`) pour ne pas dependre
+  # d'un job qui pourrait rester `queued` en cas de panne de la flotte.
+  # ---------------------------------------------------------------------------
+  alert-status:
+    name: Etat de la supervision
+    needs: probe
+    if: needs.probe.outputs.alert == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Echec volontaire
+        env:
+          HEADLINE: ${{ needs.probe.outputs.headline }}
+          DETAILS: ${{ needs.probe.outputs.details }}
+        run: |
+          echo "::error title=Supervision runners::${HEADLINE}"
+          printf '%s\n' "$DETAILS"
+          exit 1
