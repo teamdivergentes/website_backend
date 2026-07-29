@@ -740,9 +740,10 @@ async function main() {
       name: 'Maillot 2026 — Team Divergentes',
       shortDescription: 'Le maillot officiel de la structure, saison 2026.',
       description:
-        "Maille sublimee 100% polyester europeen, grammage 160 g/m². Un tissu doux et " +
-        'anti-transpirant qui apporte confort et legerete en toute circonstance. ' +
-        'Fabrique en Europe.',
+        'Le maillot de toute la structure, sans distinction de section ni de jeu. ' +
+        'Il reprend les codes posés en 2017 : noir profond, vert Divergentes, logo ' +
+        "sublimé dans la maille plutôt qu'imprimé dessus. Celui qu'on met quand on " +
+        'vient représenter DVG en entier.',
       priceCents: 4990,
       imageFront: null,
       imageBack: null,
@@ -754,11 +755,12 @@ async function main() {
     {
       slug: 'maillot-2026-joker',
       name: 'Maillot 2026 — DVG × Joker',
-      shortDescription: "Aux couleurs de l'equipe EVA Joker.",
+      shortDescription: "Aux couleurs de l'équipe EVA Joker.",
       description:
-        "Maille sublimee 100% polyester europeen, grammage 160 g/m². Un tissu doux et " +
-        'anti-transpirant qui apporte confort et legerete en toute circonstance. ' +
-        'Fabrique en Europe.',
+        "La déclinaison d'EVA Joker. Même patron, même maille, même finition que le " +
+        "maillot de structure : seuls les liserés, l'habillage des manches et le blason " +
+        'de la section changent. Le vert monte sur les épaules, le motif reprend ' +
+        "l'univers de l'équipe.",
       priceCents: 4990,
       imageFront: 'assets/img/shop/maillot-2026-joker-front.png',
       imageBack: 'assets/img/shop/maillot-2026-joker-back.png',
@@ -769,11 +771,11 @@ async function main() {
     {
       slug: 'maillot-2026-mystic',
       name: 'Maillot 2026 — DVG × Mystic',
-      shortDescription: "Aux couleurs de l'equipe EVA Mystic.",
+      shortDescription: "Aux couleurs de l'équipe EVA Mystic.",
       description:
-        "Maille sublimee 100% polyester europeen, grammage 160 g/m². Un tissu doux et " +
-        'anti-transpirant qui apporte confort et legerete en toute circonstance. ' +
-        'Fabrique en Europe.',
+        "La déclinaison d'EVA Mystic. Le vêtement est rigoureusement identique aux deux " +
+        "autres, seul l'habillage appartient à la section. Le flocage se fait au pseudo " +
+        'et non au numéro.',
       priceCents: 4990,
       imageFront: 'assets/img/shop/maillot-2026-mystic-front.jpg',
       // Pas de visuel de dos au 28/07 (render 3D seul, en attente du mockup).
