@@ -32,6 +32,12 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Compile the seed alongside the app. `prisma db seed` lance `ts-node`, absent
+# de l'image de production : aucun environnement deploye ne pouvait donc etre
+# amorce. Compile ici, `dist/prisma/seed.js` resout son import
+# `../generated/prisma` vers `dist/generated/prisma`, qui est bien present.
+RUN npm run build:seed
+
 # ================================
 # Stage 3: Production Dependencies
 # ================================

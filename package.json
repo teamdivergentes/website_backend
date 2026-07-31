@@ -7,6 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "build:seed": "tsc prisma/seed.ts --outDir dist --rootDir . --module commonjs --moduleResolution node --target es2023 --esModuleInterop --skipLibCheck",
+    "db:seed:prod": "node dist/prisma/seed.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
