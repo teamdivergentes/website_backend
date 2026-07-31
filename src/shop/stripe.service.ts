@@ -1,10 +1,25 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 
-export interface CheckoutSessionParams {
-  productName: string;
-  unitPriceCents: number;
+export interface CheckoutLine {
+  /** Libelle affiche sur la page Stripe et sur le recu client. */
+  label: string;
+  unitAmountCents: number;
   quantity: number;
+}
+
+/**
+ * Ce que Stripe sait d'une session de paiement.
+ * - `paid` : le paiement a abouti, meme si notre webhook ne l'a jamais vu
+ * - `unpaid` : la session est close sans paiement, plus rien ne peut aboutir
+ * - `unknown` : Stripe n'a pas repondu, ou la session peut encore aboutir
+ */
+export type CheckoutSessionOutcome = 'paid' | 'unpaid' | 'unknown';
+
+export interface CheckoutSessionParams {
+  lines: CheckoutLine[];
+  shippingCents: number;
+  currency: string;
   metadata: Record<string, string>;
 }
 
@@ -26,30 +41,34 @@ export class StripeService {
   }
 
   async createCheckoutSession(params: CheckoutSessionParams): Promise<{ id: string; url: string }> {
-    const shippingRateId = process.env.STRIPE_SHIPPING_RATE_ID;
     const successUrl = process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci';
-    const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique';
-
-    if (!shippingRateId) {
-      this.logger.warn('STRIPE_SHIPPING_RATE_ID absente : aucun frais de port ne sera facturé');
-    }
+    const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique/panier';
 
     const session = await this.getClient().checkout.sessions.create({
       mode: 'payment',
-      line_items: [
+      line_items: params.lines.map((line) => ({
+        quantity: line.quantity,
+        price_data: {
+          currency: params.currency,
+          unit_amount: line.unitAmountCents,
+          product_data: { name: line.label },
+        },
+      })),
+      // France uniquement : le tarif de port est unifie et ne couvre pas
+      // l'international (cf. spec 2026-07-28).
+      shipping_address_collection: { allowed_countries: ['FR'] },
+      // Tarif inline plutot qu'un shipping_rate pre-cree dans Stripe : le
+      // montant vit en base et doit pouvoir changer depuis l'admin sans
+      // resynchroniser un objet Stripe.
+      shipping_options: [
         {
-          quantity: params.quantity,
-          price_data: {
-            currency: 'eur',
-            unit_amount: params.unitPriceCents,
-            product_data: { name: params.productName },
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: params.shippingCents, currency: params.currency },
+            display_name: 'Livraison France',
           },
         },
       ],
-      shipping_address_collection: {
-        allowed_countries: ['FR', 'BE', 'CH', 'LU', 'DE', 'ES', 'IT'],
-      },
-      ...(shippingRateId ? { shipping_options: [{ shipping_rate: shippingRateId }] } : {}),
       metadata: params.metadata,
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -59,6 +78,36 @@ export class StripeService {
       throw new InternalServerErrorException('Session de paiement invalide');
     }
     return { id: session.id, url: session.url };
+  }
+
+  /**
+   * Verdict de Stripe sur une session de paiement.
+   * `unknown` n'est pas une erreur mais une abstention : l'appelant ne doit
+   * alors rien detruire.
+   */
+  async getSessionOutcome(sessionId: string): Promise<CheckoutSessionOutcome> {
+    try {
+      const session = await this.getClient().checkout.sessions.retrieve(sessionId);
+
+      // `no_payment_required` couvre les totaux a zero : la commande est due,
+      // meme sans mouvement d'argent.
+      if (session.payment_status === 'paid' || session.payment_status === 'no_payment_required') {
+        return 'paid';
+      }
+      // Seule une session expiree est definitivement close. Une session
+      // `open`, ou `complete` avec un paiement differe, peut encore aboutir :
+      // on s'abstient plutot que de detruire une commande qui sera payee.
+      return session.status === 'expired' ? 'unpaid' : 'unknown';
+    } catch (error) {
+      // Session inconnue de Stripe : plus rien ne peut aboutir, la commande
+      // locale est un residu. Toute autre panne est une abstention.
+      if (error instanceof Stripe.errors.StripeError && error.code === 'resource_missing') {
+        return 'unpaid';
+      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Statut de la session ${sessionId} indisponible: ${message}`);
+      return 'unknown';
+    }
   }
 
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
