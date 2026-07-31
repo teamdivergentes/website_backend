@@ -146,7 +146,7 @@ describe('DashboardService', () => {
     });
   });
 
-  // ─── todo ─────────────────────────────────────────────────────────────────
+  // ─── getTodo ──────────────────────────────────────────────────────────────
 
   describe('getTodo', () => {
     it('compte les matchs passés sans score', async () => {
@@ -232,7 +232,7 @@ describe('DashboardService', () => {
       const todoCutoff = prisma.article.count.mock.calls[1][0].where.updatedAt?.lt;
 
       // Bornes complementaires et strictement exclusives : `resume` prend
-      // `>= seuil`, `todo` prend `< seuil`. Un brouillon a exactement 30 jours
+      // `>= seuil`, `getTodo()` prend `< seuil`. Un brouillon a exactement 30 jours
       // ne peut donc apparaitre que dans "Reprendre", jamais dans les deux.
       expect(resumeCutoff).toEqual(todoCutoff);
     });

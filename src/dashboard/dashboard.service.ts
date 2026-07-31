@@ -4,9 +4,9 @@ import { PrismaService } from '../prisma.service';
 /**
  * Age a partir duquel un brouillon cesse d'etre "en cours" pour devenir dormant.
  *
- * Seuil unique aux deux endpoints : `resume` prend les brouillons plus recents,
- * `todo` compte les plus anciens. Un brouillon ne peut donc jamais apparaitre
- * dans les deux blocs, quel que soit son age.
+ * Seuil unique aux deux endpoints : `getResume()` prend les brouillons plus
+ * recents, `getTodo()` compte les plus anciens. Un brouillon ne peut donc jamais
+ * apparaitre dans les deux blocs, quel que soit son age.
  */
 export const DRAFT_STALE_DAYS = 30;
 
