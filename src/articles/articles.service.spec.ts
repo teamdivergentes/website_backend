@@ -86,6 +86,52 @@ describe('ArticlesService', () => {
       expect(result.meta.totalPages).toBe(1);
     });
 
+    // ─── Tri serveur (EPIC-41) ─────────────────────────────────────────────
+
+    it('trie par createdAt desc par defaut', async () => {
+      mockPrismaService.article.findMany.mockResolvedValue([]);
+      mockPrismaService.article.count.mockResolvedValue(0);
+
+      await service.findAll({});
+
+      expect(mockPrismaService.article.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
+      );
+    });
+
+    it('applique sortBy et sortOrder', async () => {
+      mockPrismaService.article.findMany.mockResolvedValue([]);
+      mockPrismaService.article.count.mockResolvedValue(0);
+
+      await service.findAll({ sortBy: 'title', sortOrder: 'asc' });
+
+      expect(mockPrismaService.article.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { title: 'asc' } }),
+      );
+    });
+
+    it('accepte updatedAt comme critere de tri', async () => {
+      mockPrismaService.article.findMany.mockResolvedValue([]);
+      mockPrismaService.article.count.mockResolvedValue(0);
+
+      await service.findAll({ sortBy: 'updatedAt', sortOrder: 'desc' });
+
+      expect(mockPrismaService.article.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { updatedAt: 'desc' } }),
+      );
+    });
+
+    it('retombe sur desc quand sortOrder est absent', async () => {
+      mockPrismaService.article.findMany.mockResolvedValue([]);
+      mockPrismaService.article.count.mockResolvedValue(0);
+
+      await service.findAll({ sortBy: 'title' });
+
+      expect(mockPrismaService.article.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { title: 'desc' } }),
+      );
+    });
+
     it('applique le filtre published', async () => {
       mockPrismaService.article.findMany.mockResolvedValue([]);
       mockPrismaService.article.count.mockResolvedValue(0);

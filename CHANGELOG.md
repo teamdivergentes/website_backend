@@ -1,3 +1,25 @@
+## [1.5.2](https://github.com/teamdivergentes/website_backend/compare/v1.5.1...v1.5.2) (2026-05-28)
+
+
+### Bug Fixes
+
+* **ci:** add DISPATCH_DEPLOY_TAG release mode to determine-tags ([bea5c44](https://github.com/teamdivergentes/website_backend/commit/bea5c4403a0dd46b3a71952bc1f44f0c8dfa2348))
+* **config:** restrict public /api/config to allow-list, add admin-only endpoint ([05b5355](https://github.com/teamdivergentes/website_backend/commit/05b5355b96cc1759c90e22a2eead10324edd7bb7))
+
+# [1.5.0](https://github.com/teamdivergentes/website_backend/compare/v1.4.0...v1.5.0) (2026-05-22)
+
+
+### Bug Fixes
+
+* **db:** seed default article types via idempotent migration ([f55a82a](https://github.com/teamdivergentes/website_backend/commit/f55a82ac51ec7b393952bc247046065dec303603))
+
+
+### Features
+
+* **coaching-staff:** add public findBySlug endpoint for coach detail page ([d4ed1c7](https://github.com/teamdivergentes/website_backend/commit/d4ed1c785c6b33d27f730c2caf66680f83ad65ae))
+* **coaching-staff:** expose new editorial fields in DTOs and service ([60622d7](https://github.com/teamdivergentes/website_backend/commit/60622d77388c9bb4097c4918338b191116899d83))
+* **prisma:** add nationality/birthDate/customFields to coaching_staff for editorial parity with team_members ([87733c9](https://github.com/teamdivergentes/website_backend/commit/87733c918a6c540308f9f44b3fad106bcf5fc92b))
+
 # [1.4.0](https://github.com/teamdivergentes/website_backend/compare/v1.3.2...v1.4.0) (2026-05-11)
 
 
