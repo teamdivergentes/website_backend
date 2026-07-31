@@ -75,6 +75,8 @@ model Team {
   memberFieldsConfig Json?
   members            TeamMember[]
   coachingStaff      CoachingStaff[]
+  trophies           Trophy[]
+  matches            Match[]
 
   @@map("teams")
 }
@@ -217,6 +219,7 @@ model Article {
 
   type           ArticleType @relation(fields: [typeId], references: [id])
   user           User        @relation(fields: [userId], references: [id])
+  matches        Match[]
 
   @@index([typeId])
   @@index([published, featured])
@@ -282,4 +285,91 @@ model RecruitmentPost {
   updatedAt   DateTime @updatedAt
 
   @@map("recruitment_posts")
+}
+
+model Trophy {
+  id          Int      @id @default(autoincrement())
+  competition String
+  placement   Int
+  description String?
+  date        DateTime
+  image       String?
+  featured    Boolean  @default(false)
+  teamId      Int?
+  teamLabel   String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([teamId])
+  @@index([active, featured])
+  @@map("trophies")
+}
+
+model Match {
+  id               Int      @id @default(autoincrement())
+  teamId           Int?
+  teamNameSnapshot String?
+  opponentName     String
+  opponentLogo     String?
+  scheduledAt      DateTime
+  competition      String?
+  streamUrl        String?
+  scoreDvg         Int?
+  scoreOpponent    Int?
+  articleId        Int?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  team             Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  article          Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+
+  @@index([teamId])
+  @@index([scheduledAt])
+  @@map("matches")
+}
+
+model Order {
+  id                    Int         @id @default(autoincrement())
+  reference             String      @unique
+  stripeSessionId       String      @unique
+  stripePaymentIntentId String?
+
+  productId             String
+  productName           String
+  size                  String?
+  quantity              Int
+  unitPriceCents        Int
+  shippingCents         Int
+  totalCents            Int
+  currency              String      @default("eur")
+
+  customerEmail         String
+  customerName          String
+  shippingAddress       Json
+
+  status                OrderStatus @default(PAID)
+  sentToMerchantAt      DateTime?
+  merchantBatchId       String?
+  trackingNumber        String?
+  adminNote             String?     @db.Text
+
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@index([status])
+  @@index([merchantBatchId])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PAID
+  SENT_TO_MERCHANT
+  IN_PRODUCTION
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
 }

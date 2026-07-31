@@ -170,7 +170,10 @@ describe('CoachingStaffController', () => {
 
   describe('PermissionsGuard metadata (SEC-003)', () => {
     const getPerms = (methodName: keyof typeof CoachingStaffController.prototype): string[] => {
-      const fn = CoachingStaffController.prototype[methodName] as object;
+      // Passe par le descripteur plutot que par un acces direct : on ne veut que
+      // les metadonnees posees par le decorateur, jamais appeler la methode.
+      const fn = Object.getOwnPropertyDescriptor(CoachingStaffController.prototype, methodName)
+        ?.value as object;
       return Reflect.getMetadata('permissions', fn) as string[];
     };
 

@@ -7,7 +7,9 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // rawBody: necessaire a la verification de signature des webhooks Stripe,
+  // qui calcule un HMAC sur les octets exacts du corps de la requete.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
   // Security: Helmet middleware for HTTP headers
   app.use(helmet());

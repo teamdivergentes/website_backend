@@ -44,6 +44,12 @@ async function main() {
     'coaching_staff:read',
     'coaching_staff:write',
     'coaching_staff:delete',
+    'trophies:read',
+    'trophies:write',
+    'trophies:delete',
+    'matches:read',
+    'matches:write',
+    'matches:delete',
   ];
 
   const cmPermissions = [
@@ -52,8 +58,18 @@ async function main() {
     'annonces:delete',
     'articles:read',
     'articles:write',
+    'trophies:read',
+    'trophies:write',
+    'trophies:delete',
+    'matches:read',
+    'matches:write',
+    'matches:delete',
   ];
 
+  // Rôle Gestionnaire : gère l'organisation (équipes, jeux, sponsors, staff, recrutement,
+  // twitch, coaching) mais N'A PAS accès à l'éditorial matchs/palmarès.
+  // Exclusion volontaire de `matches:*` et `trophies:*` (réservés à Admin et CM).
+  // Ne PAS élargir ces permissions sans validation explicite du Product Owner.
   const gestionnairePermissions = [
     'teams:read',
     'teams:write',
@@ -182,6 +198,11 @@ async function main() {
       description: 'Lien Twitch',
     },
     {
+      key: 'tiktok_url',
+      value: 'http://tiktok.com/@teamdivergentes',
+      description: 'Lien TikTok',
+    },
+    {
       key: 'mail_url',
       value: 'mailto:contact@teamdivergentes.fr',
       description: 'Lien email (affiche dans le footer)',
@@ -191,7 +212,7 @@ async function main() {
       value:
         'https://www.youtube.com/channel/UC5laAdDfyTTUSdK0t2wYx2g\nhttps://www.twitch.tv/teamdivergentes\nhttps://www.facebook.com/teamdivergentes/\nhttps://www.linkedin.com/company/team-divergentes/\nhttps://www.helloasso.com/associations/team-divergentes',
       description:
-        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord sont deja inclus)',
+        'Liens supplementaires pour le referencement SEO (un lien par ligne, les liens Twitter/Instagram/Discord/TikTok sont deja inclus)',
     },
     {
       key: 'og_title',
@@ -245,6 +266,11 @@ async function main() {
       key: 'page_twitch_visible',
       value: 'true',
       description: 'Afficher la page En Live (Twitch)',
+    },
+    {
+      key: 'page_palmares_visible',
+      value: 'false',
+      description: 'Afficher la page Palmarès',
     },
   ];
 
@@ -354,6 +380,137 @@ async function main() {
   }
 
   console.log('Games created:', games.length);
+
+  // Équipes minimales pour les specs E2E publiques (bandeau matchs, palmarès) et
+  // les specs admin qui ont besoin d'au moins une équipe sélectionnable.
+  // `dvg-lol-academy` est le slug attendu par les tests E2E de structure/equipes.
+  const teamsSeed = [
+    { name: 'DVG LoL Academy', slug: 'dvg-lol-academy', game: 'lol', position: 0 },
+    { name: 'DVG Valorant', slug: 'dvg-valorant', game: 'valorant', position: 1 },
+  ];
+
+  const teamsBySlug = new Map<string, { id: number; name: string }>();
+  for (const t of teamsSeed) {
+    const team = await prisma.team.upsert({
+      where: { slug: t.slug },
+      update: { name: t.name, game: t.game },
+      create: { name: t.name, slug: t.slug, game: t.game, position: t.position, active: true },
+    });
+    teamsBySlug.set(t.slug, { id: team.id, name: team.name });
+  }
+
+  console.log('Teams created:', teamsSeed.length);
+
+  // Palmarès et matchs de démonstration pour dvg-lol-academy : nécessaires pour que
+  // e2e/tests/public/match-strip.e2e.spec.ts et critical-public-flows.e2e.spec.ts
+  // aient des données à exercer (bandeau matchs + palmarès avec troncature).
+  const lolAcademy = teamsBySlug.get('dvg-lol-academy')!;
+
+  // Cinq trophées (> 4) pour que le lien « Voir tout le palmarès » soit exercé,
+  // avec un 1er, un 2e, un 3e et deux placements hors podium.
+  const trophiesSeed = [
+    { competition: 'LFL Division 2 — Split Été', placement: 1, date: new Date('2025-07-14T22:00:00.000Z') },
+    { competition: 'Coupe de France Esport — LoL', placement: 2, date: new Date('2025-02-20T22:00:00.000Z') },
+    { competition: 'LFL Division 2 — Split Hiver', placement: 3, date: new Date('2024-11-05T22:00:00.000Z') },
+    { competition: 'LFL Division 2 — Split Printemps', placement: 4, date: new Date('2024-05-12T22:00:00.000Z') },
+    { competition: 'Open Amateur LoL', placement: 7, date: new Date('2023-09-18T22:00:00.000Z') },
+  ];
+
+  for (const trophy of trophiesSeed) {
+    const existing = await prisma.trophy.findFirst({
+      where: { teamId: lolAcademy.id, competition: trophy.competition, placement: trophy.placement },
+    });
+    if (!existing) {
+      await prisma.trophy.create({
+        data: { ...trophy, teamId: lolAcademy.id, teamLabel: lolAcademy.name, active: true },
+      });
+    }
+  }
+
+  console.log('Trophies created for dvg-lol-academy:', trophiesSeed.length);
+
+  // Un match à venir (date calculée par rapport à `new Date()` pour ne jamais
+  // "périmer") et trois matchs passés avec scores (au moins une victoire et une
+  // défaite), pour que les pastilles de forme montrent plusieurs issues.
+  const upcomingScheduledAt = new Date();
+  upcomingScheduledAt.setDate(upcomingScheduledAt.getDate() + 3);
+  const upcomingOpponent = 'Zenith Academy';
+
+  const existingUpcoming = await prisma.match.findFirst({
+    where: {
+      teamId: lolAcademy.id,
+      opponentName: upcomingOpponent,
+      scoreDvg: null,
+      scoreOpponent: null,
+    },
+  });
+
+  if (existingUpcoming) {
+    // Rafraîchit la date pour qu'elle reste dans le futur même si le seed est
+    // rejoué longtemps après la création initiale.
+    await prisma.match.update({
+      where: { id: existingUpcoming.id },
+      data: { scheduledAt: upcomingScheduledAt },
+    });
+  } else {
+    await prisma.match.create({
+      data: {
+        teamId: lolAcademy.id,
+        teamNameSnapshot: lolAcademy.name,
+        opponentName: upcomingOpponent,
+        scheduledAt: upcomingScheduledAt,
+        competition: 'LFL Division 2',
+        streamUrl: 'https://www.twitch.tv/teamdivergentes',
+        active: true,
+      },
+    });
+  }
+
+  const pastMatchesSeed = [
+    // Victoire
+    {
+      opponentName: 'Nova Esports',
+      scheduledAt: new Date('2025-06-01T18:00:00.000Z'),
+      scoreDvg: 2,
+      scoreOpponent: 1,
+    },
+    // Défaite
+    {
+      opponentName: 'Pulse Gaming',
+      scheduledAt: new Date('2025-05-10T18:00:00.000Z'),
+      scoreDvg: 0,
+      scoreOpponent: 2,
+    },
+    // Match nul (variété supplémentaire)
+    {
+      opponentName: 'Fenix Esports',
+      scheduledAt: new Date('2025-04-15T18:00:00.000Z'),
+      scoreDvg: 1,
+      scoreOpponent: 1,
+    },
+  ];
+
+  for (const match of pastMatchesSeed) {
+    const existing = await prisma.match.findFirst({
+      where: { teamId: lolAcademy.id, opponentName: match.opponentName },
+    });
+    if (!existing) {
+      await prisma.match.create({
+        data: {
+          teamId: lolAcademy.id,
+          teamNameSnapshot: lolAcademy.name,
+          opponentName: match.opponentName,
+          scheduledAt: match.scheduledAt,
+          competition: 'LFL Division 2',
+          scoreDvg: match.scoreDvg,
+          scoreOpponent: match.scoreOpponent,
+          active: true,
+        },
+      });
+    }
+  }
+
+  console.log('Matches created for dvg-lol-academy: 1 à venir + 3 passés');
 
   // Create initial sponsors
   const sponsors = [

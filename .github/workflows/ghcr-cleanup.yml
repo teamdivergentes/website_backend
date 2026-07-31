@@ -8,12 +8,21 @@ on:
 
 permissions: {}
 
+env:
+  ORG: teamdivergentes
+  # Chemin URL-encode du package (le "/" devient %2F)
+  PKG: website_backend%2Fdvg_web_backend
+
 jobs:
   cleanup:
-    runs-on: [self-hosted, linux, vps, docker]
+    # Volontairement sur runner GitHub-hosted : une tache de maintenance ne doit
+    # ni monopoliser les 2 runners self-hosted, ni devenir impossible a executer
+    # quand ceux-ci sont indisponibles. gh + jq y sont preinstalles.
+    runs-on: ubuntu-latest
     permissions:
       packages: write
     steps:
+      # Etape sure par construction : ne touche jamais une version taggee.
       - name: Delete untagged images
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
         with:
@@ -22,10 +31,72 @@ jobs:
           min-versions-to-keep: 10
           delete-only-untagged-versions: true
 
-      - name: Delete old unstable images
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
-        with:
-          package-name: website_backend/dvg_web_backend
-          package-type: container
-          min-versions-to-keep: 5
-          ignore-versions: '^(RELEASE|PREPROD)$'
+      # ---------------------------------------------------------------------
+      # INCIDENT 2026-07-22 — ne PAS revenir a `ignore-versions`.
+      #
+      # L'ancienne etape utilisait :
+      #     min-versions-to-keep: 5
+      #     ignore-versions: '^(RELEASE|PREPROD)$'
+      # en croyant proteger les images de production. C'est FAUX : la doc de
+      # actions/delete-package-versions precise que `ignore-versions` prend
+      # "a regex for the version NAME" — or pour un package de type container,
+      # le "version name" est le DIGEST (sha256:...), jamais le tag. La regex
+      # ne pouvait donc matcher aucune version : la protection etait inoperante.
+      #
+      # Consequence reelle : l'image :RELEASE de PROD est sortie du top-5 (le
+      # cleanup tourne a CHAQUE PR fermee) et a ete supprimee. Resultat :
+      # `docker pull ...:RELEASE` en 404, echec de tout deploiement Ansible, et
+      # production non redeployable (elle ne tournait plus que sur une image
+      # locale mise en cache sur le VPS).
+      #
+      # Ce remplacement raisonne explicitement sur les TAGS : toute version
+      # portant un tag contenant RELEASE ou PREPROD est exclue de la suppression,
+      # quel que soit son age (ex: "RELEASE", "1.5.2-RELEASE", "PREPROD").
+      # ---------------------------------------------------------------------
+      - name: Delete old disposable versions (protege RELEASE/PREPROD)
+        continue-on-error: true  # un GC en echec ne doit jamais casser la CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: '10'  # nb de versions jetables recentes conservees
+        run: |
+          set -euo pipefail
+
+          # id <TAB> tags(joint par des virgules) — API triee du plus recent au plus ancien
+          gh api --paginate "orgs/${ORG}/packages/container/${PKG}/versions" \
+            --jq '.[] | [.id, ([.metadata.container.tags[]?] | join(","))] | @tsv' > all.tsv
+
+          echo "Versions totales : $(wc -l < all.tsv)"
+
+          # Exclusion des versions protegees : un tag contenant RELEASE ou PREPROD
+          # suffit a sanctuariser la version entiere.
+          grep -viE '(RELEASE|PREPROD)' all.tsv > disposable.tsv || true
+          echo "Versions jetables : $(wc -l < disposable.tsv)"
+
+          # On garde les KEEP plus recentes parmi les jetables, on supprime le reste
+          tail -n +"$((KEEP + 1))" disposable.tsv | cut -f1 > to-delete.txt || true
+          echo "A supprimer : $(wc -l < to-delete.txt)"
+
+          while read -r id; do
+            [ -z "$id" ] && continue
+            echo "suppression version $id"
+            gh api -X DELETE "orgs/${ORG}/packages/container/${PKG}/versions/${id}" --silent
+          done < to-delete.txt
+
+      # Filet de securite : si l'image de PROD venait a disparaitre malgre tout,
+      # on veut le savoir immediatement, pas le jour d'un deploiement en urgence.
+      - name: Verifier que :RELEASE et :PREPROD existent toujours
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAGS=$(gh api --paginate "orgs/${ORG}/packages/container/${PKG}/versions" \
+            --jq '.[].metadata.container.tags[]?')
+          MISSING=""
+          for t in RELEASE PREPROD; do
+            echo "$TAGS" | grep -qx "$t" || MISSING="$MISSING $t"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Tag(s) manquant(s) sur GHCR :$MISSING — la production n'est plus redeployable."
+            exit 1
+          fi
+          echo "OK : les tags RELEASE et PREPROD sont presents."

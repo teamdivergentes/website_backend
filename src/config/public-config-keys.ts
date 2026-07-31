@@ -12,6 +12,7 @@ export const PUBLIC_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   'youtube_link',
   'youtube_url',
   'twitch_url',
+  'tiktok_url',
   'twitter_url',
   'instagram_url',
   'discord_url',

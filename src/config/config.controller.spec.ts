@@ -186,6 +186,10 @@ describe('isPublicConfigKey (helper)', () => {
     expect(isPublicConfigKey('page_twitch_visible')).toBe(true);
   });
 
+  it('doit retourner true pour tiktok_url', () => {
+    expect(isPublicConfigKey('tiktok_url')).toBe(true);
+  });
+
   it('doit retourner false pour contact_smtp_pass', () => {
     expect(isPublicConfigKey('contact_smtp_pass')).toBe(false);
   });

@@ -115,9 +115,10 @@ describe('RegisterDto', () => {
   // -------------------------------------------------------------------------
   describe('SEC-005 — @MaxLength(72) sur password', () => {
     it('accepte un password de exactement 72 caractères', async () => {
+      // 72 caractères respectant aussi la complexité SEC-014 (min/maj/chiffre)
       const errors = await validateDto(RegisterDto, {
         email: 'user@example.com',
-        password: 'A'.repeat(72),
+        password: 'Aa1' + 'a'.repeat(69),
       });
       expect(errors).toHaveLength(0);
     });

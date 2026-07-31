@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException, BadGatewayException } from '@nestjs/common';
-import * as dns from 'dns';
+import * as dns from 'node:dns';
 
 export interface LinkMetaResult {
   title?: string;
@@ -48,8 +48,8 @@ function extractIpv4MappedAddress(ip: string): string | null {
   // Format ::ffff:hhhh:hhhh (hex compacté) — ex. ::ffff:7f00:0001 = 127.0.0.1
   const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
   if (hex) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
+    const hi = Number.parseInt(hex[1], 16);
+    const lo = Number.parseInt(hex[2], 16);
     return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
   }
   return null;
@@ -145,7 +145,10 @@ export class LinkMetaService {
    * Utilisé par fetchHtml pour gérer les redirections avec revalidation SSRF.
    */
   private async fetchOnce(url: URL, signal: AbortSignal): Promise<globalThis.Response> {
-    return fetch(url.toString(), {
+    // Sonar hotspot reviewed in code: this dynamic URL is validated by validateUrlWithDns
+    // before every request, and redirects are followed manually after DNS revalidation.
+    // prettier-ignore
+    return fetch(url.toString(), { // NOSONAR
       method: 'GET',
       headers: {
         'User-Agent': USER_AGENT,
