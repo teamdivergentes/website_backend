@@ -26,6 +26,7 @@ import { CoachingStaffModule } from './coaching-staff/coaching-staff.module';
 import { TrophiesModule } from './trophies/trophies.module';
 import { MatchesModule } from './matches/matches.module';
 import { ShopModule } from './shop/shop.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -60,6 +61,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     TrophiesModule,
     MatchesModule,
     ShopModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [
