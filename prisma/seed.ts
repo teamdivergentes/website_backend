@@ -50,6 +50,14 @@ async function main() {
     'matches:read',
     'matches:write',
     'matches:delete',
+    // Boutique. Les migrations 20260722120000 et 20260728120000 ajoutent ces
+    // permissions au role Admin existant, mais sur une base neuve elles
+    // s'appliquent AVANT que le seed ne cree le role : le seed ecrasait ensuite
+    // le tableau et l'admin se retrouvait sans acces aux ecrans boutique.
+    'commandes:read',
+    'commandes:write',
+    'boutique:read',
+    'boutique:write',
   ];
 
   const cmPermissions = [
@@ -708,6 +716,164 @@ async function main() {
   }
 
   console.log('✓ Catégories d\'articles seedées:', articleTypeNames.length);
+
+  // ---------------------------------------------------------------------------
+  // Boutique — collection 2026
+  // Spec : docs/superpowers/specs/2026-07-28-boutique-collection-2026-design.md
+  // ---------------------------------------------------------------------------
+
+  await prisma.shopSettings.upsert({
+    where: { id: 1 },
+    update: {},
+    // shopEnabled reste faux : la boutique ne s'ouvre qu'une fois les cles
+    // Stripe de production en place et les prix reels saisis depuis l'admin.
+    // Tarifs de la grille 2026 : port standard 5 €, rapide 10 €, offert des
+    // 120 € de panier, ce qui correspond a trois maillots.
+    create: {
+      id: 1,
+      shippingStandardCents: 500,
+      shippingExpressCents: 1000,
+      freeShippingThresholdCents: 12000,
+      currency: 'eur',
+      shopEnabled: false,
+    },
+  });
+
+  const TEXTILE_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+
+  // Les prix sont provisoires : ils sont editables depuis l'admin sans
+  // redeploiement, le seed ne fait qu'amorcer le catalogue.
+  const shopProductsSeed = [
+    {
+      slug: 'maillot-2026-dvg',
+      name: 'Maillot 2026 — Team Divergentes',
+      shortDescription: 'Le maillot officiel de la structure, saison 2026.',
+      description:
+        'Le maillot de toute la structure, sans distinction de section ni de jeu. ' +
+        'Il reprend les codes posés en 2017 : noir profond, vert Divergentes, logo ' +
+        "sublimé dans la maille plutôt qu'imprimé dessus. Celui qu'on met quand on " +
+        'vient représenter DVG en entier.',
+      priceCents: 4000,
+      images: [
+        { url: 'assets/img/shop/maillot-2026-dvg-front.webp', label: 'face' },
+        // Dos SANS flocage : c'est le fond sur lequel composer l'apercu du
+        // pseudo, d'ou `isBack`. La variante `-back-name` montre un exemple
+        // floque et ne doit surtout pas servir de fond a l'apercu.
+        { url: 'assets/img/shop/maillot-2026-dvg-back.webp', label: 'dos', isBack: true },
+        {
+          url: 'assets/img/shop/maillot-2026-dvg-back-name.webp',
+          label: 'dos floqué',
+        },
+      ],
+      teamSlug: null,
+      active: false,
+      position: 0,
+    },
+    {
+      slug: 'maillot-2026-joker',
+      name: 'Maillot 2026 — DVG × Joker',
+      shortDescription: "Aux couleurs de l'équipe EVA Joker.",
+      description:
+        "La déclinaison d'EVA Joker. Même patron, même maille, même finition que le " +
+        "maillot de structure : seuls les liserés, l'habillage des manches et le blason " +
+        'de la section changent. Le vert monte sur les épaules, le motif reprend ' +
+        "l'univers de l'équipe.",
+      priceCents: 4000,
+      images: [
+        { url: 'assets/img/shop/maillot-2026-joker-front.webp', label: 'face' },
+        { url: 'assets/img/shop/maillot-2026-joker-back.webp', label: 'dos', isBack: true },
+        {
+          url: 'assets/img/shop/maillot-2026-joker-back-name.webp',
+          label: 'dos floqué',
+        },
+      ],
+      teamSlug: 'eva-joker',
+      active: true,
+      position: 1,
+    },
+    {
+      slug: 'maillot-2026-mystic',
+      name: 'Maillot 2026 — DVG × Mystic',
+      shortDescription: "Aux couleurs de l'équipe EVA Mystic.",
+      description:
+        "La déclinaison d'EVA Mystic. Les deux titres de champion de France, 2022 et " +
+        "2023, sont inscrits sur le vêtement : ce n'est pas un ornement, c'est ce que la " +
+        "section est allée chercher. Un maillot d'esport ne sert pas à courir, il sert à " +
+        'dire de quel côté on est assis.',
+      priceCents: 4000,
+      images: [
+        { url: 'assets/img/shop/maillot-2026-mystic-front.webp', label: 'face' },
+        { url: 'assets/img/shop/maillot-2026-mystic-back.webp', label: 'dos', isBack: true },
+        {
+          url: 'assets/img/shop/maillot-2026-mystic-back-name.webp',
+          label: 'dos floqué',
+        },
+        // Seule Mystic a ete shootee portee. La vue portee fait la vignette :
+        // un maillot sur des epaules se lit mieux qu'un maillot a plat.
+        {
+          url: 'assets/img/shop/maillot-2026-mystic-porte-face.jpg',
+          label: 'porté',
+          isCard: true,
+        },
+        { url: 'assets/img/shop/maillot-2026-mystic-porte-dos.jpg', label: 'porté dos' },
+      ],
+      teamSlug: 'eva-mystic',
+      active: false,
+      position: 2,
+    },
+  ];
+
+  for (const p of shopProductsSeed) {
+    // Les equipes EVA n'existent qu'en production : en local le lien reste nul
+    // plutot que de faire echouer le seed.
+    const team = p.teamSlug ? await prisma.team.findUnique({ where: { slug: p.teamSlug } }) : null;
+
+    const product = await prisma.shopProduct.upsert({
+      where: { slug: p.slug },
+      // Pas de mise a jour du prix ni de l'activation : ils sont pilotes depuis
+      // l'admin, un re-seed ne doit pas ecraser un reglage metier.
+      update: { name: p.name, shortDescription: p.shortDescription, description: p.description },
+      create: {
+        slug: p.slug,
+        name: p.name,
+        shortDescription: p.shortDescription,
+        description: p.description,
+        priceCents: p.priceCents,
+        teamId: team?.id ?? null,
+        allowFlocking: true,
+        flockingFeeCents: 500,
+        active: p.active,
+        position: p.position,
+      },
+    });
+
+    // Les visuels sont repris a chaque seed : ils vivent dans le depot, pas dans
+    // l'admin, et un renommage de fichier doit se propager. La galerie editee
+    // depuis l'admin n'est ecrasee que si elle porte encore les visuels du seed.
+    const existingImages = await prisma.shopProductImage.count({ where: { productId: product.id } });
+    if (existingImages === 0) {
+      await prisma.shopProductImage.createMany({
+        data: p.images.map((image, index) => ({
+          productId: product.id,
+          url: image.url,
+          label: image.label,
+          position: index,
+          isBack: 'isBack' in image ? Boolean(image.isBack) : false,
+          isCard: 'isCard' in image ? Boolean(image.isCard) : index === 0,
+        })),
+      });
+    }
+
+    for (const [index, label] of TEXTILE_SIZES.entries()) {
+      await prisma.shopProductSize.upsert({
+        where: { productId_label: { productId: product.id, label } },
+        update: { position: index },
+        create: { productId: product.id, label, position: index },
+      });
+    }
+  }
+
+  console.log('✓ Boutique seedée:', shopProductsSeed.length, 'maillots');
 
   console.log('Seed completed successfully!');
 }

@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  Param,
   Post,
   Req,
 } from '@nestjs/common';
@@ -15,11 +16,12 @@ import { Public } from '../auth/decorators/public.decorator';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { ShopCheckoutService } from './shop-checkout.service';
 import { ShopWebhookService } from './shop-webhook.service';
-import { ShopProduct, getActiveProducts } from './shop-catalog';
+import { PublicCatalog, PublicShopProduct, ShopProductsService } from './shop-products.service';
 
 @Controller()
 export class ShopController {
   constructor(
+    private readonly products: ShopProductsService,
     private readonly checkoutService: ShopCheckoutService,
     private readonly webhookService: ShopWebhookService,
   ) {}
@@ -27,8 +29,15 @@ export class ShopController {
   @Get('api/shop/products')
   @Public()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
-  getProducts(): ShopProduct[] {
-    return getActiveProducts();
+  getCatalog(): Promise<PublicCatalog> {
+    return this.products.findPublicCatalog();
+  }
+
+  @Get('api/shop/products/:slug')
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  getProduct(@Param('slug') slug: string): Promise<PublicShopProduct> {
+    return this.products.findPublicBySlug(slug);
   }
 
   @Post('api/shop/checkout')

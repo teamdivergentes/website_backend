@@ -1,8 +1,13 @@
 # Boutique — solution de commande temporaire
 
 **Date :** 2026-07-22
-**Statut :** validé, prêt pour le plan d'implémentation
+**Statut :** ⚠️ **remplacée** par [`2026-07-28-boutique-collection-2026-design.md`](2026-07-28-boutique-collection-2026-design.md)
 **Repos concernés :** `website_backend`, `website_frontend`
+
+> Ce document reste la référence pour le **flux d'argent** (invariants du webhook,
+> idempotence, gestion d'erreurs, transmission au marchand), repris tel quel dans la spec du
+> 28/07. En revanche, ses décisions sur le **catalogue en dur**, l'**achat à l'unité**, les
+> **frais de port en variable d'environnement** et l'**absence de flocage** sont caduques.
 
 ## Contexte
 

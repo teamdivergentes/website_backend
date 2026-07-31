@@ -3,18 +3,21 @@ import { BadRequestException } from '@nestjs/common';
 import { ShopController } from './shop.controller';
 import { ShopCheckoutService } from './shop-checkout.service';
 import { ShopWebhookService } from './shop-webhook.service';
+import { ShopProductsService } from './shop-products.service';
 
 describe('ShopController', () => {
   let controller: ShopController;
 
   const mockCheckoutService = { createCheckout: jest.fn() };
   const mockWebhookService = { handleEvent: jest.fn() };
+  const mockProductsService = { findPublicCatalog: jest.fn(), findPublicBySlug: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ShopController],
       providers: [
+        { provide: ShopProductsService, useValue: mockProductsService },
         { provide: ShopCheckoutService, useValue: mockCheckoutService },
         { provide: ShopWebhookService, useValue: mockWebhookService },
       ],
@@ -26,22 +29,29 @@ describe('ShopController', () => {
     expect(controller).toBeDefined();
   });
 
-  describe('getProducts', () => {
-    it('retourne les 11 produits actifs du catalogue', () => {
-      expect(controller.getProducts()).toHaveLength(11);
-    });
+  describe('getCatalog', () => {
+    it('délègue au service catalogue', async () => {
+      const catalog = { products: [], shippingFeeCents: 590, currency: 'eur', shopEnabled: true };
+      mockProductsService.findPublicCatalog.mockResolvedValue(catalog);
 
-    it('expose descKey mais aucun contenu HTML', () => {
-      const [product] = controller.getProducts();
-      expect(product.descKey).toBeDefined();
-      expect(JSON.stringify(product)).not.toContain('<');
+      await expect(controller.getCatalog()).resolves.toBe(catalog);
+    });
+  });
+
+  describe('getProduct', () => {
+    it('résout un produit par son slug', async () => {
+      const product = { id: 1, slug: 'maillot-2026-joker' };
+      mockProductsService.findPublicBySlug.mockResolvedValue(product);
+
+      await expect(controller.getProduct('maillot-2026-joker')).resolves.toBe(product);
+      expect(mockProductsService.findPublicBySlug).toHaveBeenCalledWith('maillot-2026-joker');
     });
   });
 
   describe('createCheckout', () => {
     it('délègue au service et retourne son résultat', async () => {
       mockCheckoutService.createCheckout.mockResolvedValue({ url: 'https://stripe/cs_1' });
-      const dto = { productId: 'maillotDvg_2023', size: 'M', quantity: 1 };
+      const dto = { items: [{ productId: 1, size: 'M', quantity: 1 }] };
 
       await expect(controller.createCheckout(dto)).resolves.toEqual({
         url: 'https://stripe/cs_1',
