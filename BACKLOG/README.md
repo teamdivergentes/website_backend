@@ -33,6 +33,7 @@ Suivi macro de tous les EPICs en cours et a venir. Chaque EPIC a son propre doss
 | [EPIC-36 — Audit sécurité API & admin (findings complémentaires)](EPIC-36-admin-api-security-audit/README.md) | Moyenne (SEC-N01 IDOR, SEC-N03 dette RBAC) | A faire | `fix/epic-36-admin-api-security` | A faire | A faire | A faire | A faire |
 | [EPIC-37 — Palmarès & Matchs](EPIC-37-palmares-matchs/README.md) | Moyenne | FAIT CLAUDE (enabler + palmarès + matchs + redesign ; E2E exécution CI) | `feat/epic-37-palmares` (branche unique, décision PO 2026-06-04) | A faire | A faire | A faire | A faire |
 | [EPIC-38 — Protection d'accès preprod (Basic Auth Traefik)](EPIC-38-preprod-protection/README.md) | Moyenne | EN REVIEW (implémenté 2026-06-04, reste entrée vault + push ; décision PO : Basic Auth infra plutôt que mdp applicatif) | `chore/epic-38-preprod-basic-auth` (ansible_vps) | Fait | A faire | N/A | A faire |
+| [EPIC-44 — Mode maintenance du site public](EPIC-44-maintenance-mode/README.md) | Moyenne | A faire (créé 2026-07-31 sur demande PO ; ENABLER-1 démarrable, FEATURE-1 bloquée par EPIC-29) | `feat/epic-44-maintenance-mode` (back + front) | A faire | A faire | A faire | A faire |
 
 ## EPICs en backlog (a planifier)
 
@@ -95,6 +96,16 @@ Deux pannes independantes le meme jour, toutes deux resolues, mais revelant des 
 Revue de code + Red Team (GO MERGE, 0 vulnérabilité) puis merge `develop → main` des correctifs sécurité sur les 2 repos : **backend PR #158** (SEC-001/002/003/005) et **frontend PR #225** (SEC-010/011). Merge commit standard (pas de squash — règle release). Lint + TU verts (backend exit 0, frontend 1208/1208). CICD de release déclenchée sur `main` → déploiement prod via semantic-release/tag. **10/13 findings livrés prod**. Reste SEC-008 (design révoc JWT), SEC-012 (INFO Matomo), SEC-004 (bloqué EPIC-29 SSR).
 
 🔴 **Action humaine restante** : **rotation de `JWT_SECRET` en prod**. SEC-002 supprime le fallback en clair mais le secret actuel doit être régénéré (vault Ansible `vault_prod_jwt_secret` + redéploiement). Tant que ce n'est pas fait, un secret potentiellement exposé reste valide.
+
+## Note creation EPIC-44 mode maintenance (2026-07-31)
+
+EPIC-44 créé sur demande PO : pouvoir fermer le site public à chaud pendant une refonte ou un incident, tout en laissant l'équipe naviguer. Besoin non tracé jusqu'ici.
+
+**Ne pas confondre avec EPIC-38.** EPIC-38 protège la **preprod** par Basic Auth Traefik (déjà implémenté, `EN REVIEW`, reste l'entrée vault). EPIC-44 ferme la **prod** à la demande, avec bypass par permission. Deux besoins distincts, deux mécanismes distincts.
+
+**Décision d'architecture** : le flag vit dans le backend (`model Config`, togglable à chaud), pas dans nginx ni Traefik. Motif principal : l'architecture cible d'EPIC-29 route « tout le reste » de nginx vers le process SSR `:4000`, une règle nginx de maintenance en dur entrerait en conflit avec elle.
+
+**Découpage imposé par EPIC-29** : l'ENABLER-1 (flag + guard `503`) est livrable immédiatement et sans effet tant que le flag reste à `false`. La FEATURE-1 (page de maintenance publique) attend le SSR, car sans rendu serveur la page part en `200 OK` et se fait indexer à la place du contenu réel. Nouveau piège identifié pour EPIC-29 : le serveur SSR recevant un `503` du backend doit rendre la page de maintenance, pas un HTML vide.
 
 ---
 
