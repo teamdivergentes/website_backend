@@ -1,17 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-/**
- * Longueur maximale du flocage.
- *
- * Source de verite du serveur : le validateur du DTO de commande et
- * `assertFlockingAllowed` en decoulent tous les deux.
- *
- * La meme valeur est ecrite a la main dans le depot frontend
- * (`src/app/shared/models/shop-product.model.ts`). Les deux ne partagent rien :
- * une borne plus haute cote front ferait accepter a la saisie un pseudo refuse
- * au paiement. Le serveur se deploie donc avant le front, jamais l'inverse.
- */
-export const FLOCKING_MAX_LENGTH = 14;
+export const FLOCKING_MAX_LENGTH = 12;
 
 /**
  * Charset volontairement restrictif. Ce texte est saisi par un inconnu puis
