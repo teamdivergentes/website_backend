@@ -205,12 +205,48 @@ contact_email, contact_discord_webhook
 
 ## Seed Data (prisma/seed.ts)
 
-- **3 system roles** (Admin, CM, Gestionnaire) with specific permissions
-- **1 admin user** (admin@teamdivergentes.fr / admin123)
-- **11 config entries** (social links, page visibility flags)
-- **11 staff members** (6 Admin, 4 HeadStaff)
-- **5 games** (LoL, Valorant, Rocket League, CS, TFT)
-- **3 sponsors** (Pulsar Corp, Monster Energy, SecretLab)
+Deux jeux de donnees, choisis par `prisma/seeds/datasets.ts` :
+
+| Jeu | Contenu | Environnements |
+|-----|---------|----------------|
+| `bootstrap` (`seeds/bootstrap.ts`) | 3 roles systeme, compte admin, entrees de config, 5 jeux, categories d'articles, reglages **et catalogue boutique** | Tous, production comprise |
+| `demo` (`seeds/demo.ts`) | Staff, equipes, trophees, matchs, sponsors, recrutement, Twitch, coaching | Developpement et preprod uniquement |
+
+### Regle absolue : le seed ne reecrit rien
+
+**Aucun champ metier n'est mis a jour** : tout est cree si absent, jamais
+ecrase. Un seed rejoue ne doit pas defaire ce qu'un administrateur a saisi
+entre-temps. Le 2026-07-31, un `prisma db seed` sur la preprod a ramene les
+permissions des roles systeme a la liste du fichier — c'est ce que cette regle
+interdit desormais.
+
+**Corollaire** : faire evoluer une donnee du socle (ajouter une permission a un
+role, changer un libelle) passe par une **migration SQL**, qui s'execute une
+fois et reste tracee. Jamais par le seed. Les migrations `20260722120000` et
+`20260728120000` le font deja pour les permissions boutique.
+
+### Selection du jeu
+
+| Variable | Effet |
+|----------|-------|
+| _(aucune)_ | `production` -> socle seul ; ailleurs -> socle + demo |
+| `SEED_DATASET=bootstrap\|demo\|all` | Force le jeu applique |
+| `SEED_ALLOW_DEMO=1` | Seule facon d'appliquer la demo en production |
+
+La barriere n'est pas theorique : preprod et production partagent la meme
+instance PostgreSQL (`dvg-shared-postgres`), il suffit de viser le mauvais
+conteneur. Elle est couverte par `src/common/seed-datasets.spec.ts`.
+
+### Execution
+
+```bash
+npx prisma db seed                              # local (ts-node)
+docker exec <conteneur> npm run db:seed:prod    # environnement deploye (JS compile)
+```
+
+`prisma db seed` lance `ts-node`, absent des images de production : le seed est
+compile par `npm run build:seed` vers `dist/prisma/`, d'ou son import
+`../generated/prisma` resout vers `dist/generated/prisma`.
 
 ---
 
