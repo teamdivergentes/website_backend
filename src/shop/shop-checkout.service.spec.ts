@@ -77,11 +77,13 @@ describe('ShopCheckoutService', () => {
   const dto = { items: [{ productId: 1, size: 'M', quantity: 2, flockingText: 'Snake' }] };
 
   it("retourne l'URL de paiement renvoyée par Stripe", async () => {
-    await expect(service.createCheckout(dto)).resolves.toEqual({ url: 'https://stripe/cs_1' });
+    await expect(
+      service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null }),
+    ).resolves.toEqual({ url: 'https://stripe/cs_1' });
   });
 
   it('persiste la commande en PENDING avec ses lignes avant d’appeler Stripe', async () => {
-    await service.createCheckout(dto);
+    await service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
 
     // Les metadonnees Stripe ne peuvent pas porter un panier : les lignes
     // doivent exister en base avant la redirection.
@@ -95,7 +97,7 @@ describe('ShopCheckoutService', () => {
   });
 
   it('ne transmet que l’identifiant de commande en métadonnées', async () => {
-    await service.createCheckout(dto);
+    await service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
 
     expect(mockStripe.createCheckoutSession).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -107,7 +109,7 @@ describe('ShopCheckoutService', () => {
   });
 
   it('facture le flocage dans le montant unitaire envoyé à Stripe', async () => {
-    await service.createCheckout(dto);
+    await service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
 
     const { lines } = firstCallArg<StripeSessionArgs>(mockStripe.createCheckoutSession);
     expect(lines[0].unitAmountCents).toBe(4990 + 500);
@@ -115,7 +117,7 @@ describe('ShopCheckoutService', () => {
   });
 
   it('renseigne l’identifiant de session Stripe une fois la session créée', async () => {
-    await service.createCheckout(dto);
+    await service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
 
     expect(mockPrisma.order.update).toHaveBeenCalledWith({
       where: { id: 42 },
@@ -127,7 +129,9 @@ describe('ShopCheckoutService', () => {
     mockStripe.createCheckoutSession.mockRejectedValue(new Error('stripe down'));
     mockPrisma.order.delete.mockResolvedValue({});
 
-    await expect(service.createCheckout(dto)).rejects.toThrow('stripe down');
+    await expect(
+      service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null }),
+    ).rejects.toThrow('stripe down');
     expect(mockPrisma.order.delete).toHaveBeenCalledWith({ where: { id: 42 } });
   });
 
@@ -136,13 +140,17 @@ describe('ShopCheckoutService', () => {
     mockPrisma.order.delete.mockRejectedValue(new Error('db down'));
 
     // L'echec du nettoyage ne doit pas masquer la cause reelle.
-    await expect(service.createCheckout(dto)).rejects.toThrow('stripe down');
+    await expect(
+      service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null }),
+    ).rejects.toThrow('stripe down');
   });
 
   it('ne crée aucune commande si la tarification échoue', async () => {
     mockPricing.priceCart.mockRejectedValue(new Error('panier invalide'));
 
-    await expect(service.createCheckout(dto)).rejects.toThrow('panier invalide');
+    await expect(
+      service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null }),
+    ).rejects.toThrow('panier invalide');
     expect(mockPrisma.order.create).not.toHaveBeenCalled();
     expect(mockStripe.createCheckoutSession).not.toHaveBeenCalled();
   });

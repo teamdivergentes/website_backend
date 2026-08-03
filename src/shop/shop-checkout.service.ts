@@ -33,11 +33,12 @@ export class ShopCheckoutService {
      * authentifiee. Le controleur public passe `PUBLIC` sans acteur ; la route
      * reservee passe `RETAIL` et l'utilisateur que le garde a valide. Rien de
      * tout cela ne peut venir du corps de la requete.
+     *
+     * **Obligatoire, sans valeur par defaut**, pour la meme raison que sur
+     * `priceCart` : un defaut rend un oubli invisible a la compilation, et son
+     * sens decide seul de la gravite de l'oubli.
      */
-    tariff: { tier: PricingTier; buyerUserId: number | null } = {
-      tier: 'PUBLIC',
-      buyerUserId: null,
-    },
+    tariff: { tier: PricingTier; buyerUserId: number | null },
   ): Promise<{ url: string }> {
     const cart = await this.pricing.priceCart({
       items: dto.items,

@@ -133,10 +133,15 @@ export class ShopPricingService {
       const publicUnitCents = product.priceCents;
       const publicFlockingCents = flocked ? product.flockingFeeCents : 0;
 
-      const unitPriceCents =
-        tier === 'RETAIL' ? retailUnitPrice(settings, { flocked: false }) : publicUnitCents;
-      const flockingFeeCents =
-        tier === 'RETAIL' ? (flocked ? settings.costFlockingCents : 0) : publicFlockingCents;
+      // Le cout du flocage est celui du fournisseur, et il n'est du que si un
+      // flocage est demande.
+      const retailFlockingCents = flocked ? settings.costFlockingCents : 0;
+
+      const isRetail = tier === 'RETAIL';
+      const unitPriceCents = isRetail
+        ? retailUnitPrice(settings, { flocked: false })
+        : publicUnitCents;
+      const flockingFeeCents = isRetail ? retailFlockingCents : publicFlockingCents;
 
       return {
         productId: product.id,
