@@ -28,6 +28,7 @@ import { MatchesModule } from './matches/matches.module';
 import { ShopModule } from './shop/shop.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from './auth/guards/permissions.guard';
 
 @Module({
   imports: [
@@ -77,6 +78,16 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    // Global, et non pose a la main sur chaque controleur. Sans cela,
+    // `@RequirePermission(...)` seul est de la metadonnee inerte : oublier le
+    // `@UseGuards(PermissionsGuard)` laisse la route ouverte a tout compte
+    // authentifie, sans la moindre erreur. Le garde rend `true` en l'absence de
+    // metadonnee, l'enregistrer globalement n'a donc aucun effet sur les routes
+    // qui n'en declarent pas.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_GUARD,
