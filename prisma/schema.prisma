@@ -21,15 +21,17 @@ model Role {
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
-  email     String    @unique
-  password  String
-  roleId    Int
-  actif     Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  role      Role      @relation(fields: [roleId], references: [id])
-  articles  Article[]
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  password     String
+  roleId       Int
+  actif        Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  role         Role      @relation(fields: [roleId], references: [id])
+  articles     Article[]
+  /// Commandes passees au tarif reserve. Vide pour la plupart des comptes.
+  retailOrders Order[]
 
   @@map("users")
 }
@@ -83,24 +85,24 @@ model Team {
 }
 
 model TeamMember {
-  id              Int              @id @default(autoincrement())
-  name            String
-  realName        String?
-  role            String
-  image           String?
-  teamId          Int
-  position        Int              @default(0)
-  socials         Json?
-  joinedAt        DateTime         @default(now())
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  nationality     String?
-  birthDate       DateTime?
-  biography       String?
-  customFields    Json?
-  slug            String?          @unique
-  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  twitchChannels  TwitchChannel[]
+  id             Int             @id @default(autoincrement())
+  name           String
+  realName       String?
+  role           String
+  image          String?
+  teamId         Int
+  position       Int             @default(0)
+  socials        Json?
+  joinedAt       DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  nationality    String?
+  birthDate      DateTime?
+  biography      String?
+  customFields   Json?
+  slug           String?         @unique
+  team           Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  twitchChannels TwitchChannel[]
 
   @@index([teamId])
   @@map("team_members")
@@ -203,24 +205,24 @@ model ArticleType {
 }
 
 model Article {
-  id             Int         @id @default(autoincrement())
+  id             Int      @id @default(autoincrement())
   title          String
-  slug           String      @unique
-  content        String      @db.Text
-  excerpt        String?     @db.Text
-  imageUrl       String?     @map("image_url")
-  mobileImageUrl String?     @map("mobile_image_url")
-  tabletImageUrl String?     @map("tablet_image_url")
-  published      Boolean     @default(false)
-  featured       Boolean     @default(false)
-  typeId         Int         @map("type_id")
-  userId         Int         @map("user_id")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
+  slug           String   @unique
+  content        String   @db.Text
+  excerpt        String?  @db.Text
+  imageUrl       String?  @map("image_url")
+  mobileImageUrl String?  @map("mobile_image_url")
+  tabletImageUrl String?  @map("tablet_image_url")
+  published      Boolean  @default(false)
+  featured       Boolean  @default(false)
+  typeId         Int      @map("type_id")
+  userId         Int      @map("user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  type           ArticleType @relation(fields: [typeId], references: [id])
-  user           User        @relation(fields: [userId], references: [id])
-  matches        Match[]
+  type    ArticleType @relation(fields: [typeId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+  matches Match[]
 
   @@index([typeId])
   @@index([published, featured])
@@ -268,22 +270,22 @@ model CoachingStaff {
 }
 
 model RecruitmentPost {
-  id          Int      @id @default(autoincrement())
-  title       String
-  type        String
-  description String   @db.Text
-  image       String?
-  active      Boolean  @default(true)
-  position    Int      @default(0)
-  slug          String?  @unique
-  location      String?
-  duration      String?
-  missions      String?  @db.Text
-  skills        String?  @db.Text
-  requirements  String?  @db.Text
-  benefits      String?  @db.Text
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  title        String
+  type         String
+  description  String   @db.Text
+  image        String?
+  active       Boolean  @default(true)
+  position     Int      @default(0)
+  slug         String?  @unique
+  location     String?
+  duration     String?
+  missions     String?  @db.Text
+  skills       String?  @db.Text
+  requirements String?  @db.Text
+  benefits     String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@map("recruitment_posts")
 }
@@ -334,25 +336,25 @@ model Match {
 /// Catalogue boutique. Editable depuis l'admin : prix, visuels et activation
 /// changent sans redeploiement.
 model ShopProduct {
-  id               Int               @id @default(autoincrement())
-  slug             String            @unique
+  id               Int                @id @default(autoincrement())
+  slug             String             @unique
   name             String
   shortDescription String?
   /// Texte brut, jamais du HTML : il est rendu par interpolation cote front.
-  description      String?           @db.Text
+  description      String?            @db.Text
   priceCents       Int
-  allowFlocking    Boolean           @default(true)
-  flockingFeeCents Int               @default(0)
+  allowFlocking    Boolean            @default(true)
+  flockingFeeCents Int                @default(0)
   /// Position de l'apercu du flocage sur l'image de dos, en % (affichage seul).
-  flockingTopPct   Float             @default(32)
-  flockingLeftPct  Float             @default(50)
+  flockingTopPct   Float              @default(32)
+  flockingLeftPct  Float              @default(50)
   teamId           Int?
   /// Faux par defaut : un produit sans visuel ne doit pas atterrir en vitrine.
-  active           Boolean           @default(false)
-  position         Int               @default(0)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  active           Boolean            @default(false)
+  position         Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  team             Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   sizes            ShopProductSize[]
   images           ShopProductImage[]
   orderItems       OrderItem[]
@@ -398,11 +400,11 @@ model ShopProductImage {
 
 /// Singleton (id = 1). Parametres operationnels de la boutique.
 model ShopSettings {
-  id                Int      @id @default(1)
-  currency          String   @default("eur")
+  id                Int     @id @default(1)
+  currency          String  @default("eur")
   ordersNotifyEmail String?
   /// Permet de fermer la boutique sans depublier chaque produit.
-  shopEnabled       Boolean  @default(false)
+  shopEnabled       Boolean @default(false)
 
   // --- Ce que paie le client -------------------------------------------
   /// Livraison standard facturee au client.
@@ -417,63 +419,87 @@ model ShopSettings {
   // Ces montants ne sont jamais exposes au public : ils ne servent qu'au
   // calcul de marge de l'espace d'administration.
   /// Fabrication d'un maillot chez le fournisseur.
-  costProductionCents        Int     @default(1600)
+  costProductionCents       Int     @default(1600)
   /// Commission d'un partenaire, par maillot. Desactivee tant que
   /// `costPartnerEnabled` est faux : le partenariat n'existe pas au lancement.
-  costPartnerCents           Int     @default(700)
-  costPartnerEnabled         Boolean @default(false)
+  costPartnerCents          Int     @default(700)
+  costPartnerEnabled        Boolean @default(false)
   /// Frais de plateforme et de paiement, par maillot.
-  costEcommerceCents         Int     @default(300)
+  costEcommerceCents        Int     @default(300)
   /// Cout fournisseur du flocage. Inconnu a ce jour, provisionne a zero :
   /// une marge calculee avec un cout invente serait pire qu'une marge large.
-  costFlockingCents          Int     @default(0)
+  costFlockingCents         Int     @default(0)
   /// Cout reel d'un colis, par mode. La livraison est vendue a perte, c'est
   /// assume : ces montants le rendent visible plutot que de le masquer.
-  costShippingStandardCents  Int     @default(900)
-  costShippingExpressCents   Int     @default(1200)
+  costShippingStandardCents Int     @default(900)
+  costShippingExpressCents  Int     @default(1200)
 
-  updatedAt         DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@map("shop_settings")
 }
 
 model Order {
-  id                    Int         @id @default(autoincrement())
-  reference             String      @unique
-  stripeSessionId       String      @unique
+  id                    Int     @id @default(autoincrement())
+  reference             String  @unique
+  stripeSessionId       String  @unique
   stripePaymentIntentId String?
 
-  subtotalCents         Int         @default(0)
-  shippingCents         Int
-  totalCents            Int
-  currency              String      @default("eur")
-  shippingMethod        ShippingMethod @default(STANDARD)
+  subtotalCents  Int            @default(0)
+  shippingCents  Int
+  totalCents     Int
+  currency       String         @default("eur")
+  shippingMethod ShippingMethod @default(STANDARD)
 
   /// Couts figes a l'achat. Une marge est une photographie : si le tarif du
   /// fournisseur change demain, les commandes d'hier ne doivent pas changer de
   /// marge pour autant. `unitCostCents` inclut deja la commission partenaire
   /// si elle etait active au moment de la commande.
-  unitCostCents         Int         @default(0)
-  shippingCostCents     Int         @default(0)
+  unitCostCents     Int @default(0)
+  shippingCostCents Int @default(0)
+
+  /// Bareme applique. `PUBLIC` par defaut : une commande dont on ne sait rien
+  /// est une vente ordinaire, jamais une vente a prix coutant.
+  pricingTier PricingTier @default(PUBLIC)
+
+  /// Qui a beneficie du tarif, sur une commande `RETAIL`. Null sur une vente
+  /// publique : le tunnel public est anonyme. `SetNull` a la suppression du
+  /// compte — une commande reste une piece comptable, elle ne disparait pas
+  /// avec son acheteur.
+  buyerUserId Int?
+  buyer       User? @relation(fields: [buyerUserId], references: [id], onDelete: SetNull)
+
+  /// Ce que la meme commande aurait coute au prix catalogue, fige a l'achat.
+  ///
+  /// Sans ce montant, l'ecart entre prix public et prix paye est
+  /// irreconstituable : le catalogue est modifiable a chaud, et le prix
+  /// d'aujourd'hui n'est pas celui du jour de la commande. Or c'est exactement
+  /// cet ecart qu'il faut produire si la question de l'avantage en nature se
+  /// pose. Egal a `totalCents` sur une vente publique.
+  publicTotalCents Int @default(0)
 
   /// Renseignes par le webhook : inconnus tant que le client n'a pas paye.
-  customerEmail         String      @default("")
-  customerName          String      @default("")
-  shippingAddress       Json        @default("{}")
+  customerEmail   String @default("")
+  customerName    String @default("")
+  shippingAddress Json   @default("{}")
 
-  status                OrderStatus @default(PAID)
-  sentToMerchantAt      DateTime?
-  merchantBatchId       String?
-  trackingNumber        String?
-  adminNote             String?     @db.Text
+  status           OrderStatus @default(PAID)
+  sentToMerchantAt DateTime?
+  merchantBatchId  String?
+  trackingNumber   String?
+  adminNote        String?     @db.Text
 
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
-  items                 OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  items     OrderItem[]
 
   @@index([status])
   @@index([merchantBatchId])
   @@index([createdAt])
+  /// Le reporting filtre sur le bareme : les ventes a prix coutant sortent des
+  /// ratios de performance, et un quota par personne se compte par acheteur.
+  @@index([pricingTier])
+  @@index([buyerUserId])
   @@map("orders")
 }
 
@@ -502,6 +528,16 @@ model OrderItem {
 enum ShippingMethod {
   STANDARD
   EXPRESS
+}
+
+/// Bareme applique a une commande. Choisi par le SERVEUR a partir de l'identite
+/// authentifiee, jamais transmis par le client.
+enum PricingTier {
+  /// Prix catalogue. Le cas de tout le monde.
+  PUBLIC
+  /// Prix coutant, reserve aux porteurs de `boutique:retail`. Marge nulle par
+  /// construction : ces commandes doivent sortir des ratios de performance.
+  RETAIL
 }
 
 enum OrderStatus {

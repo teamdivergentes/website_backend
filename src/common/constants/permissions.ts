@@ -53,6 +53,11 @@ export const PERMISSIONS = {
   // Boutique (catalogue et reglages)
   BOUTIQUE_READ: 'boutique:read',
   BOUTIQUE_WRITE: 'boutique:write',
+
+  // Achat au prix coutant. Volontairement distincte de BOUTIQUE_WRITE :
+  // administrer le catalogue et acheter sous le prix public sont deux droits
+  // sans rapport. Elle donne acces a un tarif, pas a un ecran.
+  BOUTIQUE_RETAIL: 'boutique:retail',
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
