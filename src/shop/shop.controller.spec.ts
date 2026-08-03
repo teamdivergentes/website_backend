@@ -56,7 +56,12 @@ describe('ShopController', () => {
       await expect(controller.createCheckout(dto)).resolves.toEqual({
         url: 'https://stripe/cs_1',
       });
-      expect(mockCheckoutService.createCheckout).toHaveBeenCalledWith(dto);
+      // Le bareme public est transmis explicitement : le tunnel anonyme
+      // n'accorde aucun tarif reserve et n'a pas d'acheteur identifie.
+      expect(mockCheckoutService.createCheckout).toHaveBeenCalledWith(dto, {
+        tier: 'PUBLIC',
+        buyerUserId: null,
+      });
     });
   });
 

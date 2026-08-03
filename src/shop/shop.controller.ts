@@ -45,7 +45,11 @@ export class ShopController {
   // Limite basse : créer une session de paiement appelle Stripe, c'est coûteux et abusable.
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   createCheckout(@Body() dto: CreateCheckoutDto): Promise<{ url: string }> {
-    return this.checkoutService.createCheckout(dto);
+    // Bareme public, explicitement : ce tunnel est anonyme, il n'a pas
+    // d'acheteur identifie et n'accorde aucun tarif reserve. L'ecrire plutot
+    // que de le laisser deduire d'un defaut est ce qui garantit qu'ajouter un
+    // troisieme tunnel demain obligera son auteur a se poser la question.
+    return this.checkoutService.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
   }
 
   @Post('api/shop/webhook')

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { PricingTier } from '../../generated/prisma';
 import { ShopPricingService, PricedLine } from './shop-pricing.service';
 import { OrderReferenceService } from './order-reference.service';
 import { StripeService } from './stripe.service';
@@ -25,8 +26,25 @@ export class ShopCheckoutService {
    * de commande voyage dans les metadonnees ; le webhook signe reste le seul a
    * pouvoir faire passer la commande en `PAID`.
    */
-  async createCheckout(dto: CreateCheckoutDto): Promise<{ url: string }> {
-    const cart = await this.pricing.priceCart(dto.items, dto.shippingMethod ?? 'STANDARD');
+  async createCheckout(
+    dto: CreateCheckoutDto,
+    /**
+     * Bareme et beneficiaire, decides par l'appelant a partir de l'identite
+     * authentifiee. Le controleur public passe `PUBLIC` sans acteur ; la route
+     * reservee passe `RETAIL` et l'utilisateur que le garde a valide. Rien de
+     * tout cela ne peut venir du corps de la requete.
+     *
+     * **Obligatoire, sans valeur par defaut**, pour la meme raison que sur
+     * `priceCart` : un defaut rend un oubli invisible a la compilation, et son
+     * sens decide seul de la gravite de l'oubli.
+     */
+    tariff: { tier: PricingTier; buyerUserId: number | null },
+  ): Promise<{ url: string }> {
+    const cart = await this.pricing.priceCart({
+      items: dto.items,
+      method: dto.shippingMethod ?? 'STANDARD',
+      tier: tariff.tier,
+    });
     const reference = await this.reference.generate();
 
     const order = await this.prisma.order.create({
@@ -45,6 +63,12 @@ export class ShopCheckoutService {
         // ete degagee, pas telle qu'elle serait aux tarifs d'aujourd'hui.
         unitCostCents: cart.unitCostCents,
         shippingCostCents: cart.shippingCostCents,
+        pricingTier: cart.tier,
+        buyerUserId: tariff.buyerUserId,
+        // Fige le prix catalogue du jour : c'est la seule reference qui
+        // permettra plus tard de chiffrer l'avantage consenti, le catalogue
+        // etant modifiable a chaud.
+        publicTotalCents: cart.publicTotalCents,
         items: {
           create: cart.lines.map((line) => ({
             productId: line.productId,

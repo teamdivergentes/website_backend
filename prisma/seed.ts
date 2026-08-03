@@ -58,6 +58,10 @@ async function main() {
     'commandes:write',
     'boutique:read',
     'boutique:write',
+    // Achat au prix coutant. La migration 20260803120000 l'ajoute au role Admin
+    // existant ; ici c'est le cas d'une base neuve, ou la migration s'applique
+    // avant que le seed ne cree le role.
+    'boutique:retail',
   ];
 
   const cmPermissions = [

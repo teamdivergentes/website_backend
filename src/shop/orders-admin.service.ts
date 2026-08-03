@@ -158,6 +158,17 @@ function csvCell(value: string): string {
 
 /** Une ligne par article : c'est ce que le fabricant doit produire. */
 export function buildCsvLines(order: OrderWithItems): string[] {
+  // Le montant est laisse vide sur une commande a prix coutant.
+  //
+  // Ce fichier part chez le fabricant. Le total d'une commande au tarif reserve
+  // est, a peu de chose pres, ce que nous lui payons : le lui transmettre
+  // reviendrait a lui donner notre structure de marge sur ses propres produits.
+  //
+  // La commande reste dans le lot : elle doit etre produite comme une autre.
+  // Seul le prix disparait — le fabricant a besoin du produit, de la taille, du
+  // flocage et de l'adresse, pas de ce que l'acheteur a paye.
+  const amount = order.pricingTier === 'RETAIL' ? '' : formatEuros(order.totalCents);
+
   return order.items.map((item) =>
     [
       order.reference,
@@ -168,7 +179,7 @@ export function buildCsvLines(order: OrderWithItems): string[] {
       order.customerName,
       order.customerEmail,
       formatAddress(order.shippingAddress),
-      formatEuros(order.totalCents),
+      amount,
     ]
       .map(csvCell)
       .join(','),
