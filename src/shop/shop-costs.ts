@@ -87,6 +87,29 @@ export function shippingPrice(
 }
 
 /**
+ * Prix unitaire au tarif reserve : ce que la piece coute reellement a la
+ * structure, hors expedition.
+ *
+ * Reprend les memes postes que `unitCost`, a une difference pres : le cout du
+ * flocage n'est compte que si un flocage est effectivement demande. `unitCost`
+ * l'ajoute inconditionnellement parce qu'il sert a figer un cout moyen sur la
+ * commande ; ici on facture, et facturer un flocage a qui n'en veut pas serait
+ * faux. Ce cout vaut 0 tant que le fournisseur n'a pas donne son tarif — la
+ * distinction est donc sans effet aujourd'hui, et juste demain.
+ *
+ * ⚠️ Ces montants vivent dans `ShopSettings`, pas sur le produit : **tous les
+ * articles ont donc le meme prix coutant**. C'est exact tant que le catalogue
+ * ne contient que des maillots de meme facture. Un article a la structure de
+ * cout differente — un hoodie, un accessoire — imposera un montant par produit.
+ */
+export function retailUnitPrice(settings: ShopSettings, options: { flocked: boolean }): number {
+  const partnerCents = settings.costPartnerEnabled ? settings.costPartnerCents : 0;
+  const flockingCents = options.flocked ? settings.costFlockingCents : 0;
+
+  return settings.costProductionCents + partnerCents + settings.costEcommerceCents + flockingCents;
+}
+
+/**
  * Marge d'une commande, a partir des couts qu'elle a figes.
  *
  * `totalQuantity` est le nombre de maillots, toutes lignes confondues : le cout
