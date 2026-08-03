@@ -81,7 +81,7 @@ describe('ShopWebhookService', () => {
 
       expect(mockPrisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 42, status: 'PENDING' },
+          where: { id: 42, status: 'PENDING', stripeSessionId: 'cs_test_1' },
           // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           data: expect.objectContaining({
             status: 'PAID',

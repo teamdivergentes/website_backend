@@ -64,10 +64,23 @@ export class ShopWebhookService {
       }
     ).collected_information?.shipping_details;
 
-    // Le filtre sur status PENDING porte l'idempotence : un rejeu ne met a jour
-    // aucune ligne et ne declenche donc pas de seconde notification.
+    // Trois conditions, trois roles distincts :
+    //
+    //   id              — la commande visee par les metadonnees de la session.
+    //   status PENDING  — l'idempotence. Un rejeu ne met a jour aucune ligne et
+    //                     ne declenche donc pas de seconde notification.
+    //   stripeSessionId — l'authenticite. `metadata.orderId` est une chaine que
+    //                     nous avons ecrite, mais la signature du webhook ne
+    //                     prouve que l'emetteur, pas que la session payee est
+    //                     bien celle que nous avons creee pour cette commande.
+    //                     Sans ce troisieme filtre, toute session portant un
+    //                     `orderId` de commande en attente la fait basculer en
+    //                     payee, pour un montant arbitraire : une session creee
+    //                     ailleurs sur le meme compte Stripe suffit. Le filtre
+    //                     ferme aussi la violation d'unicite qui survenait quand
+    //                     deux sessions differentes visaient la meme commande.
     const { count } = await this.prisma.order.updateMany({
-      where: { id: orderId, status: 'PENDING' },
+      where: { id: orderId, status: 'PENDING', stripeSessionId: session.id },
       data: {
         status: 'PAID',
         stripeSessionId: session.id,
