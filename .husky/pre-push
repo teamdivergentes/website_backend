@@ -42,9 +42,15 @@ if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/n
   PG_USER=$(docker exec dvg-postgres printenv POSTGRES_USER 2>/dev/null)
   PG_PASS=$(docker exec dvg-postgres printenv POSTGRES_PASSWORD 2>/dev/null)
   if [ -n "$PG_USER" ] && [ -n "$PG_PASS" ]; then
+    # Port REELLEMENT publie sur l'hote, et non 5432 en dur : le container
+    # peut n'exposer aucun port (`5432/tcp` sans mapping), auquel cas
+    # `localhost:5432` tombe sur un tout autre PostgreSQL — celui du systeme,
+    # par exemple — qui refuse ces identifiants. Le hook concluait alors au
+    # drift sur une simple erreur d'authentification.
+    PG_PORT=$(docker port dvg-postgres 5432/tcp 2>/dev/null | head -1 | sed 's/.*://')
     SHADOW_DB="dvg_prisma_shadow_$$"
-    if docker exec -i dvg-postgres psql -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$SHADOW_DB\";" >/dev/null 2>&1; then
-      SHADOW_ARG="--shadow-database-url postgresql://$PG_USER:$PG_PASS@localhost:5432/$SHADOW_DB"
+    if [ -n "$PG_PORT" ] && docker exec -i dvg-postgres psql -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$SHADOW_DB\";" >/dev/null 2>&1; then
+      SHADOW_ARG="--shadow-database-url postgresql://$PG_USER:$PG_PASS@localhost:$PG_PORT/$SHADOW_DB"
       # Cleanup au exit du hook
       trap "docker exec -i dvg-postgres psql -U \"$PG_USER\" -d postgres -c 'DROP DATABASE IF EXISTS \"$SHADOW_DB\";' >/dev/null 2>&1" EXIT
     fi
@@ -53,7 +59,8 @@ fi
 
 # Si pas de shadow DB possible, avertir et passer
 if [ -z "$SHADOW_ARG" ]; then
-  echo "⚠️  Pas de container 'dvg-postgres' detecte pour la shadow DB."
+  echo "⚠️  Shadow DB indisponible : container 'dvg-postgres' absent, sans port"
+  echo "   publie sur l'hote, ou refusant la creation de base."
   echo "   Le check Prisma drift est saute en local — il sera rejoue en CI."
   echo "   Pour activer le check local : 'docker compose up -d postgres'"
   echo ""
@@ -78,6 +85,15 @@ if [ $DIFF_EXIT -ne 0 ]; then
   # Le check est rejoue en CI — on passe avec un avertissement.
   if echo "$DIFF_OUTPUT" | grep -q "P1001"; then
     echo "⚠️  Prisma ne peut pas atteindre la DB locale (P1001, probablement WSL2)."
+    echo "   Le check Prisma drift est saute — il sera rejoue en CI."
+    exit 0
+  fi
+  # P1000 : identifiants refuses. Comme P1001, cela ne dit RIEN du schema — le
+  # check n'a pas pu s'executer. L'annoncer comme un drift envoyait chercher
+  # une divergence inexistante, et la seule issue proposee etait `--no-verify`.
+  if echo "$DIFF_OUTPUT" | grep -q "P1000"; then
+    echo "⚠️  Identifiants refuses par la base locale (P1000) : un autre"
+    echo "   PostgreSQL ecoute probablement sur le port attendu."
     echo "   Le check Prisma drift est saute — il sera rejoue en CI."
     exit 0
   fi
