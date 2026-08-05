@@ -346,7 +346,9 @@ model ShopProduct {
   allowFlocking    Boolean            @default(true)
   flockingFeeCents Int                @default(0)
   /// Position de l'apercu du flocage sur l'image de dos, en % (affichage seul).
-  flockingTopPct   Float              @default(32)
+  /// Le defaut est mesure sur les visuels 2026, composes au rapport 4/5 : il ne
+  /// vaut que pour des fichiers de meme cadrage.
+  flockingTopPct   Float              @default(34.75)
   flockingLeftPct  Float              @default(50)
   teamId           Int?
   /// Faux par defaut : un produit sans visuel ne doit pas atterrir en vitrine.
