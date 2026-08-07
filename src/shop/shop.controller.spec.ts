@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ShopController } from './shop.controller';
 import { ShopCheckoutService } from './shop-checkout.service';
 import { ShopWebhookService } from './shop-webhook.service';
+import { ShopConfirmationService } from './shop-confirmation.service';
 import { ShopProductsService } from './shop-products.service';
 
 describe('ShopController', () => {
@@ -11,6 +12,7 @@ describe('ShopController', () => {
   const mockCheckoutService = { createCheckout: jest.fn() };
   const mockWebhookService = { handleEvent: jest.fn() };
   const mockProductsService = { findPublicCatalog: jest.fn(), findPublicBySlug: jest.fn() };
+  const mockConfirmationService = { findBySessionId: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -20,6 +22,7 @@ describe('ShopController', () => {
         { provide: ShopProductsService, useValue: mockProductsService },
         { provide: ShopCheckoutService, useValue: mockCheckoutService },
         { provide: ShopWebhookService, useValue: mockWebhookService },
+        { provide: ShopConfirmationService, useValue: mockConfirmationService },
       ],
     }).compile();
     controller = module.get<ShopController>(ShopController);
@@ -45,6 +48,16 @@ describe('ShopController', () => {
 
       await expect(controller.getProduct('maillot-2026-joker')).resolves.toBe(product);
       expect(mockProductsService.findPublicBySlug).toHaveBeenCalledWith('maillot-2026-joker');
+    });
+  });
+
+  describe('getOrderConfirmation', () => {
+    it("delegue au service de confirmation l'identifiant de session recu", async () => {
+      const confirmation = { reference: 'DVG-2026-0001', firstName: 'Maxime', paid: true };
+      mockConfirmationService.findBySessionId.mockResolvedValue(confirmation);
+
+      await expect(controller.getOrderConfirmation('cs_test_abc123')).resolves.toBe(confirmation);
+      expect(mockConfirmationService.findBySessionId).toHaveBeenCalledWith('cs_test_abc123');
     });
   });
 
