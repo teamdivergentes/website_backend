@@ -39,9 +39,19 @@ export interface OrderMargin {
   /** Marge rapportee au chiffre d'affaires, en pourcentage. `null` si CA nul. */
   marginRate: number | null;
   /**
-   * Vrai quand le port a coute plus cher qu'il n'a ete facture. C'est le cas
-   * nominal ici : la livraison est vendue a perte, et offerte au-dela d'un
-   * certain panier. Le signaler evite de le decouvrir en fin de mois.
+   * Vrai quand le port a coute plus cher qu'il n'a ete facture.
+   *
+   * ⚠️ **Constant a vrai avec la tarification actuelle** : 5,00 EUR factures
+   * pour 9,00 EUR de colis en standard, 10,00 EUR pour 12,00 EUR en express, et
+   * gratuit au-dela de la franchise. C'est un choix assume — le tarif affiche
+   * est volontairement bas et l'ecart est amorti par le prix du maillot — et
+   * non un incident.
+   *
+   * Il n'est donc pas presente comme une alerte a l'administration : un drapeau
+   * vrai sur 100 % des commandes n'apprend rien. `marginCents` porte le
+   * resultat reel, port compris, et reste le seul chiffre a surveiller.
+   *
+   * Ne redeviendra discriminant que le jour ou le port sera tarife par zone.
    */
   shippingSoldAtLoss: boolean;
 }
