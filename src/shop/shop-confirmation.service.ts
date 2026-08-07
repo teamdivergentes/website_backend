@@ -44,7 +44,7 @@ export interface OrderConfirmation {
  * Forme d'un identifiant de session Stripe Checkout. Filtrer avant d'interroger
  * la base evite qu'une route publique serve de sonde a requetes arbitraires.
  */
-const SESSION_ID_PATTERN = /^cs_[A-Za-z0-9_]{10,100}$/;
+const SESSION_ID_PATTERN = /^cs_\w{10,100}$/;
 
 @Injectable()
 export class ShopConfirmationService {
@@ -113,5 +113,5 @@ export function maskEmail(email: string): string | null {
   if (local.length <= 2) {
     return `${'•'.repeat(local.length)}@${domain}`;
   }
-  return `${local[0]}${'•'.repeat(local.length - 2)}${local[local.length - 1]}@${domain}`;
+  return `${local[0]}${'•'.repeat(local.length - 2)}${local.at(-1)}@${domain}`;
 }
