@@ -437,4 +437,139 @@ describe('ShopNotifierService.notifyNewOrder', () => {
     const calls = mockSendMail.mock.calls as unknown as { to: string }[][];
     expect(calls[0][0].to).toBe('boutique@example.com');
   });
+
+  describe('notifyStatusChange', () => {
+    const at = (status: string, extra: object = {}): never =>
+      ({ ...(order as object), status, ...extra }) as never;
+
+    /** Le mail effectivement remis a nodemailer, type plutot que `any`. */
+    const firstMail = (): { to: string; subject: string; text: string; html: string } => {
+      const calls = mockSendMail.mock.calls as unknown as {
+        to: string;
+        subject: string;
+        text: string;
+        html: string;
+      }[][];
+      return calls[0][0];
+    };
+
+    beforeEach(() => {
+      mockConfigService.getValue.mockImplementation((key: string) =>
+        Promise.resolve(smtpConfig[key] ?? null),
+      );
+      mockSendMail.mockResolvedValue({ messageId: 'ok' });
+    });
+
+    it('prévient le client d’une expédition et lui donne le numéro de suivi', async () => {
+      const sent = await service.notifyStatusChange(
+        at('SHIPPED', { trackingNumber: 'AB123' }),
+        'PAID',
+      );
+
+      expect(sent).toBe(true);
+      const mail = firstMail();
+      expect(mail.to).toBe('client@example.com');
+      expect(mail.subject).toContain('expédiée');
+      expect(mail.text).toContain('AB123');
+    });
+
+    it('n’invente pas de numéro de suivi quand il manque', async () => {
+      await service.notifyStatusChange(at('SHIPPED'), 'PAID');
+
+      const mail = firstMail();
+      expect(mail.text).not.toContain('Numéro de suivi');
+      expect(mail.text).toContain('bien en route');
+    });
+
+    it.each([
+      ['CANCELLED', 'Annulation'],
+      ['REFUNDED', 'Remboursement'],
+    ])('prévient le client sur %s', async (status, expected) => {
+      const sent = await service.notifyStatusChange(at(status), 'PAID');
+
+      expect(sent).toBe(true);
+      expect(firstMail().subject).toContain(expected);
+    });
+
+    /**
+     * Le declencheur est la transition, pas l'etat d'arrivee : rouvrir une
+     * commande deja expediee pour corriger sa note interne est le cas nominal
+     * du back-office, et ne doit rien renvoyer.
+     */
+    it('n’envoie rien quand le statut n’a pas changé', async () => {
+      const sent = await service.notifyStatusChange(at('SHIPPED'), 'SHIPPED');
+
+      expect(sent).toBe(false);
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it.each(['SENT_TO_MERCHANT', 'IN_PRODUCTION', 'DELIVERED'])(
+      'n’envoie rien sur %s',
+      async (status) => {
+        const sent = await service.notifyStatusChange(at(status), 'PAID');
+
+        expect(sent).toBe(false);
+        expect(mockSendMail).not.toHaveBeenCalled();
+      },
+    );
+
+    it('n’annonce pas une annulation à un panier jamais payé', async () => {
+      const sent = await service.notifyStatusChange(at('CANCELLED'), 'PENDING');
+
+      expect(sent).toBe(false);
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('n’envoie rien, et ne lève pas, sans adresse client', async () => {
+      const sent = await service.notifyStatusChange(at('SHIPPED', { customerEmail: '' }), 'PAID');
+
+      expect(sent).toBe(false);
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('propage l’échec SMTP pour que l’appelant le journalise', async () => {
+      mockSendMail.mockRejectedValue(new Error('SMTP down'));
+
+      await expect(service.notifyStatusChange(at('SHIPPED'), 'PAID')).rejects.toThrow('SMTP down');
+    });
+
+    it('échappe le flocage du client dans la version HTML', async () => {
+      const hostile = at('SHIPPED', {
+        items: [{ ...(order as { items: object[] }).items[0], flockingText: '<script>x</script>' }],
+      });
+
+      await service.notifyStatusChange(hostile, 'PAID');
+
+      const mail = firstMail();
+      expect(mail.html).not.toContain('<script>');
+      expect(mail.html).toContain('&lt;script&gt;');
+    });
+
+    /**
+     * Le delai de retractation court a compter de la RECEPTION : c'est le mail
+     * d'expedition qui arrive au bon moment pour le rappeler.
+     */
+    it('rappelle le droit de rétractation dans le mail d’expédition', async () => {
+      await service.notifyStatusChange(
+        { ...(orderSansFlocage as object), status: 'SHIPPED' } as never,
+        'PAID',
+      );
+
+      const mail = firstMail();
+      expect(mail.text).toContain('14 jours');
+      expect(mail.text).toContain('conditions-generales-de-vente');
+    });
+
+    /**
+     * Le delai de remboursement depend de la banque du porteur : l'annoncer
+     * engagerait l'association sur un tiers.
+     */
+    it('ne promet aucun délai de remboursement', async () => {
+      await service.notifyStatusChange(at('REFUNDED'), 'CANCELLED');
+
+      const mail = firstMail();
+      expect(mail.text).toContain('établissement bancaire');
+      expect(mail.text).toMatch(/115\.70 €/);
+    });
+  });
 });

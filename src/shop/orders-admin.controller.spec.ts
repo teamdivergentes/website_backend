@@ -11,6 +11,7 @@ describe('OrdersAdminController', () => {
   const mockService = {
     findAll: jest.fn(),
     getPendingBatch: jest.fn(),
+    getCounters: jest.fn(),
     markSent: jest.fn(),
     update: jest.fn(),
   };
@@ -56,6 +57,12 @@ describe('OrdersAdminController', () => {
     it('la mise à jour exige commandes:write', () => {
       expect(getPerms('update')).toContain(PERMISSIONS.COMMANDES_WRITE);
     });
+
+    // Les compteurs alimentent le dashboard et la page Statistiques : c'est une
+    // lecture, elle ne doit jamais exiger le droit d'ecriture.
+    it('les compteurs exigent commandes:read', () => {
+      expect(getPerms('getCounters')).toContain(PERMISSIONS.COMMANDES_READ);
+    });
   });
 
   describe('findAll', () => {
@@ -63,6 +70,17 @@ describe('OrdersAdminController', () => {
       mockService.findAll.mockResolvedValue([]);
       await controller.findAll('SHIPPED');
       expect(mockService.findAll).toHaveBeenCalledWith('SHIPPED');
+    });
+  });
+
+  describe('getCounters', () => {
+    it('délègue au service', async () => {
+      mockService.getCounters.mockResolvedValue({ total: 24, lastThirtyDays: 7, windowDays: 30 });
+      await expect(controller.getCounters()).resolves.toEqual({
+        total: 24,
+        lastThirtyDays: 7,
+        windowDays: 30,
+      });
     });
   });
 });

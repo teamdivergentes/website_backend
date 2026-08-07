@@ -1,10 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
-import { Order, OrderItem } from '../../generated/prisma';
+import { Order, OrderItem, OrderStatus } from '../../generated/prisma';
 import { ConfigService } from '../config/config.service';
 import { ShopSettingsService } from './shop-settings.service';
 
 export type OrderWithItems = Order & { items: OrderItem[] };
+
+/**
+ * Statuts dont l'atteinte previent le client par mail.
+ *
+ * Arbitrage PO du 2026-08-07. Sont volontairement absents :
+ *
+ *   SENT_TO_MERCHANT — lot interne de transmission a l'atelier. Le libelle ne
+ *                      veut rien dire pour un acheteur, et la bascule est faite
+ *                      en masse : un envoi par commande partirait d'un coup.
+ *   IN_PRODUCTION    — rassurant sur un delai annonce jusqu'a 25 jours ouvres,
+ *                      mais du confort. Trace en US non planifiee.
+ *   DELIVERED        — arrive apres l'information qu'il porte : le client sait
+ *                      qu'il a recu son colis.
+ */
+export const CLIENT_NOTIFIED_STATUSES = ['SHIPPED', 'CANCELLED', 'REFUNDED'] as const;
+
+export type ClientNotifiedStatus = (typeof CLIENT_NOTIFIED_STATUSES)[number];
+
+export function isClientNotifiedStatus(status: OrderStatus): status is ClientNotifiedStatus {
+  return (CLIENT_NOTIFIED_STATUSES as readonly string[]).includes(status);
+}
 
 @Injectable()
 export class ShopNotifierService {
@@ -74,6 +95,54 @@ export class ShopNotifierService {
         `Commande ${order.reference} enregistree mais notification(s) en echec : ${failedChannels.join(', ')}`,
       );
     }
+  }
+
+  /**
+   * Previent le client que sa commande a change d'etape.
+   *
+   * Le declencheur est la TRANSITION, jamais l'etat d'arrivee. Sans cette
+   * distinction, tout enregistrement d'une commande deja expediee renverrait le
+   * mail d'expedition — or c'est le cas nominal du back-office : on rouvre une
+   * commande pour corriger une note ou completer un numero de suivi.
+   *
+   * Retourne `false` sans rien envoyer, et sans erreur, quand la transition ne
+   * porte pas de mail : c'est la situation ordinaire, pas une anomalie.
+   *
+   * Semantique du throw : l'appelant a deja ecrit le statut en base et capture
+   * l'exception. Un mail perdu ne doit jamais annuler un changement d'etape
+   * decide par un operateur — il est journalise pour permettre une reprise.
+   */
+  async notifyStatusChange(order: OrderWithItems, previousStatus: OrderStatus): Promise<boolean> {
+    if (order.status === previousStatus) {
+      return false;
+    }
+    if (!isClientNotifiedStatus(order.status)) {
+      return false;
+    }
+    // Une commande jamais payee n'a pas de client a prevenir : annuler un
+    // panier abandonne ne regarde que nous. Les PENDING sont d'ailleurs purges
+    // a 7 jours par ShopRetentionService, cette bascule reste marginale.
+    if (order.status === 'CANCELLED' && previousStatus === 'PENDING') {
+      return false;
+    }
+    if (!order.customerEmail) {
+      this.logger.warn(
+        `Commande ${order.reference} passee en ${order.status} sans adresse client : aucun mail envoye`,
+      );
+      return false;
+    }
+
+    const { transporter, user } = await this.createTransporter();
+
+    await transporter.sendMail({
+      from: user,
+      to: order.customerEmail,
+      subject: buildStatusChangeSubject(order, order.status),
+      text: buildStatusChangeText(order, order.status),
+      html: buildStatusChangeHtml(order, order.status),
+    });
+
+    return true;
   }
 
   /**
@@ -418,6 +487,173 @@ ${row('Délai de livraison estimé', `${getDeliveryDelayText()}.`)}
 <li><a href="${escapeHtml(links.confidentialite)}">Politique de confidentialité</a></li>
 </ul>
 <p>Merci de votre confiance,<br>L'équipe Team Divergentes</p>`;
+}
+
+/**
+ * Corps d'un mail de changement d'etape, avant rendu.
+ *
+ * Les versions texte et HTML sont produites a partir de CETTE structure et non
+ * ecrites deux fois : le mail de confirmation a l'achat, lui, existe en deux
+ * redactions paralleles, et rien n'empeche aujourd'hui l'une de deriver de
+ * l'autre. On ne reproduit pas ce montage ici.
+ */
+export interface StatusChangeMessage {
+  subject: string;
+  paragraphs: string[];
+  /** Recapitulatif en couples libelle / valeur. */
+  rows: { label: string; value: string }[];
+  /** Articles concernes, omis quand ils n'apportent rien au message. */
+  items: string[];
+  /** Rappel des liens CGV, retractation et confidentialite. */
+  withLegalLinks: boolean;
+}
+
+export function buildStatusChangeMessage(
+  order: OrderWithItems,
+  status: ClientNotifiedStatus,
+): StatusChangeMessage {
+  if (status === 'SHIPPED') {
+    return {
+      subject: `Votre commande ${order.reference} a été expédiée`,
+      paragraphs: [
+        `Bonjour ${order.customerName},`,
+        `Votre commande ${order.reference} vient de quitter nos ateliers.`,
+        // Pas de date d'arrivee promise : le transporteur n'est pas nous, et un
+        // engagement de delai a l'expedition est un engagement contractuel.
+        order.trackingNumber
+          ? 'Vous pouvez suivre son acheminement avec le numéro ci-dessous.'
+          : "Le numéro de suivi n'est pas encore disponible ; votre colis est bien en route.",
+        buildRetractationParagraph(order),
+      ],
+      rows: [
+        ...(order.trackingNumber
+          ? [{ label: 'Numéro de suivi', value: order.trackingNumber }]
+          : []),
+        { label: 'Adresse de livraison', value: formatAddress(order.shippingAddress) },
+      ],
+      items: order.items.map((item) => describeCustomerItem(item)),
+      withLegalLinks: true,
+    };
+  }
+
+  if (status === 'CANCELLED') {
+    return {
+      subject: `Annulation de votre commande ${order.reference}`,
+      paragraphs: [
+        `Bonjour ${order.customerName},`,
+        `Votre commande ${order.reference} a été annulée et ne sera pas produite.`,
+        `Le montant de ${formatEuros(order.totalCents)} € vous sera remboursé sur le moyen de paiement utilisé lors de l'achat. Un second message vous confirmera l'opération.`,
+        'Si cette annulation vous surprend, écrivez-nous : nous reprendrons la commande avec vous.',
+      ],
+      rows: [{ label: 'Montant de la commande', value: `${formatEuros(order.totalCents)} €` }],
+      items: order.items.map((item) => describeCustomerItem(item)),
+      withLegalLinks: false,
+    };
+  }
+
+  return {
+    subject: `Remboursement de votre commande ${order.reference}`,
+    paragraphs: [
+      `Bonjour ${order.customerName},`,
+      `Le remboursement de votre commande ${order.reference} a été effectué.`,
+      // Aucun delai annonce : il depend de la banque du porteur, pas de nous.
+      "Le délai d'apparition sur votre compte dépend de votre établissement bancaire.",
+      "Si la somme n'apparaît pas au terme de ce délai, écrivez-nous et nous ferons le point avec vous.",
+    ],
+    rows: [{ label: 'Montant remboursé', value: `${formatEuros(order.totalCents)} €` }],
+    items: [],
+    withLegalLinks: false,
+  };
+}
+
+export function buildStatusChangeSubject(
+  order: OrderWithItems,
+  status: ClientNotifiedStatus,
+): string {
+  return buildStatusChangeMessage(order, status).subject;
+}
+
+export function buildStatusChangeText(order: OrderWithItems, status: ClientNotifiedStatus): string {
+  const message = buildStatusChangeMessage(order, status);
+  const links = buildLegalLinks(getShopPublicOrigin());
+
+  const lines = [...message.paragraphs.flatMap((paragraph) => [paragraph, ''])];
+
+  if (message.items.length > 0) {
+    lines.push('Détail de votre commande :', ...message.items.map((item) => `  - ${item}`), '');
+  }
+  for (const row of message.rows) {
+    lines.push(`${row.label} : ${row.value}`);
+  }
+  if (message.rows.length > 0) {
+    lines.push('');
+  }
+  if (message.withLegalLinks) {
+    lines.push(
+      'Pour en savoir plus :',
+      `Conditions générales de vente : ${links.cgv}`,
+      `Droit de rétractation (modalités et formulaire) : ${links.retractation}`,
+      `Politique de confidentialité : ${links.confidentialite}`,
+      '',
+    );
+  }
+  lines.push('Merci de votre confiance,', "L'équipe Team Divergentes");
+
+  return lines.join('\n');
+}
+
+/**
+ * Version HTML. Tout ce qui vient du client (nom, adresse, flocage) ou d'une
+ * saisie d'operateur (numero de suivi) passe par `escapeHtml` : ce sont des
+ * donnees non fiables injectees dans du balisage.
+ */
+export function buildStatusChangeHtml(order: OrderWithItems, status: ClientNotifiedStatus): string {
+  const message = buildStatusChangeMessage(order, status);
+  const links = buildLegalLinks(getShopPublicOrigin());
+
+  const paragraphs = message.paragraphs
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join('\n');
+
+  const items =
+    message.items.length > 0
+      ? `<h3>Détail de votre commande</h3>
+<ul>
+${message.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('\n')}
+</ul>`
+      : '';
+
+  const rows =
+    message.rows.length > 0
+      ? `<table>
+${message.rows
+  .map(
+    (row) =>
+      `<tr><td style="padding:4px 12px 4px 0;"><strong>${escapeHtml(row.label)}</strong></td><td>${escapeHtml(row.value)}</td></tr>`,
+  )
+  .join('\n')}
+</table>`
+      : '';
+
+  const legal = message.withLegalLinks
+    ? `<h3>Pour en savoir plus</h3>
+<ul>
+<li><a href="${escapeHtml(links.cgv)}">Conditions générales de vente</a></li>
+<li><a href="${escapeHtml(links.retractation)}">Droit de rétractation (modalités et formulaire)</a></li>
+<li><a href="${escapeHtml(links.confidentialite)}">Politique de confidentialité</a></li>
+</ul>`
+    : '';
+
+  return [
+    `<h2>${escapeHtml(message.subject)}</h2>`,
+    paragraphs,
+    items,
+    rows,
+    legal,
+    `<p>Merci de votre confiance,<br>L'équipe Team Divergentes</p>`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 export interface DiscordEmbed {

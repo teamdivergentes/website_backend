@@ -1,15 +1,43 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { OrderStatus } from '../../generated/prisma';
 import { PrismaService } from '../prisma.service';
 import { isPrismaNotFoundError } from '../common/utils/prisma-errors';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { formatAddress, formatEuros, OrderWithItems } from './shop-notifier.service';
+import {
+  formatAddress,
+  formatEuros,
+  OrderWithItems,
+  ShopNotifierService,
+} from './shop-notifier.service';
 import { OrderMargin, orderMargin } from './shop-costs';
 
 /** Une commande, augmentee de sa marge. Ne quitte jamais l'administration. */
 export interface OrderWithMargin extends OrderWithItems {
   margin: OrderMargin;
+}
+
+/**
+ * Fenetre du second compteur, en jours.
+ *
+ * Glissante, et non calendaire : un compteur « mois en cours » retombe a zero
+ * le 1er et donne a lire un arret de l'activite la ou il n'y a qu'un changement
+ * de mois.
+ */
+export const ORDER_COUNTER_WINDOW_DAYS = 30;
+
+/**
+ * Compteurs de commandes du dashboard et de la page Statistiques.
+ *
+ * `PENDING` est exclu des deux chiffres : c'est une session de paiement
+ * abandonnee, jamais encaissee. Meme perimetre que `findAll()` sans filtre, de
+ * sorte que le compteur et la liste ne se contredisent pas a l'ecran.
+ * Les commandes annulees et remboursees comptent : elles ont existe.
+ */
+export interface OrderCounters {
+  total: number;
+  lastThirtyDays: number;
+  windowDays: number;
 }
 
 export interface PendingBatch {
@@ -24,7 +52,12 @@ const CSV_HEADER =
 
 @Injectable()
 export class OrdersAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(OrdersAdminService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifier: ShopNotifierService,
+  ) {}
 
   /**
    * Ajoute a chaque commande la marge qu'elle a degagee, calculee a partir des
@@ -59,6 +92,21 @@ export class OrdersAdminService {
     });
 
     return orders.map((order) => this.withMargin(order));
+  }
+
+  /**
+   * `now` est injectable pour que les tests n'aient pas a geler l'horloge.
+   */
+  async getCounters(now: Date = new Date()): Promise<OrderCounters> {
+    const since = new Date(now.getTime() - ORDER_COUNTER_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const settled = { status: { not: OrderStatus.PENDING } };
+
+    const [total, lastThirtyDays] = await Promise.all([
+      this.prisma.order.count({ where: settled }),
+      this.prisma.order.count({ where: { ...settled, createdAt: { gte: since } } }),
+    ]);
+
+    return { total, lastThirtyDays, windowDays: ORDER_COUNTER_WINDOW_DAYS };
   }
 
   async getPendingBatch(): Promise<PendingBatch> {
@@ -98,9 +146,32 @@ export class OrdersAdminService {
     return { count: result.count, batchId };
   }
 
+  /**
+   * Applique la modification, puis previent le client si l'etape franchie le
+   * concerne.
+   *
+   * Le statut d'avant est relu AVANT l'ecriture : c'est la transition qui
+   * declenche le mail, pas l'etat d'arrivee. Rouvrir une commande deja expediee
+   * pour completer sa note ne doit pas renvoyer l'avis d'expedition, et c'est
+   * l'usage courant du back-office.
+   *
+   * Le mail part APRES l'ecriture et son echec est avale : un serveur SMTP
+   * indisponible ne doit pas empecher un operateur de faire avancer une
+   * commande. L'erreur est journalisee en `error` — c'est aujourd'hui la seule
+   * trace d'un envoi rate, le schema ne porte aucun journal des notifications.
+   */
   async update(id: number, dto: UpdateOrderDto): Promise<OrderWithItems> {
+    const previous = await this.prisma.order.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!previous) {
+      throw new NotFoundException(`Commande ${id} introuvable`);
+    }
+
+    let order: OrderWithItems;
     try {
-      return await this.prisma.order.update({
+      order = await this.prisma.order.update({
         where: { id },
         include: { items: true },
         data: {
@@ -115,6 +186,22 @@ export class OrdersAdminService {
       }
       throw error;
     }
+
+    try {
+      const sent = await this.notifier.notifyStatusChange(order, previous.status);
+      if (sent) {
+        this.logger.log(
+          `Commande ${order.reference} : client prévenu du passage en ${order.status}`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Commande ${order.reference} passée en ${order.status} mais le mail au client a échoué: ${message}`,
+      );
+    }
+
+    return order;
   }
 }
 
