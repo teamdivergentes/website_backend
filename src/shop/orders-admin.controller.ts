@@ -13,7 +13,12 @@ import { OrderStatus } from '../../generated/prisma';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/permissions.decorator';
 import { PERMISSIONS } from '../common/constants/permissions';
-import { OrdersAdminService, PendingBatch, OrderWithMargin } from './orders-admin.service';
+import {
+  OrdersAdminService,
+  PendingBatch,
+  OrderCounters,
+  OrderWithMargin,
+} from './orders-admin.service';
 import { OrderWithItems } from './shop-notifier.service';
 import { UpdateOrderDto } from './dto/update-order.dto';
 
@@ -26,6 +31,18 @@ export class OrdersAdminController {
   @RequirePermission(PERMISSIONS.COMMANDES_READ)
   findAll(@Query('status') status?: string): Promise<OrderWithMargin[]> {
     return this.ordersService.findAll(status as OrderStatus | undefined);
+  }
+
+  /**
+   * Compteurs consommes a la fois par le dashboard `/admin` et par la page
+   * Statistiques. Un seul endpoint pour les deux ecrans : deux calculs
+   * divergeraient au premier changement de definition du perimetre.
+   */
+  @Get('api/admin/orders/stats')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COMMANDES_READ)
+  getCounters(): Promise<OrderCounters> {
+    return this.ordersService.getCounters();
   }
 
   @Get('api/admin/orders/pending-batch')
