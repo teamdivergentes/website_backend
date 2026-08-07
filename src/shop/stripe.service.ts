@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
+import { SHIPPING_COUNTRIES, SHIPPING_DISPLAY_NAME } from './shop-shipping-zone';
 
 export interface CheckoutLine {
   /** Libelle affiche sur la page Stripe et sur le recu client. */
@@ -54,9 +55,10 @@ export class StripeService {
           product_data: { name: line.label },
         },
       })),
-      // France uniquement : le tarif de port est unifie et ne couvre pas
-      // l'international (cf. spec 2026-07-28).
-      shipping_address_collection: { allowed_countries: ['FR'] },
+      // Zone de livraison europeenne, definie en un seul endroit. Le tarif de
+      // port reste unifie sur toute la zone : il est donc vendu a perte sur les
+      // destinations lointaines, ce que l'admin voit via `shippingSoldAtLoss`.
+      shipping_address_collection: { allowed_countries: [...SHIPPING_COUNTRIES] },
       // Tarif inline plutot qu'un shipping_rate pre-cree dans Stripe : le
       // montant vit en base et doit pouvoir changer depuis l'admin sans
       // resynchroniser un objet Stripe.
@@ -65,7 +67,7 @@ export class StripeService {
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: { amount: params.shippingCents, currency: params.currency },
-            display_name: 'Livraison France',
+            display_name: SHIPPING_DISPLAY_NAME,
           },
         },
       ],
