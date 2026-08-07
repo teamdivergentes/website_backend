@@ -28,7 +28,6 @@ const SANS_FLOCAGE = {
 const REGLAGES = {
   shopEnabled: true,
   shippingStandardCents: 500,
-  shippingExpressCents: 1000,
   freeShippingThresholdCents: 12000,
   costProductionCents: 1600,
   costPartnerCents: 700,
@@ -36,7 +35,6 @@ const REGLAGES = {
   costEcommerceCents: 300,
   costFlockingCents: 0,
   costShippingStandardCents: 900,
-  costShippingExpressCents: 1200,
   currency: 'eur',
 };
 
@@ -68,7 +66,6 @@ describe('ShopPricingService', () => {
         items: [
           { productId: 1, size: 'M', quantity: 1, priceCents: 1, flockingFeeCents: 0 },
         ] as never,
-        method: 'STANDARD',
         // Et un bareme, tant qu'a faire. Il est ignore : celui qui compte est
         // l'argument, decide par l'appelant depuis l'identite authentifiee.
         tier: 'PUBLIC',
@@ -84,11 +81,10 @@ describe('ShopPricingService', () => {
 
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'EXPRESS',
         tier: 'PUBLIC',
       });
 
-      expect(cart.shippingCents).toBe(1000);
+      expect(cart.shippingCents).toBe(500);
     });
   });
 
@@ -99,13 +95,13 @@ describe('ShopPricingService', () => {
     it('facture le cout reel de la piece, pas le prix catalogue', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'RETAIL',
       });
 
-      // 1600 + 300, la commission partenaire etant desactivee.
-      expect(cart.lines[0].unitPriceCents).toBe(1900);
-      expect(cart.subtotalCents).toBe(1900);
+      // 1600 de production seul : la commission partenaire est desactivee, et
+      // les frais de traitement ne sont plus imputes a la piece.
+      expect(cart.lines[0].unitPriceCents).toBe(1600);
+      expect(cart.subtotalCents).toBe(1600);
     });
 
     it('ajoute la commission partenaire quand elle est active', async () => {
@@ -113,22 +109,20 @@ describe('ShopPricingService', () => {
 
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'RETAIL',
       });
 
-      expect(cart.lines[0].unitPriceCents).toBe(2600);
+      expect(cart.lines[0].unitPriceCents).toBe(2300);
     });
 
     it('facture le cout reel du colis, pas le tarif client', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'EXPRESS',
         tier: 'RETAIL',
       });
 
-      // 1200, le cout du colis rapide — et non 1000, son tarif public.
-      expect(cart.shippingCents).toBe(1200);
+      // 900, le cout reel du colis — et non 500, son tarif public.
+      expect(cart.shippingCents).toBe(900);
     });
 
     it('n’applique jamais la franchise de port', async () => {
@@ -140,7 +134,6 @@ describe('ShopPricingService', () => {
 
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'RETAIL',
       });
 
@@ -153,7 +146,6 @@ describe('ShopPricingService', () => {
       // irreconstituable : le catalogue est modifiable a chaud.
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'RETAIL',
       });
 
@@ -165,7 +157,6 @@ describe('ShopPricingService', () => {
     it('laisse le total public egal au total paye sur une vente ordinaire', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -177,7 +168,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 1, size: 'M', quantity: 4 }],
-          method: 'STANDARD',
           tier: 'RETAIL',
         }),
       ).rejects.toThrow();
@@ -197,7 +187,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 1, size: 'M', quantity: 1 }],
-          method: 'STANDARD',
           tier: 'RETAIL',
         }),
       ).rejects.toThrow();
@@ -208,7 +197,6 @@ describe('ShopPricingService', () => {
     it('facture le surcoût quand un flocage est demandé', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 2, flockingText: 'Snake' }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -219,7 +207,6 @@ describe('ShopPricingService', () => {
     it('ne facture rien quand aucun flocage n’est demandé', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -231,7 +218,6 @@ describe('ShopPricingService', () => {
     it('traite un flocage vide ou blanc comme une absence de flocage', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1, flockingText: '   ' }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -242,7 +228,6 @@ describe('ShopPricingService', () => {
     it('normalise les espaces internes', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1, flockingText: '  Le    Snake  ' }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -253,7 +238,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 2, size: 'M', quantity: 1, flockingText: 'Snake' }],
-          method: 'STANDARD',
           tier: 'PUBLIC',
         }),
       ).rejects.toThrow(BadRequestException);
@@ -263,7 +247,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 1, size: 'M', quantity: 1, flockingText: 'TropLongPourUnDos' }],
-          method: 'STANDARD',
           tier: 'PUBLIC',
         }),
       ).rejects.toThrow(BadRequestException);
@@ -275,7 +258,6 @@ describe('ShopPricingService', () => {
         await expect(
           service.priceCart({
             items: [{ productId: 1, size: 'M', quantity: 1, flockingText }],
-            method: 'STANDARD',
             tier: 'PUBLIC',
           }),
         ).rejects.toThrow(BadRequestException);
@@ -285,9 +267,9 @@ describe('ShopPricingService', () => {
 
   describe('validation du panier', () => {
     it('rejette un panier vide', async () => {
-      await expect(
-        service.priceCart({ items: [], method: 'STANDARD', tier: 'PUBLIC' }),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.priceCart({ items: [], tier: 'PUBLIC' })).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('rejette un produit inconnu ou inactif', async () => {
@@ -296,7 +278,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 99, size: 'M', quantity: 1 }],
-          method: 'STANDARD',
           tier: 'PUBLIC',
         }),
       ).rejects.toThrow(BadRequestException);
@@ -306,7 +287,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 1, size: 'XXXL', quantity: 1 }],
-          method: 'STANDARD',
           tier: 'PUBLIC',
         }),
       ).rejects.toThrow(BadRequestException);
@@ -320,7 +300,6 @@ describe('ShopPricingService', () => {
             { productId: 1, size: 'L', quantity: 10 },
             { productId: 2, size: 'M', quantity: 1 },
           ],
-          method: 'STANDARD',
           tier: 'PUBLIC',
         }),
       ).rejects.toThrow(BadRequestException);
@@ -332,7 +311,6 @@ describe('ShopPricingService', () => {
       await expect(
         service.priceCart({
           items: [{ productId: 1, size: 'M', quantity: 1 }],
-          method: 'STANDARD',
           tier: 'PUBLIC',
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -350,7 +328,6 @@ describe('ShopPricingService', () => {
           { productId: 1, size: 'M', quantity: 3 },
           { productId: 2, size: 'M', quantity: 2 },
         ],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -359,24 +336,28 @@ describe('ShopPricingService', () => {
       expect(cart.totalCents).toBe(cart.subtotalCents + 500);
     });
 
-    it('facture le mode rapide plus cher que le standard', async () => {
+    /**
+     * L'option rapide a ete retiree : elle annoncait un acheminement en 2 a 3
+     * jours qu'aucun tarif fournisseur ne garantissait. Le panier ne peut plus
+     * porter qu'un seul mode, et rien de ce que le client envoie ne doit
+     * pouvoir en produire un autre.
+     */
+    it('n’expedie plus qu’en standard, quel que soit le panier', async () => {
       mockSettings.get.mockResolvedValue({ ...REGLAGES, freeShippingThresholdCents: 0 });
 
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'EXPRESS',
         tier: 'PUBLIC',
       });
 
-      expect(cart.shippingCents).toBe(1000);
-      expect(cart.shippingMethod).toBe('EXPRESS');
+      expect(cart.shippingCents).toBe(500);
+      expect(cart.shippingMethod).toBe('STANDARD');
     });
 
     it('offre le port des que le panier atteint le seuil', async () => {
       // 4990 x 3 = 14 970, au-dela des 120 € de franchise.
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 3 }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
@@ -388,13 +369,14 @@ describe('ShopPricingService', () => {
     it('fige les couts du moment pour que la marge ne bouge plus ensuite', async () => {
       const cart = await service.priceCart({
         items: [{ productId: 1, size: 'M', quantity: 1 }],
-        method: 'STANDARD',
         tier: 'PUBLIC',
       });
 
-      // 16 € de production + 3 € ecommerce, partenaire inactif.
-      expect(cart.unitCostCents).toBe(1900);
+      // 16 € de production, partenaire inactif. Les 3 € de traitement sont
+      // desormais portes a part : ils sont dus par commande, pas par piece.
+      expect(cart.unitCostCents).toBe(1600);
       expect(cart.shippingCostCents).toBe(900);
+      expect(cart.orderFeeCents).toBe(300);
     });
   });
 });

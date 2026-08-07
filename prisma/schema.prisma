@@ -409,32 +409,49 @@ model ShopSettings {
   shopEnabled       Boolean @default(false)
 
   // --- Ce que paie le client -------------------------------------------
-  /// Livraison standard facturee au client.
+  /// Livraison facturee au client. Un seul mode depuis le retrait de l'option
+  /// rapide, dont le delai annonce n'etait couvert par aucun tarif fournisseur.
   shippingStandardCents      Int @default(500)
-  /// Livraison rapide facturee au client.
-  shippingExpressCents       Int @default(1000)
-  /// Panier a partir duquel la livraison est offerte, quel que soit le mode.
-  /// 0 desactive la franchise.
+  /// Panier a partir duquel la livraison est offerte. 0 desactive la franchise.
   freeShippingThresholdCents Int @default(12000)
 
   // --- Ce que ca coute a la structure ----------------------------------
   // Ces montants ne sont jamais exposes au public : ils ne servent qu'au
   // calcul de marge de l'espace d'administration.
-  /// Fabrication d'un maillot chez le fournisseur.
-  costProductionCents       Int     @default(1600)
+  //
+  // ⚠️ Tous les couts fournisseur sont saisis **TVA lettone comprise**, soit
+  // le tarif HT majore de 21 %. Le fabricant est etabli a Riga et facture avec
+  // sa TVA locale ; l'association, en franchise en base, ne la recupere pas.
+  // C'est donc bien ce montant-la qui sort de la tresorerie. Prendre un
+  // numero de TVA intracommunautaire ferait tomber ces montants au HT, mais
+  // obligerait aussi a collecter la TVA sur les ventes : en vente au
+  // consommateur, le calcul est defavorable.
+  /// Fabrication d'un maillot chez le fournisseur. 16,19 € HT.
+  ///
+  /// ⚠️ Le tarif fournisseur est **degressif par volume** : 16,19 € de 1 a 4
+  /// pieces, 13,66 € de 5 a 29, 12,85 € de 30 a 99. Ce champ ne porte qu'une
+  /// valeur, calee sur le palier le plus cher. Comme les commandes partent par
+  /// lots hebdomadaires, le palier reellement applique depend du lot et non de
+  /// la commande : la marge affichee est donc un plancher, jamais surestimee.
+  costProductionCents       Int     @default(1959)
   /// Commission d'un partenaire, par maillot. Desactivee tant que
   /// `costPartnerEnabled` est faux : le partenariat n'existe pas au lancement.
   costPartnerCents          Int     @default(700)
   costPartnerEnabled        Boolean @default(false)
-  /// Frais de plateforme et de paiement, par maillot.
-  costEcommerceCents        Int     @default(300)
+  /// Frais de traitement factures par le fournisseur, **par commande et non
+  /// par maillot** (« e-commerce order handling fee », 3,00 € HT).
+  ///
+  /// Ne couvre **pas** les frais Stripe : ceux-ci sont preleves par Stripe, pas
+  /// par le fournisseur, et sont figes commande par commande dans
+  /// `Order.stripeFeeCents` a leur montant reel.
+  costEcommerceCents        Int     @default(363)
   /// Cout fournisseur du flocage. Inconnu a ce jour, provisionne a zero :
   /// une marge calculee avec un cout invente serait pire qu'une marge large.
   costFlockingCents         Int     @default(0)
-  /// Cout reel d'un colis, par mode. La livraison est vendue a perte, c'est
-  /// assume : ces montants le rendent visible plutot que de le masquer.
-  costShippingStandardCents Int     @default(900)
-  costShippingExpressCents  Int     @default(1200)
+  /// Cout reel d'un colis. La livraison est vendue a perte, c'est assume : ce
+  /// montant le rend visible plutot que de le masquer. 9,00 € HT, tarif postal
+  /// identique sur toute la zone livree.
+  costShippingStandardCents Int     @default(1089)
 
   updatedAt DateTime @updatedAt
 
@@ -459,6 +476,22 @@ model Order {
   /// si elle etait active au moment de la commande.
   unitCostCents     Int @default(0)
   shippingCostCents Int @default(0)
+
+  /// Frais de traitement du fournisseur, dus **une fois par commande**. Ils ne
+  /// peuvent pas vivre dans `unitCostCents`, qui est multiplie par la quantite :
+  /// une commande de trois maillots ne paie pas trois fois le traitement.
+  orderFeeCents Int @default(0)
+
+  /// Commission Stripe reellement prelevee, lue sur la transaction de solde au
+  /// moment du paiement.
+  ///
+  /// Montant constate et non estime : le taux depend du pays d'emission de la
+  /// carte, et une carte suisse coute pres du double d'une carte de la zone
+  /// europeenne. Le lire evite d'avoir a poser une hypothese sur la clientele.
+  /// Vaut 0 quand Stripe n'a pas encore arrete le montant — paiement differe,
+  /// ou API injoignable au moment du webhook : la marge est alors surestimee
+  /// de quelques dizaines de centimes, jamais l'inverse.
+  stripeFeeCents Int @default(0)
 
   /// Bareme applique. `PUBLIC` par defaut : une commande dont on ne sait rien
   /// est une vente ordinaire, jamais une vente a prix coutant.
@@ -527,6 +560,16 @@ model OrderItem {
   @@map("order_items")
 }
 
+/// Mode d'acheminement d'une commande.
+///
+/// ⚠️ `EXPRESS` n'est plus proposable : l'option « rapide » a ete retiree de la
+/// boutique. Elle annoncait un acheminement en 2 a 3 jours ouvres qu'aucune
+/// ligne de la grille fournisseur ne garantissait — celle-ci ne propose qu'une
+/// production acceleree a +30 % et un transporteur reserve aux commandes en
+/// gros. Or le delai annonce engage le vendeur (art. L216-1 C. conso).
+///
+/// La valeur reste dans l'enum parce que des commandes l'ont portee : la
+/// retirer rendrait ces lignes illisibles. Rien ne doit plus la produire.
 enum ShippingMethod {
   STANDARD
   EXPRESS

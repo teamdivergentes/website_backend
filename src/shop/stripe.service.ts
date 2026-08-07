@@ -78,9 +78,10 @@ export class StripeService {
           product_data: { name: line.label },
         },
       })),
-      // Zone de livraison europeenne, definie en un seul endroit. Le tarif de
-      // port reste unifie sur toute la zone : il est donc vendu a perte sur les
-      // destinations lointaines, ce que l'admin voit via `shippingSoldAtLoss`.
+      // Zone de livraison europeenne, definie en un seul endroit. Le tarif du
+      // transporteur est unifie sur toute la zone — un colis pour Helsinki
+      // coute au fournisseur exactement ce que coute un colis pour Strasbourg :
+      // ouvrir l'Europe ne degrade donc aucune marge par la distance.
       shipping_address_collection: { allowed_countries: [...SHIPPING_COUNTRIES] },
       // Tarif inline plutot qu'un shipping_rate pre-cree dans Stripe : le
       // montant vit en base et doit pouvoir changer depuis l'admin sans
@@ -132,6 +133,48 @@ export class StripeService {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Statut de la session ${sessionId} indisponible: ${message}`);
       return 'unknown';
+    }
+  }
+
+  /**
+   * Commission reellement prelevee par Stripe sur une session payee, en
+   * centimes. `null` quand elle n'est pas encore arretee ou que Stripe ne
+   * repond pas.
+   *
+   * Elle est **constatee et non estimee**. Le taux depend du pays d'emission de
+   * la carte : une carte de la zone economique europeenne et une carte suisse
+   * ne coutent pas le meme prix, du simple au double sur la part variable.
+   * Estimer supposerait une hypothese sur la clientele ; la lire n'en demande
+   * aucune, pour un appel de plus au moment du paiement.
+   *
+   * Le montant vit sur la transaction de solde du paiement, d'ou la double
+   * expansion : session -> paiement -> encaissement -> transaction de solde.
+   */
+  async getSessionFeeCents(sessionId: string): Promise<number | null> {
+    try {
+      const session = await this.getClient().checkout.sessions.retrieve(sessionId, {
+        expand: ['payment_intent.latest_charge.balance_transaction'],
+      });
+
+      const intent = session.payment_intent;
+      if (!intent || typeof intent === 'string') {
+        return null;
+      }
+      const charge = intent.latest_charge;
+      if (!charge || typeof charge === 'string') {
+        return null;
+      }
+      const balance = charge.balance_transaction;
+      if (!balance || typeof balance === 'string') {
+        return null;
+      }
+      return balance.fee;
+    } catch (error) {
+      // Une commission illisible ne doit jamais empecher une commande payee
+      // d'etre enregistree : on renonce au chiffre, pas a la commande.
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Commission Stripe de la session ${sessionId} indisponible: ${message}`);
+      return null;
     }
   }
 

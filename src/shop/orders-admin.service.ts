@@ -75,6 +75,8 @@ export class OrdersAdminService {
         shippingCostCents: order.shippingCostCents,
         shippingCents: order.shippingCents,
         totalQuantity,
+        orderFeeCents: order.orderFeeCents,
+        stripeFeeCents: order.stripeFeeCents,
       }),
     };
   }

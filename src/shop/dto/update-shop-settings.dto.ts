@@ -11,12 +11,6 @@ export class UpdateShopSettingsDto {
   @Max(50000, { message: 'Le port standard ne peut pas dépasser 500 €' })
   shippingStandardCents?: number;
 
-  @IsOptional()
-  @IsInt({ message: 'Le port rapide doit être un entier (en centimes)' })
-  @Min(0, { message: 'Le port rapide ne peut pas être négatif' })
-  @Max(50000, { message: 'Le port rapide ne peut pas dépasser 500 €' })
-  shippingExpressCents?: number;
-
   /** 0 desactive la franchise plutot que d'offrir le port a tout le monde. */
   @IsOptional()
   @IsInt({ message: 'Le seuil de port offert doit être un entier (en centimes)' })
@@ -59,12 +53,6 @@ export class UpdateShopSettingsDto {
   @Min(0)
   @Max(1000000)
   costShippingStandardCents?: number;
-
-  @IsOptional()
-  @IsInt({ message: 'Le coût du port rapide doit être un entier (en centimes)' })
-  @Min(0)
-  @Max(1000000)
-  costShippingExpressCents?: number;
 
   /** Chaine vide acceptee pour effacer le destinataire. */
   @IsOptional()

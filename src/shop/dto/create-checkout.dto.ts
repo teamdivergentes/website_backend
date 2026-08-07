@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  IsIn,
   ArrayNotEmpty,
   IsArray,
   IsInt,
@@ -44,14 +43,10 @@ export class CheckoutItemDto {
 }
 
 export class CreateCheckoutDto {
-  /**
-   * Mode de livraison retenu. Absent, la commande part en standard : c'est
-   * l'option la moins chere pour le client, donc le repli le moins hostile.
-   * Le tarif associe n'est jamais lu depuis la requete, seulement le choix.
-   */
-  @IsOptional()
-  @IsIn(['STANDARD', 'EXPRESS'], { message: 'Le mode de livraison est invalide' })
-  shippingMethod?: 'STANDARD' | 'EXPRESS';
+  // La boutique n'expedie plus qu'en standard : le mode de livraison a disparu
+  // du contrat d'entree. `forbidNonWhitelisted` etant global, un client qui
+  // enverrait encore `shippingMethod` se voit refuser sa requete plutot que
+  // d'etre servi en silence sur un mode qui n'existe plus.
 
   @IsArray()
   @ArrayNotEmpty({ message: 'Le panier est vide' })

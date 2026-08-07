@@ -731,12 +731,12 @@ async function main() {
     update: {},
     // shopEnabled reste faux : la boutique ne s'ouvre qu'une fois les cles
     // Stripe de production en place et les prix reels saisis depuis l'admin.
-    // Tarifs de la grille 2026 : port standard 5 €, rapide 10 €, offert des
-    // 120 € de panier, ce qui correspond a trois maillots.
+    // Tarifs de la grille 2026 : port 5 €, offert des 120 € de panier, ce qui
+    // correspond a trois maillots. Un seul mode d'expedition depuis le retrait
+    // de l'option rapide.
     create: {
       id: 1,
       shippingStandardCents: 500,
-      shippingExpressCents: 1000,
       freeShippingThresholdCents: 12000,
       currency: 'eur',
       shopEnabled: false,
