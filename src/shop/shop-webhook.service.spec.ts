@@ -8,7 +8,12 @@ import { PrismaService } from '../prisma.service';
 describe('ShopWebhookService', () => {
   let service: ShopWebhookService;
 
-  const mockStripe = { constructWebhookEvent: jest.fn() };
+  const mockStripe = {
+    constructWebhookEvent: jest.fn(),
+    // Commission constatee chez Stripe. Repond `null` par defaut : c'est le cas
+    // degrade, celui qui doit rester sans effet sur l'enregistrement.
+    getSessionFeeCents: jest.fn().mockResolvedValue(null),
+  };
   const mockPrisma = { order: { updateMany: jest.fn(), findUniqueOrThrow: jest.fn() } };
   const mockNotifier = { notifyNewOrder: jest.fn() };
 

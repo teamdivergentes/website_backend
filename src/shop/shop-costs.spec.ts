@@ -1,38 +1,44 @@
 import { ShopSettings } from '../../generated/prisma';
-import { orderMargin, shippingCost, shippingPrice, unitCost } from './shop-costs';
+import { orderFee, orderMargin, shippingCost, shippingPrice, unitCost } from './shop-costs';
 
-/** Grille 2026 : maillot 40 €, flocage 5 €, port 5 € / 10 €, offert des 120 €. */
+/**
+ * Grille 2026 : maillot 40 €, flocage 5 €, port 5 €, offert des 120 €.
+ *
+ * Les couts sont ceux du fournisseur letton, **TVA de 21 % comprise** : 16,19 €
+ * de fabrication et 9,00 € de port deviennent 19,59 € et 10,89 €. C'est ce
+ * montant-la qui sort de la tresorerie, l'association ne recuperant pas cette
+ * TVA. Les valeurs de test suivent le reel pour qu'un chiffre de marge lu ici
+ * soit celui qu'on lira dans l'administration.
+ */
 const SETTINGS = {
   id: 1,
   currency: 'eur',
   ordersNotifyEmail: null,
   shopEnabled: true,
   shippingStandardCents: 500,
-  shippingExpressCents: 1000,
   freeShippingThresholdCents: 12000,
-  costProductionCents: 1600,
+  costProductionCents: 1959,
   costPartnerCents: 700,
   costPartnerEnabled: false,
-  costEcommerceCents: 300,
+  costEcommerceCents: 363,
   costFlockingCents: 0,
-  costShippingStandardCents: 900,
-  costShippingExpressCents: 1200,
+  costShippingStandardCents: 1089,
   updatedAt: new Date(),
 } as ShopSettings;
 
 describe('unitCost', () => {
-  it('somme production, ecommerce et flocage sans le partenaire quand il est inactif', () => {
+  it('somme production et flocage sans le partenaire quand il est inactif', () => {
     const cost = unitCost(SETTINGS);
 
     expect(cost.partnerCents).toBe(0);
-    expect(cost.totalCents).toBe(1900);
+    expect(cost.totalCents).toBe(1959);
   });
 
   it('ajoute la commission partenaire des qu’elle est activee', () => {
     const cost = unitCost({ ...SETTINGS, costPartnerEnabled: true });
 
     expect(cost.partnerCents).toBe(700);
-    expect(cost.totalCents).toBe(2600);
+    expect(cost.totalCents).toBe(2659);
   });
 
   it('detaille le cout plutot que de ne donner qu’un total', () => {
@@ -40,69 +46,114 @@ describe('unitCost', () => {
     // vient l'ecart quand un tarif fournisseur bouge.
     const cost = unitCost(SETTINGS);
 
-    expect(cost.productionCents).toBe(1600);
-    expect(cost.ecommerceCents).toBe(300);
+    expect(cost.productionCents).toBe(1959);
     expect(cost.flockingCents).toBe(0);
+  });
+
+  /**
+   * Le point de la correction : ce poste etait compte par maillot alors que le
+   * fournisseur le facture par commande. Une commande de trois maillots se
+   * voyait imputer 10,89 € la ou il en prend 3,63 €.
+   */
+  it('n’inclut pas les frais de traitement, qui sont dus par commande', () => {
+    const cost = unitCost(SETTINGS);
+
+    expect(cost.totalCents).toBe(SETTINGS.costProductionCents);
+    expect(cost.totalCents).not.toBe(SETTINGS.costProductionCents + SETTINGS.costEcommerceCents);
+  });
+});
+
+describe('orderFee', () => {
+  it('rend les frais de traitement du fournisseur, une fois par commande', () => {
+    expect(orderFee(SETTINGS)).toBe(363);
   });
 });
 
 describe('shippingPrice', () => {
-  it('facture le tarif du mode retenu sous le seuil', () => {
-    expect(shippingPrice(SETTINGS, 'STANDARD', 4000)).toBe(500);
-    expect(shippingPrice(SETTINGS, 'EXPRESS', 4000)).toBe(1000);
+  it('facture le port sous le seuil', () => {
+    expect(shippingPrice(SETTINGS, 4000)).toBe(500);
   });
 
-  it('offre le port des que le seuil est atteint, quel que soit le mode', () => {
-    expect(shippingPrice(SETTINGS, 'STANDARD', 12000)).toBe(0);
-    expect(shippingPrice(SETTINGS, 'EXPRESS', 12000)).toBe(0);
+  it('offre le port des que le seuil est atteint', () => {
+    expect(shippingPrice(SETTINGS, 12000)).toBe(0);
   });
 
   it('n’offre rien juste sous le seuil', () => {
-    expect(shippingPrice(SETTINGS, 'STANDARD', 11999)).toBe(500);
+    expect(shippingPrice(SETTINGS, 11999)).toBe(500);
   });
 
   it('traite un seuil a zero comme une franchise desactivee, pas comme un port toujours offert', () => {
     const sansFranchise = { ...SETTINGS, freeShippingThresholdCents: 0 };
 
-    expect(shippingPrice(sansFranchise, 'STANDARD', 100000)).toBe(500);
+    expect(shippingPrice(sansFranchise, 100000)).toBe(500);
   });
 });
 
 describe('shippingCost', () => {
-  it('retient le cout reel du mode, distinct de ce qui est facture', () => {
-    expect(shippingCost(SETTINGS, 'STANDARD')).toBe(900);
-    expect(shippingCost(SETTINGS, 'EXPRESS')).toBe(1200);
+  it('retient le cout reel du colis, distinct de ce qui est facture', () => {
+    expect(shippingCost(SETTINGS)).toBe(1089);
+    expect(shippingCost(SETTINGS)).toBeGreaterThan(SETTINGS.shippingStandardCents);
   });
 });
 
 describe('orderMargin', () => {
-  it('calcule la marge d’un maillot seul avec port standard', () => {
-    // 40 € + 5 € de port encaisses, 19 € de maillot + 9 € de port depenses.
+  it('calcule la marge d’un maillot floque avec port standard', () => {
+    // 40 € + 5 € de flocage + 5 € de port encaisses. Depenses : 19,59 € de
+    // maillot, 10,89 € de colis, 3,63 € de traitement, 1,09 € de commission.
     const margin = orderMargin({
-      totalCents: 4500,
-      unitCostCents: 1900,
-      shippingCostCents: 900,
+      totalCents: 5000,
+      unitCostCents: 1959,
+      shippingCostCents: 1089,
+      shippingCents: 500,
+      totalQuantity: 1,
+      orderFeeCents: 363,
+      stripeFeeCents: 109,
+    });
+
+    expect(margin.totalCostCents).toBe(3520);
+    expect(margin.marginCents).toBe(1480);
+    expect(margin.marginRate).toBeCloseTo(29.6, 1);
+  });
+
+  it('compte les maillots par piece, et le colis comme les frais fixes une seule fois', () => {
+    // Trois maillots floques, port offert : c'est le panier ou l'ancien calcul
+    // se trompait le plus, en imputant trois fois les frais de traitement.
+    const margin = orderMargin({
+      totalCents: 13500,
+      unitCostCents: 1959,
+      shippingCostCents: 1089,
+      shippingCents: 0,
+      totalQuantity: 3,
+      orderFeeCents: 363,
+      stripeFeeCents: 237,
+    });
+
+    expect(margin.itemsCostCents).toBe(5877);
+    expect(margin.shippingCostCents).toBe(1089);
+    expect(margin.orderFeeCents).toBe(363);
+    expect(margin.totalCostCents).toBe(7566);
+    expect(margin.marginCents).toBe(5934);
+    expect(margin.marginRate).toBeCloseTo(44.0, 1);
+  });
+
+  /**
+   * Les commandes anterieures a l'introduction de ces colonnes portent zero.
+   * Leur marge est alors surestimee, ce qui se voit et se corrige a la lecture,
+   * la ou un montant reconstitue avec les tarifs du jour serait faux sans que
+   * personne ne puisse s'en apercevoir.
+   */
+  it('tolere une commande sans frais fixes connus', () => {
+    const margin = orderMargin({
+      totalCents: 5000,
+      unitCostCents: 1959,
+      shippingCostCents: 1089,
       shippingCents: 500,
       totalQuantity: 1,
     });
 
-    expect(margin.totalCostCents).toBe(2800);
-    expect(margin.marginCents).toBe(1700);
-    expect(margin.marginRate).toBeCloseTo(37.8, 1);
-  });
-
-  it('compte le cout des maillots par piece et le colis une seule fois', () => {
-    const margin = orderMargin({
-      totalCents: 12000,
-      unitCostCents: 1900,
-      shippingCostCents: 900,
-      shippingCents: 0,
-      totalQuantity: 3,
-    });
-
-    expect(margin.itemsCostCents).toBe(5700);
-    expect(margin.shippingCostCents).toBe(900);
-    expect(margin.marginCents).toBe(5400);
+    expect(margin.orderFeeCents).toBe(0);
+    expect(margin.stripeFeeCents).toBe(0);
+    expect(margin.totalCostCents).toBe(3048);
   });
 
   it('signale que le port est vendu a perte', () => {

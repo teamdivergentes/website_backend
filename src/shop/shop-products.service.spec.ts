@@ -41,7 +41,6 @@ describe('ShopProductsService', () => {
     mockSettings.get.mockResolvedValue({
       shopEnabled: true,
       shippingStandardCents: 500,
-      shippingExpressCents: 1000,
       freeShippingThresholdCents: 12000,
       costProductionCents: 1600,
       costPartnerCents: 700,
@@ -49,7 +48,6 @@ describe('ShopProductsService', () => {
       costEcommerceCents: 300,
       costFlockingCents: 0,
       costShippingStandardCents: 900,
-      costShippingExpressCents: 1200,
       currency: 'eur',
     });
 
@@ -70,7 +68,6 @@ describe('ShopProductsService', () => {
       const catalog = await service.findPublicCatalog();
 
       expect(catalog.shippingStandardCents).toBe(500);
-      expect(catalog.shippingExpressCents).toBe(1000);
       expect(catalog.freeShippingThresholdCents).toBe(12000);
       expect(catalog.products).toHaveLength(1);
       expect(catalog.products[0].sizes).toEqual(['M', 'L']);
@@ -90,7 +87,6 @@ describe('ShopProductsService', () => {
       mockSettings.get.mockResolvedValue({
         shopEnabled: false,
         shippingStandardCents: 500,
-        shippingExpressCents: 1000,
         freeShippingThresholdCents: 12000,
         costProductionCents: 1600,
         costPartnerCents: 700,
@@ -98,7 +94,6 @@ describe('ShopProductsService', () => {
         costEcommerceCents: 300,
         costFlockingCents: 0,
         costShippingStandardCents: 900,
-        costShippingExpressCents: 1200,
         currency: 'eur',
       });
 
