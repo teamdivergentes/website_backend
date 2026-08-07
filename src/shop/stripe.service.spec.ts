@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { StripeService } from './stripe.service';
+import { StripeService, withSessionPlaceholder } from './stripe.service';
 import { SHIPPING_COUNTRIES } from './shop-shipping-zone';
 
 /**
@@ -118,5 +118,58 @@ describe('StripeService.createCheckoutSession — zone de livraison', () => {
 
     expect(displayName).toBe('Livraison Europe');
     expect(displayName).not.toContain('France');
+  });
+});
+
+/**
+ * Sans ce parametre, le retour de Stripe est anonyme : la page de remerciement
+ * ne peut ni nommer le client ni afficher ce qu'il vient d'acheter.
+ */
+describe('withSessionPlaceholder', () => {
+  it('ajoute le parametre de session a une URL nue', () => {
+    expect(withSessionPlaceholder('https://teamdivergentes.fr/boutique/merci')).toBe(
+      'https://teamdivergentes.fr/boutique/merci?session_id={CHECKOUT_SESSION_ID}',
+    );
+  });
+
+  it('respecte une chaine de requete deja presente', () => {
+    expect(withSessionPlaceholder('https://site.fr/merci?utm_source=stripe')).toBe(
+      'https://site.fr/merci?utm_source=stripe&session_id={CHECKOUT_SESSION_ID}',
+    );
+  });
+
+  it('laisse intacte une URL qui porte deja le placeholder', () => {
+    const url = 'https://site.fr/merci?session_id={CHECKOUT_SESSION_ID}';
+    expect(withSessionPlaceholder(url)).toBe(url);
+  });
+
+  it('n’encode pas les accolades, que Stripe ne substituerait plus', () => {
+    // `URL.searchParams` produirait `%7BCHECKOUT_SESSION_ID%7D` : le site
+    // recevrait le placeholder en toutes lettres au lieu de l'identifiant.
+    expect(withSessionPlaceholder('https://site.fr/merci')).not.toContain('%7B');
+  });
+});
+
+describe('createCheckoutSession — URL de retour', () => {
+  it('transmet a Stripe une URL de succes porteuse du placeholder', async () => {
+    const service = new StripeService();
+    const create = jest.fn().mockResolvedValue({ id: 'cs_1', url: 'https://stripe.test/cs_1' });
+    jest
+      .spyOn(service as unknown as { getClient: () => unknown }, 'getClient')
+      .mockReturnValue({ checkout: { sessions: { create } } });
+    process.env.SHOP_SUCCESS_URL = 'https://teamdivergentes.fr/boutique/merci';
+
+    await service.createCheckoutSession({
+      lines: [{ label: 'Maillot', unitAmountCents: 4500, quantity: 1 }],
+      shippingCents: 590,
+      currency: 'eur',
+      metadata: { orderId: '1' },
+    });
+
+    const [params] = create.mock.calls[0] as [Stripe.Checkout.SessionCreateParams];
+    expect(params.success_url).toBe(
+      'https://teamdivergentes.fr/boutique/merci?session_id={CHECKOUT_SESSION_ID}',
+    );
+    delete process.env.SHOP_SUCCESS_URL;
   });
 });

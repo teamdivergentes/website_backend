@@ -5,6 +5,7 @@ import { ShopRetailController } from './shop-retail.controller';
 import { ShopAdminController } from './shop-admin.controller';
 import { ShopCheckoutService } from './shop-checkout.service';
 import { ShopWebhookService } from './shop-webhook.service';
+import { ShopConfirmationService } from './shop-confirmation.service';
 import { ShopNotifierService } from './shop-notifier.service';
 import { ShopProductsService } from './shop-products.service';
 import { ShopSettingsService } from './shop-settings.service';
@@ -31,6 +32,7 @@ import { ConfigModule } from '../config/config.module';
     ShopPricingService,
     ShopCheckoutService,
     ShopWebhookService,
+    ShopConfirmationService,
     ShopNotifierService,
     ShopRetentionService,
     OrderReferenceService,

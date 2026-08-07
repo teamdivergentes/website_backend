@@ -17,6 +17,27 @@ export interface CheckoutLine {
  */
 export type CheckoutSessionOutcome = 'paid' | 'unpaid' | 'unknown';
 
+/**
+ * Ajoute a l'URL de retour le seul lien entre le tunnel de paiement et le site.
+ *
+ * Stripe substitue `{CHECKOUT_SESSION_ID}` par l'identifiant reel au moment de
+ * la redirection : c'est ce qui permet a la page de remerciement de retrouver
+ * la commande et de nommer le client. Sans lui, la redirection est anonyme et
+ * la page ne peut afficher qu'un message generique.
+ *
+ * Concatenation manuelle plutot que `URL.searchParams` : ce dernier encode les
+ * accolades en `%7B…%7D`, et Stripe ne substitue alors plus rien — le site
+ * recevrait le placeholder en toutes lettres. L'URL vient d'une variable
+ * d'environnement qui peut deja porter une chaine de requete, d'ou le choix du
+ * separateur.
+ */
+export function withSessionPlaceholder(url: string): string {
+  if (url.includes('{CHECKOUT_SESSION_ID}')) {
+    return url;
+  }
+  return `${url}${url.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
+}
+
 export interface CheckoutSessionParams {
   lines: CheckoutLine[];
   shippingCents: number;
@@ -42,7 +63,9 @@ export class StripeService {
   }
 
   async createCheckoutSession(params: CheckoutSessionParams): Promise<{ id: string; url: string }> {
-    const successUrl = process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci';
+    const successUrl = withSessionPlaceholder(
+      process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci',
+    );
     const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique/panier';
 
     const session = await this.getClient().checkout.sessions.create({

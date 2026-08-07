@@ -16,6 +16,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { ShopCheckoutService } from './shop-checkout.service';
 import { ShopWebhookService } from './shop-webhook.service';
+import { OrderConfirmation, ShopConfirmationService } from './shop-confirmation.service';
 import { PublicCatalog, PublicShopProduct, ShopProductsService } from './shop-products.service';
 
 @Controller()
@@ -24,6 +25,7 @@ export class ShopController {
     private readonly products: ShopProductsService,
     private readonly checkoutService: ShopCheckoutService,
     private readonly webhookService: ShopWebhookService,
+    private readonly confirmation: ShopConfirmationService,
   ) {}
 
   @Get('api/shop/products')
@@ -50,6 +52,24 @@ export class ShopController {
     // que de le laisser deduire d'un defaut est ce qui garantit qu'ajouter un
     // troisieme tunnel demain obligera son auteur a se poser la question.
     return this.checkoutService.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
+  }
+
+  /**
+   * Recapitulatif affiche sur la page de remerciement, apres le retour de
+   * Stripe.
+   *
+   * Publique, et elle doit l'etre : l'acheteur du tunnel public n'a pas de
+   * compte, il n'y a donc aucune identite a verifier. L'autorisation tient a
+   * l'identifiant de session, imprevisible et connu du seul navigateur qui
+   * vient de payer. C'est le motif recommande par Stripe pour cet ecran, et il
+   * n'est acceptable que parce que la reponse ne porte rien de sensible — voir
+   * `OrderConfirmation`. La limite basse ferme le balayage d'identifiants.
+   */
+  @Get('api/shop/orders/:sessionId')
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  getOrderConfirmation(@Param('sessionId') sessionId: string): Promise<OrderConfirmation> {
+    return this.confirmation.findBySessionId(sessionId);
   }
 
   @Post('api/shop/webhook')
