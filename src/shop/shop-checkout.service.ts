@@ -40,11 +40,7 @@ export class ShopCheckoutService {
      */
     tariff: { tier: PricingTier; buyerUserId: number | null },
   ): Promise<{ url: string }> {
-    const cart = await this.pricing.priceCart({
-      items: dto.items,
-      method: dto.shippingMethod ?? 'STANDARD',
-      tier: tariff.tier,
-    });
+    const cart = await this.pricing.priceCart({ items: dto.items, tier: tariff.tier });
     const reference = await this.reference.generate();
 
     const order = await this.prisma.order.create({
@@ -63,6 +59,7 @@ export class ShopCheckoutService {
         // ete degagee, pas telle qu'elle serait aux tarifs d'aujourd'hui.
         unitCostCents: cart.unitCostCents,
         shippingCostCents: cart.shippingCostCents,
+        orderFeeCents: cart.orderFeeCents,
         pricingTier: cart.tier,
         buyerUserId: tariff.buyerUserId,
         // Fige le prix catalogue du jour : c'est la seule reference qui

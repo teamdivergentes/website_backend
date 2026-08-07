@@ -64,6 +64,13 @@ export class ShopWebhookService {
       }
     ).collected_information?.shipping_details;
 
+    // Commission Stripe constatee, figee au meme titre que les couts
+    // fournisseur : elle depend du pays d'emission de la carte, et le tarif du
+    // compte peut changer. `null` la laisse a sa valeur par defaut de zero, ce
+    // qui surestime la marge de quelques dizaines de centimes plutot que de
+    // bloquer l'enregistrement d'une commande payee.
+    const stripeFeeCents = await this.stripe.getSessionFeeCents(session.id);
+
     // Trois conditions, trois roles distincts :
     //
     //   id              — la commande visee par les metadonnees de la session.
@@ -91,6 +98,7 @@ export class ShopWebhookService {
         shippingAddress: (shipping ?? {}) as Prisma.InputJsonValue,
         shippingCents: session.shipping_cost?.amount_total ?? undefined,
         totalCents: session.amount_total ?? undefined,
+        stripeFeeCents: stripeFeeCents ?? undefined,
       },
     });
 

@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { ShopSettingsService } from './shop-settings.service';
 import { assertFlockingAllowed, normalizeFlocking } from './shop-flocking';
 import { CheckoutItemDto } from './dto/create-checkout.dto';
-import { retailUnitPrice, shippingCost, shippingPrice, unitCost } from './shop-costs';
+import { orderFee, retailUnitPrice, shippingCost, shippingPrice, unitCost } from './shop-costs';
 import { PricingTier, ShippingMethod } from '../../generated/prisma';
 
 /** Nombre total d'articles accepte dans un panier, toutes lignes confondues. */
@@ -51,6 +51,11 @@ export interface PricedCart {
    */
   unitCostCents: number;
   shippingCostCents: number;
+  /**
+   * Frais de traitement du fournisseur, dus une fois pour la commande entiere.
+   * Separe de `unitCostCents`, qui est multiplie par la quantite.
+   */
+  orderFeeCents: number;
   /** Bareme retenu, tel qu'il sera fige sur la commande. */
   tier: PricingTier;
   /**
@@ -83,12 +88,8 @@ export class ShopPricingService {
    * oubli invisible a la compilation, et le sens de ce defaut deciderait de la
    * gravite de l'oubli.
    */
-  async priceCart(input: {
-    items: CheckoutItemDto[];
-    method: ShippingMethod;
-    tier: PricingTier;
-  }): Promise<PricedCart> {
-    const { items, method, tier } = input;
+  async priceCart(input: { items: CheckoutItemDto[]; tier: PricingTier }): Promise<PricedCart> {
+    const { items, tier } = input;
     const settings = await this.settings.get();
     if (!settings.shopEnabled) {
       throw new ForbiddenException('La boutique est actuellement fermée');
@@ -168,11 +169,15 @@ export class ShopPricingService {
     // franchise que par accident de calcul. Offrir le port par-dessus un prix
     // deja sans marge reviendrait a vendre sous le cout.
     const shippingCents =
-      tier === 'RETAIL'
-        ? shippingCost(settings, method)
-        : shippingPrice(settings, method, subtotalCents);
+      tier === 'RETAIL' ? shippingCost(settings) : shippingPrice(settings, subtotalCents);
 
-    const totalCents = subtotalCents + shippingCents;
+    // Frais de traitement du fournisseur : une fois par commande, jamais par
+    // article. Au tarif reserve ils sont refactures, comme le reste du cout
+    // reel — mais une seule fois, ce qui est precisement leur nature.
+    const orderFeeCents = orderFee(settings);
+    const retailOrderFeeCents = tier === 'RETAIL' ? orderFeeCents : 0;
+
+    const totalCents = subtotalCents + shippingCents + retailOrderFeeCents;
 
     // Les couts sont editables depuis l'administration. Tous a zero, le total
     // tombe a zero, Stripe repond `no_payment_required` et la commande est
@@ -190,14 +195,15 @@ export class ShopPricingService {
       shippingCents,
       totalCents,
       currency: settings.currency,
-      shippingMethod: method,
+      shippingMethod: 'STANDARD',
       shippingIsFree: shippingCents === 0,
       unitCostCents: unitCost(settings).totalCents,
-      shippingCostCents: shippingCost(settings, method),
+      shippingCostCents: shippingCost(settings),
+      orderFeeCents,
       tier,
       // Le port public entre dans la reference : l'avantage porte sur la
       // commande entiere, pas seulement sur les articles.
-      publicTotalCents: publicSubtotalCents + shippingPrice(settings, method, publicSubtotalCents),
+      publicTotalCents: publicSubtotalCents + shippingPrice(settings, publicSubtotalCents),
     };
   }
 }
