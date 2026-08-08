@@ -105,6 +105,57 @@ describe('ShopProductsService', () => {
     });
   });
 
+  describe('prix promotionnel en vitrine', () => {
+    const EN_PROMO = {
+      ...JOKER,
+      promoPriceCents: 3990,
+      promoStartsAt: new Date('2020-01-01'),
+      promoEndsAt: new Date('2999-12-31'),
+    };
+
+    it('affiche le prix promotionnel comme prix à payer', async () => {
+      // `priceCents` reste le montant du : le front qui l'affichait deja montre
+      // le bon prix, et son calcul de panier reste d'accord avec le serveur.
+      mockPrisma.shopProduct.findMany.mockResolvedValue([EN_PROMO]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].priceCents).toBe(3990);
+      expect(catalog.products[0].listPriceCents).toBe(4990);
+    });
+
+    it('n’expose aucun prix barré hors promotion', async () => {
+      // `null` plutot qu'un montant egal : le front n'a pas a comparer deux
+      // nombres pour savoir s'il doit en barrer un.
+      mockPrisma.shopProduct.findMany.mockResolvedValue([JOKER]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].listPriceCents).toBeNull();
+    });
+
+    it('retire la promotion d’elle-même une fois la fenêtre passée', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        { ...EN_PROMO, promoEndsAt: new Date('2020-06-30') },
+      ]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].priceCents).toBe(4990);
+      expect(catalog.products[0].listPriceCents).toBeNull();
+    });
+
+    it('évalue tout le catalogue au même instant', async () => {
+      // Deux promotions qui s'achevent a la meme seconde ne doivent pas sortir
+      // l'une active et l'autre echue dans la meme reponse.
+      mockPrisma.shopProduct.findMany.mockResolvedValue([EN_PROMO, { ...EN_PROMO, id: 2 }]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products.map((p) => p.priceCents)).toEqual([3990, 3990]);
+    });
+  });
+
   describe('findPublicBySlug', () => {
     it('retourne le produit actif correspondant', async () => {
       mockPrisma.shopProduct.findFirst.mockResolvedValue(JOKER);

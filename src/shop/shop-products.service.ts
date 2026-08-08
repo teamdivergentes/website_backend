@@ -7,6 +7,7 @@ import {
   UpdateShopProductDto,
 } from './dto/shop-product.dto';
 import { isPrismaUniqueConstraintError } from '../common/utils/prisma-errors';
+import { applicableUnitPrice } from './shop-discount';
 
 /** Un visuel tel que le front l'affiche dans le rail de la fiche produit. */
 export interface PublicProductImage {
@@ -22,7 +23,16 @@ export interface PublicShopProduct {
   name: string;
   shortDescription: string | null;
   description: string | null;
+  /** Ce que le client paie : le prix promotionnel s'il y en a un, sinon le catalogue. */
   priceCents: number;
+  /**
+   * Prix catalogue a barrer, **uniquement** pendant une promotion active.
+   *
+   * `null` le reste du temps : le front n'a pas a comparer deux montants pour
+   * savoir s'il doit en barrer un, et une promotion echue disparait de la
+   * vitrine sans intervention.
+   */
+  listPriceCents: number | null;
   /** Galerie ordonnee. La premiere entree est la vue d'ouverture de la fiche. */
   images: PublicProductImage[];
   /** Vignette de la liste boutique, a defaut la premiere image. */
@@ -74,8 +84,14 @@ export class ShopProductsService {
         })
       : [];
 
+    // Un seul instant pour tout le catalogue : deux produits dont la promotion
+    // s'acheve a la meme seconde ne doivent pas se retrouver l'un en promotion
+    // et l'autre non dans la meme reponse. L'appel est enveloppe parce que
+    // `map` passe l'index en second argument.
+    const now = new Date();
+
     return {
-      products: products.map(toPublicProduct),
+      products: products.map((product) => toPublicProduct(product, now)),
       shippingStandardCents: settings.shippingStandardCents,
       freeShippingThresholdCents: settings.freeShippingThresholdCents,
       currency: settings.currency,
@@ -289,6 +305,9 @@ type ProductWithSizes = {
   shortDescription: string | null;
   description: string | null;
   priceCents: number;
+  promoPriceCents: number | null;
+  promoStartsAt: Date | null;
+  promoEndsAt: Date | null;
   allowFlocking: boolean;
   flockingFeeCents: number;
   flockingTopPct: number;
@@ -297,7 +316,7 @@ type ProductWithSizes = {
   images: { url: string; label: string; isBack: boolean; isCard: boolean }[];
 };
 
-function toPublicProduct(product: ProductWithSizes): PublicShopProduct {
+function toPublicProduct(product: ProductWithSizes, now: Date = new Date()): PublicShopProduct {
   const images = product.images.map((image) => ({
     url: image.url,
     label: image.label,
@@ -305,13 +324,22 @@ function toPublicProduct(product: ProductWithSizes): PublicShopProduct {
   }));
   const card = product.images.find((image) => image.isCard) ?? product.images[0];
 
+  // `priceCents` reste le prix a payer, promotion comprise : le front qui
+  // l'affichait deja montre le bon montant sans rien changer, et son calcul de
+  // panier reste d'accord avec le serveur. Le prix catalogue n'apparait qu'en
+  // presence d'une promotion active, ce qui evite au front d'avoir a comparer
+  // deux montants pour savoir s'il doit en barrer un.
+  const payable = applicableUnitPrice(product, now);
+  const onPromotion = payable < product.priceCents;
+
   return {
     id: product.id,
     slug: product.slug,
     name: product.name,
     shortDescription: product.shortDescription,
     description: product.description,
-    priceCents: product.priceCents,
+    priceCents: payable,
+    listPriceCents: onPromotion ? product.priceCents : null,
     images,
     cardImage: card?.url ?? null,
     allowFlocking: product.allowFlocking,
