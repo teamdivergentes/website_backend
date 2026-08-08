@@ -4,7 +4,7 @@ import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { PricingTier } from '../../generated/prisma';
 import { ShopPricingService, PricedLine } from './shop-pricing.service';
 import { OrderReferenceService } from './order-reference.service';
-import { StripeService } from './stripe.service';
+import { checkoutSessionExpiry, StripeService } from './stripe.service';
 
 @Injectable()
 export class ShopCheckoutService {
@@ -40,8 +40,16 @@ export class ShopCheckoutService {
      */
     tariff: { tier: PricingTier; buyerUserId: number | null },
   ): Promise<{ url: string }> {
-    const cart = await this.pricing.priceCart({ items: dto.items, tier: tariff.tier });
+    const cart = await this.pricing.priceCart({
+      items: dto.items,
+      tier: tariff.tier,
+      discountCode: dto.discountCode,
+    });
     const reference = await this.reference.generate();
+    // Calculee avant la creation de la commande, et non au retour de Stripe :
+    // c'est elle qui reserve le bon de reduction, et une commande PENDING sans
+    // echeance ne reserve rien.
+    const sessionExpiresAt = checkoutSessionExpiry();
 
     const order = await this.prisma.order.create({
       data: {
@@ -55,6 +63,15 @@ export class ShopCheckoutService {
         totalCents: cart.totalCents,
         currency: cart.currency,
         shippingMethod: cart.shippingMethod,
+        // Le montant deduit est fige, pas les conditions du code : celles-ci
+        // sont modifiables a chaud et les recalculer plus tard reecrirait
+        // l'histoire. Le libelle est duplique volontairement — c'est lui qui
+        // rattachera la vente a son operation si le code est renomme ou
+        // supprime.
+        discountCents: cart.discountCents,
+        discountCode: cart.discount?.code ?? null,
+        discountCodeId: cart.discount?.id ?? null,
+        sessionExpiresAt,
         // Couts figes a l'instant de l'achat : une marge se lit telle qu'elle a
         // ete degagee, pas telle qu'elle serait aux tarifs d'aujourd'hui.
         unitCostCents: cart.unitCostCents,
@@ -91,6 +108,9 @@ export class ShopCheckoutService {
         })),
         shippingCents: cart.shippingCents,
         currency: cart.currency,
+        discountCents: cart.discountCents,
+        discountLabel: cart.discount?.code,
+        expiresAt: sessionExpiresAt,
         metadata: { orderId: String(order.id), orderReference: order.reference },
       });
     } catch (error) {

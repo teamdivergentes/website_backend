@@ -38,11 +38,41 @@ export function withSessionPlaceholder(url: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
 }
 
+/**
+ * Duree de vie d'une session de paiement.
+ *
+ * Stripe accepte de 30 minutes a 24 heures, et retient 24 heures par defaut.
+ * Une heure est retenue ici pour une raison qui n'a rien a voir avec le
+ * paiement : une session ouverte **reserve** le bon de reduction qu'elle porte
+ * (cf. `ShopDiscountService`). Au defaut de Stripe, un panier abandonne
+ * rendrait un code a usage unique indisponible pour la journee entiere. Une
+ * heure laisse largement le temps de saisir une carte.
+ */
+export const CHECKOUT_SESSION_TTL_MINUTES = 60;
+
 export interface CheckoutSessionParams {
   lines: CheckoutLine[];
   shippingCents: number;
   currency: string;
+  /** Remise a appliquer au sous-total articles, 0 quand il n'y en a pas. */
+  discountCents: number;
+  /** Libelle du code, affiche au client sur la page de paiement. */
+  discountLabel?: string;
+  /**
+   * Echeance de la session, decidee par l'appelant.
+   *
+   * Elle ne se calcule pas ici parce que la commande doit la porter **avant**
+   * l'appel a Stripe : c'est cette echeance qui reserve le bon de reduction, et
+   * une reservation qui n'existerait qu'au retour de Stripe laisserait le code
+   * disponible pour un autre client pendant tout l'aller-retour.
+   */
+  expiresAt: Date;
   metadata: Record<string, string>;
+}
+
+/** Echeance d'une session creee maintenant. */
+export function checkoutSessionExpiry(from: Date = new Date()): Date {
+  return new Date(from.getTime() + CHECKOUT_SESSION_TTL_MINUTES * 60_000);
 }
 
 @Injectable()
@@ -68,7 +98,11 @@ export class StripeService {
     );
     const cancelUrl = process.env.SHOP_CANCEL_URL ?? 'http://localhost:4200/boutique/panier';
 
+    const discounts = params.discountCents > 0 ? [await this.createCoupon(params)] : undefined;
+
     const session = await this.getClient().checkout.sessions.create({
+      expires_at: Math.floor(params.expiresAt.getTime() / 1000),
+      discounts,
       mode: 'payment',
       line_items: params.lines.map((line) => ({
         quantity: line.quantity,
@@ -104,6 +138,41 @@ export class StripeService {
       throw new InternalServerErrorException('Session de paiement invalide');
     }
     return { id: session.id, url: session.url };
+  }
+
+  /**
+   * Coupon a usage unique, cree pour cette session et pour elle seule.
+   *
+   * **Pourquoi un coupon plutot qu'une remise repartie sur les prix
+   * unitaires.** Stripe n'accepte pas de ligne negative : deduire la remise
+   * de nos propres montants obligerait a la repartir au prorata sur chaque
+   * ligne, avec un reste d'arrondi a rattraper a l'unite pres, et le client
+   * verrait sur son recu des prix unitaires qui ne sont ni ceux du catalogue
+   * ni ceux annonces au panier. Le coupon donne le montant exact et une ligne
+   * de reduction lisible avant le paiement, ce que le critere d'acceptation
+   * demande.
+   *
+   * **Ce n'est pas la synchronisation d'objets Stripe qu'on avait ecartee**
+   * pour les frais de port. Le tarif de port est un reglage durable, edite
+   * depuis l'administration : le pre-creer chez Stripe aurait cree une seconde
+   * source de verite a resynchroniser a chaque changement. Ce coupon-ci nait
+   * avec la session, ne vaut que pour elle, et sa valeur est calculee chez
+   * nous a l'instant ou il est cree. Il n'y a rien a maintenir en accord.
+   *
+   * `max_redemptions: 1` et `redeem_by` sont des garde-fous : meme si le
+   * couponnage fuitait, il ne servirait qu'une fois et pas au-dela de la
+   * session.
+   */
+  private async createCoupon(params: CheckoutSessionParams): Promise<{ coupon: string }> {
+    const coupon = await this.getClient().coupons.create({
+      amount_off: params.discountCents,
+      currency: params.currency,
+      duration: 'once',
+      max_redemptions: 1,
+      redeem_by: Math.floor(params.expiresAt.getTime() / 1000),
+      name: params.discountLabel ? `Code ${params.discountLabel}` : 'Réduction',
+    });
+    return { coupon: coupon.id };
   }
 
   /**
