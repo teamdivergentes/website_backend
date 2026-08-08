@@ -11,6 +11,10 @@ interface CreatedOrderArgs {
     status: string;
     subtotalCents: number;
     totalCents: number;
+    discountCents: number;
+    discountCode: string | null;
+    discountCodeId: number | null;
+    sessionExpiresAt: Date;
     items: { create: unknown[] };
   };
 }
@@ -37,9 +41,18 @@ const PRICED_CART = {
     },
   ],
   subtotalCents: 10980,
+  discountCents: 0,
   shippingCents: 590,
   totalCents: 11570,
   currency: 'eur',
+};
+
+/** Le meme panier, avec un bon de reduction de 5 €. */
+const PRICED_CART_REMISE = {
+  ...PRICED_CART,
+  discountCents: 500,
+  discount: { id: 7, code: 'BIENVENUE', amountCents: 500 },
+  totalCents: 11070,
 };
 
 describe('ShopCheckoutService', () => {
@@ -94,6 +107,81 @@ describe('ShopCheckoutService', () => {
     expect(created.items.create).toEqual([
       expect.objectContaining({ productName: 'Maillot 2026 — DVG × Joker', flockingText: 'Snake' }),
     ]);
+  });
+
+  describe('bon de réduction', () => {
+    it('fige le montant déduit et le libellé du code sur la commande', async () => {
+      mockPricing.priceCart.mockResolvedValue(PRICED_CART_REMISE);
+
+      await service.createCheckout(
+        { ...dto, discountCode: 'bienvenue' },
+        { tier: 'PUBLIC', buyerUserId: null },
+      );
+
+      const { data: created } = firstCallArg<CreatedOrderArgs>(mockPrisma.order.create);
+      // Le libelle est duplique volontairement : c'est lui qui rattachera la
+      // vente a son operation si le code est renomme ou supprime.
+      expect(created).toMatchObject({
+        discountCents: 500,
+        discountCode: 'BIENVENUE',
+        discountCodeId: 7,
+        totalCents: 11070,
+      });
+    });
+
+    it('transmet la chaîne saisie au calcul, jamais un montant', async () => {
+      await service.createCheckout(
+        { ...dto, discountCode: 'bienvenue' },
+        { tier: 'PUBLIC', buyerUserId: null },
+      );
+
+      expect(mockPricing.priceCart).toHaveBeenCalledWith(
+        expect.objectContaining({ discountCode: 'bienvenue' }),
+      );
+    });
+
+    it('réserve le code dès la création de la commande, avant l’appel à Stripe', async () => {
+      // Une commande PENDING sans echeance ne reserve rien : l'ecrire au retour
+      // de Stripe laisserait le code disponible pendant tout l'aller-retour.
+      mockPricing.priceCart.mockResolvedValue(PRICED_CART_REMISE);
+
+      await service.createCheckout(
+        { ...dto, discountCode: 'BIENVENUE' },
+        { tier: 'PUBLIC', buyerUserId: null },
+      );
+
+      const { data: created } = firstCallArg<CreatedOrderArgs>(mockPrisma.order.create);
+      expect(created.sessionExpiresAt).toBeInstanceOf(Date);
+      expect(created.sessionExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('donne à Stripe la même échéance que celle portée par la commande', async () => {
+      mockPricing.priceCart.mockResolvedValue(PRICED_CART_REMISE);
+
+      await service.createCheckout(
+        { ...dto, discountCode: 'BIENVENUE' },
+        { tier: 'PUBLIC', buyerUserId: null },
+      );
+
+      const { data: created } = firstCallArg<CreatedOrderArgs>(mockPrisma.order.create);
+      expect(mockStripe.createCheckoutSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discountCents: 500,
+          discountLabel: 'BIENVENUE',
+          expiresAt: created.sessionExpiresAt,
+        }),
+      );
+    });
+
+    it('ne porte aucune remise quand le panier n’en a pas', async () => {
+      await service.createCheckout(dto, { tier: 'PUBLIC', buyerUserId: null });
+
+      const { data: created } = firstCallArg<CreatedOrderArgs>(mockPrisma.order.create);
+      // Zero et non `null` : le reporting somme sans cas particulier.
+      expect(created.discountCents).toBe(0);
+      expect(created.discountCode).toBeNull();
+      expect(created.discountCodeId).toBeNull();
+    });
   });
 
   it('ne transmet que l’identifiant de commande en métadonnées', async () => {

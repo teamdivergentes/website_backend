@@ -88,6 +88,8 @@ describe('StripeService.createCheckoutSession — zone de livraison', () => {
       lines: [{ label: 'Maillot', unitAmountCents: 4500, quantity: 1 }],
       shippingCents: 590,
       currency: 'eur',
+      discountCents: 0,
+      expiresAt: new Date('2026-08-08T13:00:00Z'),
       metadata: { orderId: '1' },
     });
     const [params] = create.mock.calls[0] as [Stripe.Checkout.SessionCreateParams];
@@ -163,6 +165,8 @@ describe('createCheckoutSession — URL de retour', () => {
       lines: [{ label: 'Maillot', unitAmountCents: 4500, quantity: 1 }],
       shippingCents: 590,
       currency: 'eur',
+      discountCents: 0,
+      expiresAt: new Date('2026-08-08T13:00:00Z'),
       metadata: { orderId: '1' },
     });
 

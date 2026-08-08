@@ -5,6 +5,7 @@ import { ShopCheckoutService } from './shop-checkout.service';
 import { ShopWebhookService } from './shop-webhook.service';
 import { ShopConfirmationService } from './shop-confirmation.service';
 import { ShopProductsService } from './shop-products.service';
+import { ShopPricingService } from './shop-pricing.service';
 
 describe('ShopController', () => {
   let controller: ShopController;
@@ -13,6 +14,7 @@ describe('ShopController', () => {
   const mockWebhookService = { handleEvent: jest.fn() };
   const mockProductsService = { findPublicCatalog: jest.fn(), findPublicBySlug: jest.fn() };
   const mockConfirmationService = { findBySessionId: jest.fn() };
+  const mockPricingService = { priceCart: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -20,6 +22,7 @@ describe('ShopController', () => {
       controllers: [ShopController],
       providers: [
         { provide: ShopProductsService, useValue: mockProductsService },
+        { provide: ShopPricingService, useValue: mockPricingService },
         { provide: ShopCheckoutService, useValue: mockCheckoutService },
         { provide: ShopWebhookService, useValue: mockWebhookService },
         { provide: ShopConfirmationService, useValue: mockConfirmationService },
