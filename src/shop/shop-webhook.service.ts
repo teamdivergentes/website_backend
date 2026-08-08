@@ -159,7 +159,7 @@ export class ShopWebhookService {
 
     // Une commande deja traitee est un rejeu : son total porte deja le montant
     // encaisse, le comparer n'apprendrait rien.
-    if (!order || order.status !== 'PENDING' || order.totalCents === paidCents) {
+    if (order?.status !== 'PENDING' || order.totalCents === paidCents) {
       return;
     }
 

@@ -51,7 +51,7 @@ export class ShopDiscountService {
 
     // Meme message pour un code inconnu et pour un code desactive : les
     // distinguer indiquerait a qui balaie l'endpoint quels codes existent.
-    if (!discount || !discount.active) {
+    if (!discount?.active) {
       throw new BadRequestException('Ce code de réduction est invalide');
     }
 
