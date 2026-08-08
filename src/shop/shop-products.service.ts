@@ -120,6 +120,7 @@ export class ShopProductsService {
 
   async create(dto: CreateShopProductDto) {
     const { sizes, images, ...data } = dto;
+    assertPromotionConsistent(dto.priceCents, dto);
     try {
       return await this.prisma.shopProduct.create({
         data: {
@@ -138,8 +139,18 @@ export class ShopProductsService {
   }
 
   async update(id: number, dto: UpdateShopProductDto) {
-    await this.findOneForAdmin(id);
+    const current = await this.findOneForAdmin(id);
     const { sizes, images, ...data } = dto;
+
+    // Le prix catalogue n'est pas forcement dans la requete : une promotion
+    // peut etre posee sans y toucher. C'est donc le prix qui sera en base
+    // apres la mise a jour qui sert de reference, pas celui du corps.
+    assertPromotionConsistent(dto.priceCents ?? current.priceCents, {
+      promoPriceCents:
+        dto.promoPriceCents === undefined ? current.promoPriceCents : dto.promoPriceCents,
+      promoStartsAt: dto.promoStartsAt === undefined ? current.promoStartsAt : dto.promoStartsAt,
+      promoEndsAt: dto.promoEndsAt === undefined ? current.promoEndsAt : dto.promoEndsAt,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       if (sizes) {
@@ -167,6 +178,38 @@ export class ShopProductsService {
     // Les lignes de commande passent en productId nul (onDelete: SetNull) et
     // gardent leur libelle en instantane : l'historique reste lisible.
     await this.prisma.shopProduct.delete({ where: { id } });
+  }
+}
+
+/**
+ * Refuse une promotion qui n'en serait pas une.
+ *
+ * Un prix promotionnel superieur ou egal au prix catalogue serait un defaut
+ * invisible en base et bien visible en caisse ; le calcul du panier l'ignore
+ * deja par securite, mais laisser enregistrer une saisie qui ne produira aucun
+ * effet est une fausse confirmation donnee a l'administrateur.
+ *
+ * La fenetre inversee est refusee pour la meme raison : elle s'enregistre sans
+ * broncher et ne s'applique jamais.
+ */
+function assertPromotionConsistent(
+  priceCents: number,
+  promotion: {
+    promoPriceCents?: number | null;
+    promoStartsAt?: string | Date | null;
+    promoEndsAt?: string | Date | null;
+  },
+): void {
+  const { promoPriceCents, promoStartsAt, promoEndsAt } = promotion;
+
+  if (promoPriceCents !== null && promoPriceCents !== undefined) {
+    if (promoPriceCents >= priceCents) {
+      throw new BadRequestException('Le prix promotionnel doit être inférieur au prix catalogue');
+    }
+  }
+
+  if (promoStartsAt && promoEndsAt && new Date(promoEndsAt) <= new Date(promoStartsAt)) {
+    throw new BadRequestException('La fin de la promotion doit être postérieure à son début');
   }
 }
 

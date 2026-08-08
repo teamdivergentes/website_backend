@@ -10,6 +10,7 @@ import { ShopNotifierService } from './shop-notifier.service';
 import { ShopProductsService } from './shop-products.service';
 import { ShopSettingsService } from './shop-settings.service';
 import { ShopPricingService } from './shop-pricing.service';
+import { ShopDiscountService } from './shop-discount.service';
 import { ShopRetentionService } from './shop-retention.service';
 import { OrderReferenceService } from './order-reference.service';
 import { StripeService } from './stripe.service';
@@ -30,6 +31,7 @@ import { ConfigModule } from '../config/config.module';
     ShopProductsService,
     ShopSettingsService,
     ShopPricingService,
+    ShopDiscountService,
     ShopCheckoutService,
     ShopWebhookService,
     ShopConfirmationService,

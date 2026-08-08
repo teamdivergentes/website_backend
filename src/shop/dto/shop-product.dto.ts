@@ -4,6 +4,7 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -69,6 +70,24 @@ export class CreateShopProductDto {
   @Min(0, { message: 'Le prix ne peut pas être négatif' })
   @Max(500000, { message: 'Le prix ne peut pas dépasser 5 000 €' })
   priceCents: number;
+
+  /**
+   * Prix promotionnel. `null` met fin a la promotion en cours ; il doit rester
+   * accepte, sans quoi une promotion ne pourrait plus etre retiree.
+   */
+  @IsOptional()
+  @IsInt({ message: 'Le prix promotionnel doit être un entier (en centimes)' })
+  @Min(0, { message: 'Le prix promotionnel ne peut pas être négatif' })
+  @Max(500000)
+  promoPriceCents?: number | null;
+
+  @IsOptional()
+  @IsDateString({}, { message: 'La date de début de promotion est invalide' })
+  promoStartsAt?: string | null;
+
+  @IsOptional()
+  @IsDateString({}, { message: 'La date de fin de promotion est invalide' })
+  promoEndsAt?: string | null;
 
   @IsOptional()
   @IsArray()
@@ -142,6 +161,24 @@ export class UpdateShopProductDto {
   @Min(0)
   @Max(500000)
   priceCents?: number;
+
+  /**
+   * Prix promotionnel. `null` met fin a la promotion en cours ; il doit rester
+   * accepte, sans quoi une promotion ne pourrait plus etre retiree.
+   */
+  @IsOptional()
+  @IsInt({ message: 'Le prix promotionnel doit être un entier (en centimes)' })
+  @Min(0, { message: 'Le prix promotionnel ne peut pas être négatif' })
+  @Max(500000)
+  promoPriceCents?: number | null;
+
+  @IsOptional()
+  @IsDateString({}, { message: 'La date de début de promotion est invalide' })
+  promoStartsAt?: string | null;
+
+  @IsOptional()
+  @IsDateString({}, { message: 'La date de fin de promotion est invalide' })
+  promoEndsAt?: string | null;
 
   @IsOptional()
   @IsArray()
