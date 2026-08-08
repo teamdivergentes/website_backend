@@ -3,6 +3,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ShopPricingService } from './shop-pricing.service';
 import { ShopSettingsService } from './shop-settings.service';
 import { PrismaService } from '../prisma.service';
+import { ShopDiscountService } from './shop-discount.service';
 
 /** Maillot Joker : 49,90 € + 5 € de flocage. */
 const JOKER = {
@@ -43,6 +44,7 @@ describe('ShopPricingService', () => {
 
   const mockPrisma = { shopProduct: { findMany: jest.fn() } };
   const mockSettings = { get: jest.fn() };
+  const mockDiscounts = { resolveForCart: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -54,6 +56,7 @@ describe('ShopPricingService', () => {
         ShopPricingService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ShopSettingsService, useValue: mockSettings },
+        { provide: ShopDiscountService, useValue: mockDiscounts },
       ],
     }).compile();
     service = module.get(ShopPricingService);
@@ -377,6 +380,186 @@ describe('ShopPricingService', () => {
       expect(cart.unitCostCents).toBe(1600);
       expect(cart.shippingCostCents).toBe(900);
       expect(cart.orderFeeCents).toBe(300);
+    });
+  });
+
+  describe('bons de réduction', () => {
+    it('déduit la remise du total sans toucher au sous-total', async () => {
+      mockDiscounts.resolveForCart.mockResolvedValue({
+        id: 7,
+        code: 'BIENVENUE',
+        amountCents: 500,
+      });
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+        discountCode: 'BIENVENUE',
+      });
+
+      expect(cart.subtotalCents).toBe(4990);
+      expect(cart.discountCents).toBe(500);
+      // 49,90 - 5,00 + 5,00 de port.
+      expect(cart.totalCents).toBe(4990 - 500 + 500);
+      expect(cart.discount).toEqual({ id: 7, code: 'BIENVENUE', amountCents: 500 });
+    });
+
+    it('transmet la chaîne saisie et le sous-total, jamais un montant du client', async () => {
+      mockDiscounts.resolveForCart.mockResolvedValue({ id: 7, code: 'X', amountCents: 100 });
+
+      await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1, discountCents: 9999 }] as never,
+        tier: 'PUBLIC',
+        discountCode: 'bienvenue',
+      });
+
+      expect(mockDiscounts.resolveForCart).toHaveBeenCalledWith(
+        'bienvenue',
+        4990,
+        expect.any(Date),
+      );
+    });
+
+    it('ne résout aucun code quand le panier n’en porte pas', async () => {
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+      });
+
+      expect(mockDiscounts.resolveForCart).not.toHaveBeenCalled();
+      expect(cart.discountCents).toBe(0);
+      expect(cart.discount).toBeUndefined();
+    });
+
+    it('refuse un bon de réduction par-dessus le tarif réservé', async () => {
+      // La marge y est nulle par construction : toute remise vend sous le cout.
+      await expect(
+        service.priceCart({
+          items: [{ productId: 1, size: 'M', quantity: 1 }],
+          tier: 'RETAIL',
+          discountCode: 'BIENVENUE',
+        }),
+      ).rejects.toThrow("Un bon de réduction ne s'applique pas au tarif réservé");
+      expect(mockDiscounts.resolveForCart).not.toHaveBeenCalled();
+    });
+
+    it('évalue la franchise de port sur le sous-total avant remise', async () => {
+      // 3 maillots = 149,70 €, au-dela des 120 € de franchise. Une remise de
+      // 40 € ramene sous le seuil : si la franchise etait recalculee apres, le
+      // client verrait le port reapparaitre a cause de sa reduction.
+      mockDiscounts.resolveForCart.mockResolvedValue({
+        id: 7,
+        code: 'GROS',
+        amountCents: 4000,
+      });
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 3 }],
+        tier: 'PUBLIC',
+        discountCode: 'GROS',
+      });
+
+      expect(cart.shippingCents).toBe(0);
+      expect(cart.totalCents).toBe(14970 - 4000);
+    });
+
+    it('refuse un total ramené sous le minimum encaissable', async () => {
+      // Un code a 100 % rouvre depuis le tunnel public le chemin que le
+      // plancher fermait pour le tarif reserve : total a zero, Stripe repond
+      // `no_payment_required` et la commande passe pour payee.
+      mockDiscounts.resolveForCart.mockResolvedValue({
+        id: 7,
+        code: 'TOUT',
+        amountCents: 4990,
+      });
+      mockSettings.get.mockResolvedValue({ ...REGLAGES, freeShippingThresholdCents: 1 });
+
+      await expect(
+        service.priceCart({
+          items: [{ productId: 1, size: 'M', quantity: 1 }],
+          tier: 'PUBLIC',
+          discountCode: 'TOUT',
+        }),
+      ).rejects.toThrow('inférieur au minimum encaissable');
+    });
+
+    it('garde publicTotalCents égal au total sur une vente publique remisée', async () => {
+      // Un bon de reduction est accessible a qui le detient : ce n'est pas un
+      // tarif consenti a une personne, il ne doit pas gonfler l'avantage
+      // attribue aux ventes a prix coutant.
+      mockDiscounts.resolveForCart.mockResolvedValue({
+        id: 7,
+        code: 'BIENVENUE',
+        amountCents: 500,
+      });
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+        discountCode: 'BIENVENUE',
+      });
+
+      expect(cart.publicTotalCents).toBe(cart.totalCents);
+    });
+  });
+
+  describe('prix promotionnel', () => {
+    const EN_PROMO = {
+      ...JOKER,
+      promoPriceCents: 3990,
+      promoStartsAt: new Date('2026-08-01'),
+      promoEndsAt: new Date('2026-08-31'),
+    };
+
+    it('facture le prix promotionnel sans que le client ait rien à saisir', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([EN_PROMO]);
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+        now: new Date('2026-08-08T12:00:00Z'),
+      });
+
+      expect(cart.lines[0].unitPriceCents).toBe(3990);
+      expect(cart.subtotalCents).toBe(3990);
+    });
+
+    it('expose le prix catalogue à barrer à côté du prix facturé', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([EN_PROMO]);
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+        now: new Date('2026-08-08T12:00:00Z'),
+      });
+
+      expect(cart.lines[0].listUnitPriceCents).toBe(4990);
+    });
+
+    it('revient au prix catalogue une fois la fenêtre passée', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([EN_PROMO]);
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+        now: new Date('2026-09-15T12:00:00Z'),
+      });
+
+      expect(cart.lines[0].unitPriceCents).toBe(4990);
+    });
+
+    it('ne réduit pas le surcoût de flocage', async () => {
+      // Les deux montants restent distincts jusqu'au total de ligne.
+      mockPrisma.shopProduct.findMany.mockResolvedValue([EN_PROMO]);
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1, flockingText: 'DVG' }],
+        tier: 'PUBLIC',
+        now: new Date('2026-08-08T12:00:00Z'),
+      });
+
+      expect(cart.lines[0].flockingFeeCents).toBe(500);
+      expect(cart.lines[0].lineTotalCents).toBe(4490);
     });
   });
 });

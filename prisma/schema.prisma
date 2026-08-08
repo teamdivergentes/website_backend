@@ -343,6 +343,20 @@ model ShopProduct {
   /// Texte brut, jamais du HTML : il est rendu par interpolation cote front.
   description      String?            @db.Text
   priceCents       Int
+  /// Prix promotionnel, applique a tous les clients pendant sa fenetre.
+  ///
+  /// Un montant et non un pourcentage : la vitrine affiche des montants, et un
+  /// taux ferait un arrondi au centime recalcule a chaque rendu — donc, tot ou
+  /// tard, deux ecrans qui n'affichent pas le meme prix.
+  ///
+  /// `priceCents` ne bouge pas pendant la promotion. C'est ce qui permet a la
+  /// fois d'afficher le prix barre, de restituer le tarif normal a l'echeance
+  /// sans intervention, et de garder `publicTotalCents` interpretable.
+  promoPriceCents  Int?
+  /// Fenetre de la promotion. Une borne nulle est ouverte : sans debut, la
+  /// promotion court des sa saisie ; sans fin, elle n'a pas d'echeance.
+  promoStartsAt    DateTime?
+  promoEndsAt      DateTime?
   allowFlocking    Boolean            @default(true)
   flockingFeeCents Int                @default(0)
   /// Position de l'apercu du flocage sur l'image de dos, en % (affichage seul).
@@ -458,6 +472,56 @@ model ShopSettings {
   @@map("shop_settings")
 }
 
+/// Bon de reduction saisi par le client au panier.
+///
+/// C'est la seule donnee tarifaire que le client transmet, et elle voyage comme
+/// un **identifiant** : la valeur de la remise est resolue ici, jamais lue dans
+/// la requete. Sans cela, un panier forge achete un maillot a 0,01 EUR.
+model ShopDiscountCode {
+  id    Int          @id @default(autoincrement())
+  /// Stocke en majuscules. Postgres compare les chaines avec la casse, et un
+  /// code se dicte, se recopie et se retape : la normalisation a l'ecriture
+  /// est ce qui rend l'unicite et la recherche reellement insensibles a la
+  /// casse, sans index fonctionnel.
+  code  String       @unique
+  type  DiscountType
+  /// Centimes pour `FIXED`, points de pourcentage pour `PERCENTAGE`.
+  value Int
+
+  /// Sous-total articles a partir duquel le code s'applique. Null = pas de
+  /// minimum. La convention « vide = pas de limite » vaut pour les quatre
+  /// bornes de ce modele, comme pour la franchise de port.
+  minSubtotalCents Int?
+  startsAt         DateTime?
+  endsAt           DateTime?
+  /// Nombre total d'utilisations autorisees, null = illimite. A `1`, le code
+  /// est a usage unique : le premier paiement l'epuise pour tout le monde.
+  maxUses          Int?
+
+  /// Incremente au passage en `PAID`, jamais a l'ouverture d'une session de
+  /// paiement : un panier abandonne ne doit pas bruler un code, et le tunnel
+  /// en produit mecaniquement. Les sessions encore vivantes sont comptees a
+  /// part, via les commandes `PENDING` qui portent le code.
+  usedCount Int     @default(0)
+  /// Interrupteur immediat, independant de la fenetre de validite.
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@index([active])
+  @@map("shop_discount_codes")
+}
+
+/// Nature d'un bon de reduction.
+enum DiscountType {
+  /// Montant fixe en centimes : « 5 EUR de reduction ».
+  FIXED
+  /// Pourcentage du sous-total articles : « 10 % de reduction ».
+  PERCENTAGE
+}
+
 model Order {
   id                    Int     @id @default(autoincrement())
   reference             String  @unique
@@ -469,6 +533,36 @@ model Order {
   totalCents     Int
   currency       String         @default("eur")
   shippingMethod ShippingMethod @default(STANDARD)
+
+  /// Remise reellement deduite, en centimes. Zero et non `null` sur une
+  /// commande sans remise : le reporting somme sans cas particulier.
+  ///
+  /// C'est le montant qui est fige, pas une reference aux conditions du code :
+  /// celles-ci sont modifiables a chaud, et les recalculer plus tard
+  /// reecrirait l'histoire — la meme raison qui fait figer les couts.
+  discountCents Int     @default(0)
+  /// Libelle du code au moment de l'achat. Duplique volontairement la
+  /// relation : c'est lui qui rattache une vente a son operation commerciale
+  /// meme si le code a ete renomme, desactive ou supprime depuis.
+  discountCode  String?
+
+  /// Le code utilise, quand il existe encore. Sert a compter les utilisations
+  /// et les reservations ; le rapprochement d'une operation, lui, passe par
+  /// `discountCode`.
+  discountCodeId Int?
+  discount       ShopDiscountCode? @relation(fields: [discountCodeId], references: [id], onDelete: SetNull)
+
+  /// Echeance de la session de paiement Stripe.
+  ///
+  /// Une commande `PENDING` dont la session est encore vivante **reserve** son
+  /// code de reduction : sans cela, deux clients qui paient a quelques
+  /// secondes d'intervalle obtiennent tous deux un code a usage unique, et
+  /// refuser le second est impossible puisqu'il a deja paye.
+  ///
+  /// ⚠️ Ne pas confondre avec le delai de retention des `PENDING` abandonnees,
+  /// qui est de plusieurs jours : s'appuyer sur lui bloquerait un code une
+  /// semaine sur un simple panier abandonne.
+  sessionExpiresAt DateTime?
 
   /// Couts figes a l'achat. Une marge est une photographie : si le tarif du
   /// fournisseur change demain, les commandes d'hier ne doivent pas changer de
@@ -535,6 +629,9 @@ model Order {
   /// ratios de performance, et un quota par personne se compte par acheteur.
   @@index([pricingTier])
   @@index([buyerUserId])
+  /// Valider un code demande de compter ses commandes payees et ses sessions
+  /// encore ouvertes. Les deux se lisent sur ce couple.
+  @@index([discountCodeId, status])
   @@map("orders")
 }
 

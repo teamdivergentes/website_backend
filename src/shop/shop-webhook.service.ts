@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { PrismaService } from '../prisma.service';
 import { StripeService } from './stripe.service';
 import { ShopNotifierService, OrderWithItems } from './shop-notifier.service';
+import { ShopDiscountService } from './shop-discount.service';
 import { Prisma } from '../../generated/prisma';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class ShopWebhookService {
     private readonly stripe: StripeService,
     private readonly prisma: PrismaService,
     private readonly notifier: ShopNotifierService,
+    private readonly discounts: ShopDiscountService,
   ) {}
 
   async handleEvent(payload: Buffer, signature: string): Promise<void> {
@@ -34,6 +36,23 @@ export class ShopWebhookService {
     const order = await this.markPaid(event.data.object);
     if (!order) {
       return;
+    }
+
+    // Le bon de reduction n'est consomme qu'ici : « utiliser un code », c'est
+    // payer. Un panier abandonne n'en brule aucun, et le rejeu d'un webhook non
+    // plus — `markPaid` n'a rien renvoye dans ce cas.
+    //
+    // Un echec de comptage ne doit pas faire echouer une commande deja payee :
+    // le pire qu'il produit est une utilisation de trop accordee plus tard.
+    if (order.discountCodeId) {
+      try {
+        await this.discounts.consume(order.discountCodeId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(
+          `Utilisation du code ${order.discountCode ?? '?'} non comptee sur ${order.reference}: ${message}`,
+        );
+      }
     }
 
     // Une notification en echec ne doit jamais annuler une commande deja payee.
@@ -70,6 +89,8 @@ export class ShopWebhookService {
     // qui surestime la marge de quelques dizaines de centimes plutot que de
     // bloquer l'enregistrement d'une commande payee.
     const stripeFeeCents = await this.stripe.getSessionFeeCents(session.id);
+
+    await this.reconcileAmount(orderId, session);
 
     // Trois conditions, trois roles distincts :
     //
@@ -111,5 +132,40 @@ export class ShopWebhookService {
       where: { id: orderId },
       include: { items: true },
     });
+  }
+
+  /**
+   * Compare ce que Stripe a encaisse a ce que la commande annoncait.
+   *
+   * La remise est calculee deux fois — a l'affichage du panier, puis au
+   * checkout — et transmise a Stripe sous forme de coupon. Un ecart entre les
+   * deux montants signale une divergence de calcul ou un coupon qui ne s'est
+   * pas applique comme prevu.
+   *
+   * Ne bloque rien : le client a paye, la commande est due. Le controle
+   * transforme une perte silencieuse en ligne de journal exploitable, ce qui
+   * est tout ce qu'on peut faire a ce stade.
+   */
+  private async reconcileAmount(orderId: number, session: Stripe.Checkout.Session): Promise<void> {
+    const paidCents = session.amount_total;
+    if (paidCents === null || paidCents === undefined) {
+      return;
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { reference: true, totalCents: true, status: true },
+    });
+
+    // Une commande deja traitee est un rejeu : son total porte deja le montant
+    // encaisse, le comparer n'apprendrait rien.
+    if (order?.status !== 'PENDING' || order.totalCents === paidCents) {
+      return;
+    }
+
+    this.logger.error(
+      `Ecart de montant sur ${order.reference} : ${order.totalCents} centimes attendus, ` +
+        `${paidCents} encaisses par Stripe`,
+    );
   }
 }

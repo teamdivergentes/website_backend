@@ -14,7 +14,9 @@ import type { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/decorators/public.decorator';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { CartQuote, toCartQuote } from './dto/cart-quote.dto';
 import { ShopCheckoutService } from './shop-checkout.service';
+import { ShopPricingService } from './shop-pricing.service';
 import { ShopWebhookService } from './shop-webhook.service';
 import { OrderConfirmation, ShopConfirmationService } from './shop-confirmation.service';
 import { PublicCatalog, PublicShopProduct, ShopProductsService } from './shop-products.service';
@@ -23,6 +25,7 @@ import { PublicCatalog, PublicShopProduct, ShopProductsService } from './shop-pr
 export class ShopController {
   constructor(
     private readonly products: ShopProductsService,
+    private readonly pricing: ShopPricingService,
     private readonly checkoutService: ShopCheckoutService,
     private readonly webhookService: ShopWebhookService,
     private readonly confirmation: ShopConfirmationService,
@@ -40,6 +43,27 @@ export class ShopController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   getProduct(@Param('slug') slug: string): Promise<PublicShopProduct> {
     return this.products.findPublicBySlug(slug);
+  }
+
+  /**
+   * Recalcule le panier, bon de reduction compris, sans rien engager.
+   *
+   * Le panier client ne stocke aucun montant : les prix sont resolus ici a
+   * chaque affichage, ce qui evite de facturer un tarif perime et rend un
+   * `localStorage` modifie sans effet. Le code de reduction suit le meme
+   * chemin — le front transmet la chaine saisie et affiche la reponse, il
+   * n'evalue jamais la validite d'un code lui-meme.
+   *
+   * La limite est basse pour la meme raison que sur le checkout : cet endpoint
+   * dit si un code existe, il ne doit pas servir a les balayer.
+   */
+  @Post('api/shop/cart/quote')
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  quoteCart(@Body() dto: CreateCheckoutDto): Promise<CartQuote> {
+    return this.pricing
+      .priceCart({ items: dto.items, tier: 'PUBLIC', discountCode: dto.discountCode })
+      .then(toCartQuote);
   }
 
   @Post('api/shop/checkout')
