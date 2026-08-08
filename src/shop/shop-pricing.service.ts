@@ -4,6 +4,8 @@ import { ShopSettingsService } from './shop-settings.service';
 import { assertFlockingAllowed, normalizeFlocking } from './shop-flocking';
 import { CheckoutItemDto } from './dto/create-checkout.dto';
 import { orderFee, retailUnitPrice, shippingCost, shippingPrice, unitCost } from './shop-costs';
+import { applicableUnitPrice } from './shop-discount';
+import { AppliedDiscount, ShopDiscountService } from './shop-discount.service';
 import { PricingTier, ShippingMethod } from '../../generated/prisma';
 
 /** Nombre total d'articles accepte dans un panier, toutes lignes confondues. */
@@ -27,18 +29,32 @@ export interface PricedLine {
   size: string;
   flockingText: string | null;
   quantity: number;
-  /** Prix catalogue unitaire, hors flocage. */
+  /** Prix unitaire facture, hors flocage. Le prix promotionnel s'il est actif. */
   unitPriceCents: number;
+  /**
+   * Prix catalogue unitaire, promotion ignoree. C'est le prix barre de la
+   * vitrine ; egal a `unitPriceCents` hors promotion.
+   */
+  listUnitPriceCents: number;
   /** Surcout unitaire de flocage, 0 si pas de flocage. */
   flockingFeeCents: number;
   lineTotalCents: number;
-  /** Ce que la ligne aurait coute au prix catalogue. Egal au total au tarif public. */
+  /** Ce que la ligne aurait coute au tarif public du jour. Egal au total au tarif public. */
   publicLineTotalCents: number;
 }
 
 export interface PricedCart {
   lines: PricedLine[];
   subtotalCents: number;
+  /**
+   * Ce que le bon de reduction retire, 0 quand il n'y en a pas.
+   *
+   * Toujours un nombre et jamais `null` : le reporting somme sans cas
+   * particulier, et une commande sans remise en porte zero.
+   */
+  discountCents: number;
+  /** Le code retenu, absent quand le panier n'en porte pas. */
+  discount?: AppliedDiscount;
   shippingCents: number;
   totalCents: number;
   currency: string;
@@ -59,10 +75,16 @@ export interface PricedCart {
   /** Bareme retenu, tel qu'il sera fige sur la commande. */
   tier: PricingTier;
   /**
-   * Ce que le meme panier aurait coute au prix catalogue, port public compris.
+   * Ce que le meme panier aurait coute au tarif public du jour, port compris.
    * Egal a `totalCents` au tarif public. Sur une vente a prix coutant, c'est la
    * seule trace exploitable de l'avantage consenti : le catalogue est
    * modifiable a chaud, le prix d'aujourd'hui n'est pas celui de la commande.
+   *
+   * ⚠️ « Tarif public » veut bien dire le prix qu'un client ordinaire aurait
+   * paye ce jour-la, **promotion comprise** : une promotion est ouverte a tout
+   * le monde, elle n'est consentie a personne en particulier. Y ignorer les
+   * promotions gonflerait l'avantage attribue aux ventes a prix coutant de
+   * toutes les remises commerciales en cours.
    */
   publicTotalCents: number;
 }
@@ -72,6 +94,7 @@ export class ShopPricingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: ShopSettingsService,
+    private readonly discounts: ShopDiscountService,
   ) {}
 
   /**
@@ -87,9 +110,26 @@ export class ShopPricingService {
    * authentifiee, jamais du corps de la requete. Un defaut ici rendrait un
    * oubli invisible a la compilation, et le sens de ce defaut deciderait de la
    * gravite de l'oubli.
+   *
+   * `discountCode` est la seule saisie client qui touche au prix, et elle ne
+   * fait pas exception a l'invariant : c'est une **chaine a resoudre**, pas un
+   * montant a croire.
+   *
+   * **Ordre de calcul**, ecrit noir sur blanc parce que chaque permutation
+   * donne un total different : prix catalogue, puis prix promotionnel, puis
+   * bon de reduction, puis port. Un desaccord entre le montant affiche au
+   * panier et celui envoye a Stripe est une reclamation client, pas un defaut
+   * de rendu.
    */
-  async priceCart(input: { items: CheckoutItemDto[]; tier: PricingTier }): Promise<PricedCart> {
-    const { items, tier } = input;
+  async priceCart(input: {
+    items: CheckoutItemDto[];
+    tier: PricingTier;
+    discountCode?: string;
+    /** Injectable pour les tests ; l'appelant reel ne la fournit pas. */
+    now?: Date;
+  }): Promise<PricedCart> {
+    const { items, tier, discountCode } = input;
+    const now = input.now ?? new Date();
     const settings = await this.settings.get();
     if (!settings.shopEnabled) {
       throw new ForbiddenException('La boutique est actuellement fermée');
@@ -129,9 +169,14 @@ export class ShopPricingService {
       const flocked = flockingText !== null;
 
       // Au tarif reserve, le prix ET le surcout de flocage sont remplaces par
-      // leur cout reel. Le prix catalogue reste calcule en parallele : c'est
-      // lui qui sera fige comme reference de l'avantage consenti.
-      const publicUnitCents = product.priceCents;
+      // leur cout reel. Le prix public reste calcule en parallele : c'est lui
+      // qui sera fige comme reference de l'avantage consenti.
+      //
+      // Le prix public du jour est le prix promotionnel quand une promotion
+      // court, le prix catalogue sinon. La promotion ne touche pas le surcout
+      // de flocage : les deux montants restent distincts jusqu'au total de
+      // ligne.
+      const publicUnitCents = applicableUnitPrice(product, now);
       const publicFlockingCents = flocked ? product.flockingFeeCents : 0;
 
       // Le cout du flocage est celui du fournisseur, et il n'est du que si un
@@ -151,6 +196,7 @@ export class ShopPricingService {
         flockingText,
         quantity: item.quantity,
         unitPriceCents,
+        listUnitPriceCents: product.priceCents,
         flockingFeeCents,
         lineTotalCents: (unitPriceCents + flockingFeeCents) * item.quantity,
         publicLineTotalCents: (publicUnitCents + publicFlockingCents) * item.quantity,
@@ -160,8 +206,26 @@ export class ShopPricingService {
     const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
     const publicSubtotalCents = lines.reduce((sum, line) => sum + line.publicLineTotalCents, 0);
 
+    // Aucune remise par-dessus le tarif reserve. Sa marge est nulle par
+    // construction : lui retirer quoi que ce soit revient a vendre sous le
+    // cout. Le refus est explicite plutot que silencieux — un code ignore sans
+    // rien dire ferait croire a un defaut de saisie.
+    if (discountCode && tier === 'RETAIL') {
+      throw new BadRequestException("Un bon de réduction ne s'applique pas au tarif réservé");
+    }
+
+    const discount = discountCode
+      ? await this.discounts.resolveForCart(discountCode, subtotalCents, now)
+      : undefined;
+    const discountCents = discount?.amountCents ?? 0;
+
     // Le port se compte une fois par colis, pas par article, et s'efface
     // au-dela du seuil de franchise.
+    //
+    // La franchise s'evalue sur le sous-total **avant remise** : sinon un bon
+    // de reduction ferait reapparaitre des frais de port que le client voyait
+    // offerts, et l'ecran lui annoncerait une reduction qui lui coute de
+    // l'argent.
     //
     // Au tarif reserve, c'est le cout reel du colis qui est facture, et la
     // franchise ne s'applique pas. Deux raisons : le principe est de payer le
@@ -177,7 +241,7 @@ export class ShopPricingService {
     const orderFeeCents = orderFee(settings);
     const retailOrderFeeCents = tier === 'RETAIL' ? orderFeeCents : 0;
 
-    const totalCents = subtotalCents + shippingCents + retailOrderFeeCents;
+    const totalCents = subtotalCents - discountCents + shippingCents + retailOrderFeeCents;
 
     // Les couts sont editables depuis l'administration. Tous a zero, le total
     // tombe a zero, Stripe repond `no_payment_required` et la commande est
@@ -189,9 +253,25 @@ export class ShopPricingService {
       );
     }
 
+    // Le meme chemin, ouvert cette fois depuis le tunnel public : un code a
+    // 100 %, ou une remise fixe superieure a un petit panier, ramene le total
+    // sous le minimum encaissable. Le refus porte sur le total apres remise,
+    // quel que soit le bareme.
+    if (totalCents < STRIPE_MINIMUM_CENTS) {
+      throw new BadRequestException(
+        `Le total après réduction est inférieur au minimum encaissable (${(
+          STRIPE_MINIMUM_CENTS / 100
+        )
+          .toFixed(2)
+          .replace('.', ',')} €)`,
+      );
+    }
+
     return {
       lines,
       subtotalCents,
+      discountCents,
+      discount,
       shippingCents,
       totalCents,
       currency: settings.currency,
@@ -203,7 +283,13 @@ export class ShopPricingService {
       tier,
       // Le port public entre dans la reference : l'avantage porte sur la
       // commande entiere, pas seulement sur les articles.
-      publicTotalCents: publicSubtotalCents + shippingPrice(settings, publicSubtotalCents),
+      //
+      // La remise en est deduite pour la meme raison que la promotion y est
+      // integree : un bon de reduction est accessible a qui le detient, ce
+      // n'est pas un tarif consenti a une personne. C'est ce qui maintient
+      // l'egalite `publicTotalCents === totalCents` sur une vente publique.
+      publicTotalCents:
+        publicSubtotalCents - discountCents + shippingPrice(settings, publicSubtotalCents),
     };
   }
 }

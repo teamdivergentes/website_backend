@@ -54,4 +54,17 @@ export class CreateCheckoutDto {
   @ValidateNested({ each: true })
   @Type(() => CheckoutItemDto)
   items: CheckoutItemDto[];
+
+  /**
+   * Bon de reduction, facultatif.
+   *
+   * C'est la seule saisie client qui touche au prix, et elle ne transporte
+   * qu'un **identifiant** : la valeur de la remise et ses bornes sont resolues
+   * en base. La longueur est bornee ici pour ne pas porter une requete de
+   * plusieurs kilo-octets jusqu'a la couche qui interroge la base.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(32, { message: 'Ce code de réduction est invalide' })
+  discountCode?: string;
 }
