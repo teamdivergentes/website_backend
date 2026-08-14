@@ -34,8 +34,11 @@ describe('SitemapService', () => {
     prismaService.teamMember.findMany.mockResolvedValue([]);
     prismaService.recruitmentPost.findMany.mockResolvedValue([]);
     prismaService.article.findMany.mockResolvedValue([]);
-    // Default: page_twitch_visible = true
-    prismaService.config.findUnique.mockResolvedValue({ value: 'true' });
+    // Default: page_twitch_visible = true, page_palmares_visible = absent (masqué par défaut)
+    prismaService.config.findUnique.mockImplementation((args: { where: { key: string } }) => {
+      if (args.where.key === 'page_twitch_visible') return Promise.resolve({ value: 'true' });
+      return Promise.resolve(null);
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -280,7 +283,10 @@ describe('SitemapService', () => {
     });
 
     it('devrait generer un XML contenant 10 pages statiques quand twitch est masque', async () => {
-      prismaService.config.findUnique.mockResolvedValue({ value: 'false' });
+      prismaService.config.findUnique.mockImplementation((args: { where: { key: string } }) => {
+        if (args.where.key === 'page_twitch_visible') return Promise.resolve({ value: 'false' });
+        return Promise.resolve(null);
+      });
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
@@ -318,7 +324,10 @@ describe('SitemapService', () => {
     // --- US: /twitch dans le sitemap ---
 
     it('devrait inclure /twitch dans le sitemap quand page_twitch_visible est true', async () => {
-      prismaService.config.findUnique.mockResolvedValue({ value: 'true' });
+      prismaService.config.findUnique.mockImplementation((args: { where: { key: string } }) => {
+        if (args.where.key === 'page_twitch_visible') return Promise.resolve({ value: 'true' });
+        return Promise.resolve(null);
+      });
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
@@ -326,7 +335,10 @@ describe('SitemapService', () => {
     });
 
     it('devrait exclure /twitch du sitemap quand page_twitch_visible est false', async () => {
-      prismaService.config.findUnique.mockResolvedValue({ value: 'false' });
+      prismaService.config.findUnique.mockImplementation((args: { where: { key: string } }) => {
+        if (args.where.key === 'page_twitch_visible') return Promise.resolve({ value: 'false' });
+        return Promise.resolve(null);
+      });
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
@@ -334,7 +346,10 @@ describe('SitemapService', () => {
     });
 
     it('devrait inclure /twitch avec changefreq daily et priority 0.7', async () => {
-      prismaService.config.findUnique.mockResolvedValue({ value: 'true' });
+      prismaService.config.findUnique.mockImplementation((args: { where: { key: string } }) => {
+        if (args.where.key === 'page_twitch_visible') return Promise.resolve({ value: 'true' });
+        return Promise.resolve(null);
+      });
 
       const xml = await service.generateSitemapXml(BASE_URL);
 
@@ -451,6 +466,27 @@ describe('SitemapService', () => {
       >;
       expect(calls[0][0].select.imageUrl).toBe(true);
       expect(calls[0][0].select.title).toBe(true);
+    });
+
+    // --- US: /structure/palmares dans le sitemap (EPIC-37) ---
+
+    it('devrait inclure /structure/palmares dans le sitemap quand page_palmares_visible est true', async () => {
+      prismaService.config.findUnique.mockImplementation((args: { where: { key: string } }) => {
+        if (args.where.key === 'page_twitch_visible') return Promise.resolve({ value: 'true' });
+        if (args.where.key === 'page_palmares_visible') return Promise.resolve({ value: 'true' });
+        return Promise.resolve(null);
+      });
+
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).toContain(`<loc>${BASE_URL}/structure/palmares</loc>`);
+    });
+
+    it('devrait exclure /structure/palmares du sitemap quand page_palmares_visible est absent', async () => {
+      // Default mock: page_palmares_visible = null (masqué par défaut)
+      const xml = await service.generateSitemapXml(BASE_URL);
+
+      expect(xml).not.toContain(`<loc>${BASE_URL}/structure/palmares</loc>`);
     });
   });
 });

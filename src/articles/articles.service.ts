@@ -14,15 +14,23 @@ import slugify from 'slugify';
 import { PaginatedResponse } from '../common/interfaces/paginated-response.interface';
 import { buildArticleWhere } from './utils/article-where.util';
 
-/** Article avec type et auteur (select minimal) */
-export type ArticleWithRelations = Prisma.ArticleGetPayload<{
-  include: { type: true; user: { select: { id: true } } };
-}>;
-
 /** Article avec type et auteur complet (pour les vues admin) */
 export type ArticleWithFullUser = Prisma.ArticleGetPayload<{
   include: { type: true; user: { select: { id: true; email: true } } };
 }>;
+
+/** Article public : sans userId ni relation user (SEC-006) */
+export type ArticlePublic = Omit<Prisma.ArticleGetPayload<{ include: { type: true } }>, 'userId'>;
+
+/** Supprime userId et user d'un article pour les réponses publiques (SEC-006) */
+function toPublicArticle(
+  article: Prisma.ArticleGetPayload<{
+    include: { type: true; user: { select: { id: true } } };
+  }>,
+): ArticlePublic {
+  const { userId: _userId, user: _user, ...publicArticle } = article;
+  return publicArticle;
+}
 
 @Injectable()
 export class ArticlesService {
@@ -49,9 +57,12 @@ export class ArticlesService {
     throw new ConflictException('Impossible de générer un slug unique pour ce titre');
   }
 
-  async findAll(query: ArticlesQueryDto): Promise<PaginatedResponse<ArticleWithRelations>> {
-    const { page = 1, limit = 20 } = query;
+  async findAll(query: ArticlesQueryDto): Promise<PaginatedResponse<ArticlePublic>> {
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = query;
     const where = buildArticleWhere(query);
+    // sortBy est contraint par une liste blanche dans le DTO : la valeur ne peut
+    // pas designer une colonne arbitraire du modele.
+    const orderBy = { [sortBy]: sortOrder };
 
     try {
       const [articles, total] = await Promise.all([
@@ -63,13 +74,13 @@ export class ArticlesService {
           },
           skip: (page - 1) * limit,
           take: limit,
-          orderBy: { createdAt: 'desc' },
+          orderBy,
         }),
         this.prisma.article.count({ where }),
       ]);
 
       return {
-        data: articles,
+        data: articles.map(toPublicArticle),
         meta: {
           total,
           page,
@@ -83,7 +94,7 @@ export class ArticlesService {
     }
   }
 
-  async findHomepage(): Promise<ArticleWithRelations[]> {
+  async findHomepage(): Promise<ArticlePublic[]> {
     try {
       const featured = await this.prisma.article.findMany({
         where: { published: true, featured: true },
@@ -96,7 +107,7 @@ export class ArticlesService {
       });
 
       if (featured.length >= 3) {
-        return featured;
+        return featured.map(toPublicArticle);
       }
 
       const remaining = 3 - featured.length;
@@ -116,17 +127,19 @@ export class ArticlesService {
         take: remaining,
       });
 
-      return [...featured, ...recent];
+      return [...featured, ...recent].map(toPublicArticle);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new BadGatewayException('Erreur lors de la récupération des articles homepage');
     }
   }
 
-  async findBySlug(slug: string): Promise<ArticleWithRelations> {
+  async findBySlug(slug: string): Promise<ArticlePublic> {
     try {
-      const article = await this.prisma.article.findUnique({
-        where: { slug },
+      // SEC-EPIC37-01 : endpoint public → ne jamais servir un article non publié.
+      // Aligné sur findAll()/findHomepage() qui filtrent published=true.
+      const article = await this.prisma.article.findFirst({
+        where: { slug, published: true },
         include: {
           type: true,
           user: { select: { id: true } },
@@ -137,7 +150,7 @@ export class ArticlesService {
         throw new NotFoundException('Article non trouvé');
       }
 
-      return article;
+      return toPublicArticle(article);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new BadGatewayException("Erreur lors de la récupération de l'article");

@@ -183,6 +183,16 @@ JWT_EXPIRES_IN=1d
 PORT=3000
 NODE_ENV=development
 SWAGGER_ENABLED=true
+
+# SEC-009 — Restriction accès /metrics par IP allowlist
+# Liste d'IPs supplémentaires autorisées à scraper /metrics (séparées par virgules)
+# Par défaut (variable absente) : seuls loopback (127.0.0.1, ::1) et plage Docker 172.16–31.x.x sont autorisés
+# Exemple pour Prometheus dans Docker Compose : METRICS_ALLOWED_IPS=172.20.0.10
+METRICS_ALLOWED_IPS=
+
+# Activer la lecture de X-Forwarded-For pour les déploiements derrière un reverse-proxy (Nginx, Traefik)
+# NE PAS activer si le backend est exposé directement sur Internet (risque de spoofing)
+TRUST_PROXY=false
 ```
 
 **Contact form (from database Config table):**
