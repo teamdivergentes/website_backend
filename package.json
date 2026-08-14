@@ -31,7 +31,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
-    "@google-analytics/data": "^5.2.1",
+    "@google-analytics/data": "^6.1.0",
     "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
