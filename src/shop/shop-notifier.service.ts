@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { Order, OrderItem, OrderStatus } from '../../generated/prisma';
@@ -140,6 +142,7 @@ export class ShopNotifierService {
       subject: buildStatusChangeSubject(order, order.status),
       text: buildStatusChangeText(order, order.status),
       html: buildStatusChangeHtml(order, order.status),
+      attachments: buildCustomerEmailAttachments(),
     });
 
     return true;
@@ -206,6 +209,7 @@ export class ShopNotifierService {
       subject: `Confirmation de votre commande ${order.reference}`,
       text: buildCustomerOrderEmailText(order),
       html: buildCustomerOrderEmailHtml(order),
+      attachments: buildCustomerEmailAttachments(),
     });
   }
 
@@ -371,6 +375,200 @@ export function buildRetractationParagraph(order: OrderWithItems): string {
   return "Votre commande comporte à la fois des articles standards et des articles personnalisés (flocage). Conformément à l'article L221-18 du Code de la consommation, vous disposez d'un délai de 14 jours à compter de la réception pour exercer votre droit de rétractation sur les articles non personnalisés. Conformément à l'article L221-28 3° du même code, ce droit ne s'applique en revanche pas aux articles personnalisés (flocage).";
 }
 
+// --- Habillage des mails client -------------------------------------------
+//
+// Les quatre mails destines au client (confirmation, expedition, annulation,
+// remboursement) partagent une seule enveloppe. Les regles ci-dessous ne sont
+// pas des preferences de style, ce sont les contraintes des clients mail :
+//
+//   - tableaux et styles EN LIGNE uniquement. Outlook rend le HTML avec le
+//     moteur de Word : ni flex, ni grid, et les feuilles de style externes ou
+//     les balises <style> sautent chez Gmail sur mobile ;
+//   - colonne fixe de 600 px, largeur historique qui tient dans tous les
+//     volets de lecture ;
+//   - fond clair : la moitie des clients n'inversent pas les couleurs d'un
+//     mail concu en sombre, et le texte y devient illisible ;
+//   - le logo est une piece jointe `cid:`, pas une URL. Cf.
+//     `buildCustomerEmailAttachments`.
+
+const EMAIL_FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
+const EMAIL_TEXT = '#1c1c1c';
+const EMAIL_MUTED = '#666666';
+const EMAIL_BORDER = '#e0e0e0';
+const EMAIL_ACCENT = '#32D299';
+const EMAIL_DARK = '#0C0D0C';
+const EMAIL_PAGE_BG = '#f4f4f4';
+
+const BODY_STYLE = `font-family:${EMAIL_FONT};font-size:15px;line-height:1.6;color:${EMAIL_TEXT};`;
+
+/** Identifiant du logo dans le corps HTML, cf. `buildCustomerEmailAttachments`. */
+export const CUSTOMER_EMAIL_LOGO_CID = 'logo-dvg';
+
+/**
+ * Le PNG vit dans le depot backend et voyage dans l'image Docker : le mail ne
+ * doit dependre ni du frontend, ni d'une image distante (un logo servi en HTTP
+ * est masque par defaut chez la plupart des clients, et pointe l'ouverture du
+ * mail vers nos serveurs).
+ *
+ * `nest build` ne copie pas les fichiers non-TypeScript de lui-meme : l'entree
+ * `compilerOptions.assets` de `nest-cli.json` s'en charge, et depose l'asset a
+ * cote du service compile. Sans elle le chemin n'existerait qu'en dev, et le
+ * defaut ne se verrait qu'en production.
+ */
+export const CUSTOMER_EMAIL_LOGO_PATH = join(__dirname, 'assets', 'logo-dvg.png');
+
+const logoLogger = new Logger('ShopCustomerEmailLogo');
+let logoCache: Buffer | null | undefined;
+
+function readCustomerEmailLogo(): Buffer | null {
+  if (logoCache !== undefined) {
+    return logoCache;
+  }
+  try {
+    logoCache = readFileSync(CUSTOMER_EMAIL_LOGO_PATH);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logoLogger.error(
+      `Logo du mail client illisible (${CUSTOMER_EMAIL_LOGO_PATH}) : ${message}. ` +
+        'Les mails partent sans logo, avec le texte de remplacement.',
+    );
+    logoCache = null;
+  }
+  return logoCache;
+}
+
+/**
+ * Piece jointe du logo, referencee par `cid:` dans le corps HTML.
+ *
+ * Retourne un tableau vide si le fichier est introuvable plutot que de faire
+ * echouer l'envoi : le mail se lit alors exactement comme chez un destinataire
+ * qui bloque les images, situation deja prevue par l'attribut `alt`. Un mail de
+ * commande sans logo vaut mieux qu'un mail de commande jamais parti.
+ */
+export function buildCustomerEmailAttachments(): nodemailer.SendMailOptions['attachments'] {
+  const content = readCustomerEmailLogo();
+  if (!content) {
+    return [];
+  }
+  return [
+    {
+      filename: 'logo-dvg.png',
+      content,
+      contentType: 'image/png',
+      cid: CUSTOMER_EMAIL_LOGO_CID,
+      contentDisposition: 'inline',
+    },
+  ];
+}
+
+/**
+ * Enveloppe commune aux quatre mails client : bandeau au logo, colonne de
+ * 600 px centree, pied de page au nom de la structure.
+ *
+ * Le bandeau est sombre parce que le logo de la structure est blanc : pose sur
+ * le fond clair du mail il serait purement et simplement invisible. Le PNG
+ * embarque deja ce fond, de sorte que le bandeau reste correct meme la ou la
+ * transparence passe mal.
+ *
+ * Images bloquees, le bandeau conserve le texte de remplacement en blanc sur
+ * ce meme fond sombre : rien d'essentiel ne disparait.
+ */
+export function wrapCustomerEmail(content: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;background-color:${EMAIL_PAGE_BG};">
+<tr>
+<td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;border-collapse:collapse;background-color:#ffffff;border:1px solid ${EMAIL_BORDER};">
+<tr>
+<td align="center" bgcolor="${EMAIL_DARK}" style="background-color:${EMAIL_DARK};padding:24px;">
+<img src="cid:${CUSTOMER_EMAIL_LOGO_CID}" width="96" height="96" alt="Team Divergentes" style="display:block;border:0;outline:none;text-decoration:none;width:96px;height:96px;font-family:${EMAIL_FONT};font-size:16px;font-weight:bold;color:#ffffff;">
+</td>
+</tr>
+<tr>
+<td bgcolor="${EMAIL_ACCENT}" style="background-color:${EMAIL_ACCENT};height:3px;line-height:3px;font-size:0;">&nbsp;</td>
+</tr>
+<tr>
+<td style="padding:28px 32px 8px 32px;${BODY_STYLE}">
+${content}
+</td>
+</tr>
+<tr>
+<td style="padding:18px 32px;border-top:1px solid ${EMAIL_BORDER};font-family:${EMAIL_FONT};font-size:12px;line-height:1.5;color:${EMAIL_MUTED};">
+Team Divergentes
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>`;
+}
+
+/** Titre du mail, repris du sujet. */
+function emailHeading(text: string): string {
+  return `<h2 style="margin:0 0 20px 0;font-family:${EMAIL_FONT};font-size:20px;line-height:1.3;font-weight:bold;color:${EMAIL_TEXT};">${text}</h2>`;
+}
+
+/** Intertitre de section. */
+function emailSubheading(text: string): string {
+  return `<h3 style="margin:24px 0 10px 0;font-family:${EMAIL_FONT};font-size:15px;line-height:1.3;font-weight:bold;color:${EMAIL_TEXT};">${text}</h3>`;
+}
+
+function emailParagraph(html: string): string {
+  return `<p style="margin:0 0 14px 0;${BODY_STYLE}">${html}</p>`;
+}
+
+function emailList(items: string[]): string {
+  const entries = items
+    .map((item) => `<li style="margin:0 0 6px 0;${BODY_STYLE}">${item}</li>`)
+    .join('\n');
+  return `<ul style="margin:0 0 14px 0;padding:0 0 0 20px;">
+${entries}
+</ul>`;
+}
+
+/**
+ * Recapitulatif en couples libelle / valeur. Valeurs alignees a gauche et non
+ * a droite comme sur un ticket : le tableau porte aussi bien des montants que
+ * des adresses ou un delai de livraison, qui tiennent sur plusieurs lignes.
+ */
+function emailRecapTable(rows: { label: string; value: string }[]): string {
+  const cells = rows
+    .map(
+      (row) => `<tr>
+<td width="38%" style="width:38%;padding:9px 12px 9px 0;border-bottom:1px solid ${EMAIL_BORDER};font-family:${EMAIL_FONT};font-size:14px;line-height:1.5;color:${EMAIL_MUTED};vertical-align:top;">${row.label}</td>
+<td style="padding:9px 0;border-bottom:1px solid ${EMAIL_BORDER};font-family:${EMAIL_FONT};font-size:14px;line-height:1.5;color:${EMAIL_TEXT};font-weight:bold;vertical-align:top;">${row.value}</td>
+</tr>`,
+    )
+    .join('\n');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 14px 0;">
+${cells}
+</table>`;
+}
+
+/**
+ * Liens en texte sombre souligne plutot qu'a la couleur d'accent : le vert
+ * `#32D299` sur fond blanc n'atteint aucun ratio de contraste acceptable.
+ */
+function emailLink(href: string, label: string): string {
+  return `<a href="${href}" style="color:${EMAIL_TEXT};text-decoration:underline;">${label}</a>`;
+}
+
+/** Rappel des liens legaux, identique dans les quatre mails qui le portent. */
+function emailLegalLinks(links: ShopLegalLinks): string {
+  return [
+    emailSubheading('Pour en savoir plus'),
+    emailList([
+      emailLink(escapeHtml(links.cgv), 'Conditions générales de vente'),
+      emailLink(escapeHtml(links.retractation), 'Droit de rétractation (modalités et formulaire)'),
+      emailLink(escapeHtml(links.confidentialite), 'Politique de confidentialité'),
+    ]),
+  ].join('\n');
+}
+
+/** Signature, commune aux quatre mails. */
+function emailSignature(): string {
+  return emailParagraph(`Merci de votre confiance,<br>L'équipe Team Divergentes`);
+}
+
 export function buildOrderEmailText(order: OrderWithItems): string {
   return [
     `Nouvelle commande ${order.reference}`,
@@ -452,41 +650,39 @@ export function buildCustomerOrderEmailText(order: OrderWithItems): string {
  * Version HTML du mail client. escapeHtml systematique sur les champs
  * saisis par le client (nom, flocage recopie via describeCustomerItem,
  * adresse) : ce sont des donnees non fiables injectees dans du HTML.
+ *
+ * Le contenu est celui de la version texte, a l'identique ; seule l'enveloppe
+ * (`wrapCustomerEmail`) l'habille.
  */
 export function buildCustomerOrderEmailHtml(order: OrderWithItems): string {
   const links = buildLegalLinks(getShopPublicOrigin());
-  const row = (label: string, value: string): string =>
-    `<tr><td style="padding:4px 12px 4px 0;"><strong>${label}</strong></td><td>${escapeHtml(value)}</td></tr>`;
 
-  const items = order.items
-    .map((item) => `<li>${escapeHtml(describeCustomerItem(item))}</li>`)
-    .join('\n');
+  const content = [
+    emailHeading(`Confirmation de votre commande ${escapeHtml(order.reference)}`),
+    emailParagraph(`Bonjour ${escapeHtml(order.customerName)},`),
+    emailParagraph('Nous vous confirmons la réception de votre commande, réglée avec succès.'),
+    emailSubheading('Détail de votre commande'),
+    emailList(order.items.map((item) => escapeHtml(describeCustomerItem(item)))),
+    emailRecapTable(
+      [
+        { label: 'Sous-total', value: `${formatEuros(order.subtotalCents)} €` },
+        { label: 'Frais de port', value: `${formatEuros(order.shippingCents)} €` },
+        { label: 'Total payé', value: `${formatEuros(order.totalCents)} €` },
+        { label: 'Adresse de livraison', value: formatAddress(order.shippingAddress) },
+        { label: 'Délai de livraison estimé', value: `${getDeliveryDelayText()}.` },
+      ].map((row) => ({ label: row.label, value: escapeHtml(row.value) })),
+    ),
+    emailSubheading('Droit de rétractation'),
+    emailParagraph(escapeHtml(buildRetractationParagraph(order))),
+    emailSubheading('Garanties légales'),
+    emailParagraph(
+      'Votre commande bénéficie de la garantie légale de conformité (articles L217-3 et suivants du Code de la consommation) ainsi que de la garantie contre les vices cachés (articles 1641 et suivants du Code civil). En cas de défaut constaté, contactez-nous pour faire valoir vos droits.',
+    ),
+    emailLegalLinks(links),
+    emailSignature(),
+  ].join('\n');
 
-  return `<h2>Confirmation de votre commande ${escapeHtml(order.reference)}</h2>
-<p>Bonjour ${escapeHtml(order.customerName)},</p>
-<p>Nous vous confirmons la réception de votre commande, réglée avec succès.</p>
-<h3>Détail de votre commande</h3>
-<ul>
-${items}
-</ul>
-<table>
-${row('Sous-total', `${formatEuros(order.subtotalCents)} €`)}
-${row('Frais de port', `${formatEuros(order.shippingCents)} €`)}
-${row('Total payé', `${formatEuros(order.totalCents)} €`)}
-${row('Adresse de livraison', formatAddress(order.shippingAddress))}
-${row('Délai de livraison estimé', `${getDeliveryDelayText()}.`)}
-</table>
-<h3>Droit de rétractation</h3>
-<p>${escapeHtml(buildRetractationParagraph(order))}</p>
-<h3>Garanties légales</h3>
-<p>Votre commande bénéficie de la garantie légale de conformité (articles L217-3 et suivants du Code de la consommation) ainsi que de la garantie contre les vices cachés (articles 1641 et suivants du Code civil). En cas de défaut constaté, contactez-nous pour faire valoir vos droits.</p>
-<h3>Pour en savoir plus</h3>
-<ul>
-<li><a href="${escapeHtml(links.cgv)}">Conditions générales de vente</a></li>
-<li><a href="${escapeHtml(links.retractation)}">Droit de rétractation (modalités et formulaire)</a></li>
-<li><a href="${escapeHtml(links.confidentialite)}">Politique de confidentialité</a></li>
-</ul>
-<p>Merci de votre confiance,<br>L'équipe Team Divergentes</p>`;
+  return wrapCustomerEmail(content);
 }
 
 /**
@@ -606,54 +802,50 @@ export function buildStatusChangeText(order: OrderWithItems, status: ClientNotif
  * Version HTML. Tout ce qui vient du client (nom, adresse, flocage) ou d'une
  * saisie d'operateur (numero de suivi) passe par `escapeHtml` : ce sont des
  * donnees non fiables injectees dans du balisage.
+ *
+ * Meme enveloppe que le mail de confirmation : les trois mails de changement
+ * d'etape et celui de l'achat sortent du meme moule.
  */
 export function buildStatusChangeHtml(order: OrderWithItems, status: ClientNotifiedStatus): string {
   const message = buildStatusChangeMessage(order, status);
   const links = buildLegalLinks(getShopPublicOrigin());
 
   const paragraphs = message.paragraphs
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .map((paragraph) => emailParagraph(escapeHtml(paragraph)))
     .join('\n');
 
   const items =
     message.items.length > 0
-      ? `<h3>Détail de votre commande</h3>
-<ul>
-${message.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('\n')}
-</ul>`
+      ? [
+          emailSubheading('Détail de votre commande'),
+          emailList(message.items.map((item) => escapeHtml(item))),
+        ].join('\n')
       : '';
 
   const rows =
     message.rows.length > 0
-      ? `<table>
-${message.rows
-  .map(
-    (row) =>
-      `<tr><td style="padding:4px 12px 4px 0;"><strong>${escapeHtml(row.label)}</strong></td><td>${escapeHtml(row.value)}</td></tr>`,
-  )
-  .join('\n')}
-</table>`
+      ? emailRecapTable(
+          message.rows.map((row) => ({
+            label: escapeHtml(row.label),
+            value: escapeHtml(row.value),
+          })),
+        )
       : '';
 
-  const legal = message.withLegalLinks
-    ? `<h3>Pour en savoir plus</h3>
-<ul>
-<li><a href="${escapeHtml(links.cgv)}">Conditions générales de vente</a></li>
-<li><a href="${escapeHtml(links.retractation)}">Droit de rétractation (modalités et formulaire)</a></li>
-<li><a href="${escapeHtml(links.confidentialite)}">Politique de confidentialité</a></li>
-</ul>`
-    : '';
+  const legal = message.withLegalLinks ? emailLegalLinks(links) : '';
 
-  return [
-    `<h2>${escapeHtml(message.subject)}</h2>`,
+  const content = [
+    emailHeading(escapeHtml(message.subject)),
     paragraphs,
     items,
     rows,
     legal,
-    `<p>Merci de votre confiance,<br>L'équipe Team Divergentes</p>`,
+    emailSignature(),
   ]
     .filter(Boolean)
     .join('\n');
+
+  return wrapCustomerEmail(content);
 }
 
 export interface DiscordEmbed {

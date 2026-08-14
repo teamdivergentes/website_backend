@@ -1,9 +1,13 @@
+import { existsSync } from 'node:fs';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as nodemailer from 'nodemailer';
 import { ShopNotifierService } from './shop-notifier.service';
 import { ShopSettingsService } from './shop-settings.service';
 import { ConfigService } from '../config/config.service';
 import {
+  CUSTOMER_EMAIL_LOGO_CID,
+  CUSTOMER_EMAIL_LOGO_PATH,
+  buildCustomerEmailAttachments,
   buildCustomerOrderEmailHtml,
   buildCustomerOrderEmailText,
   buildLegalLinks,
@@ -11,10 +15,13 @@ import {
   buildOrderEmailHtml,
   buildOrderEmailText,
   buildRetractationParagraph,
+  buildStatusChangeHtml,
+  buildStatusChangeText,
   formatAddress,
   formatEuros,
   getDeliveryDelayText,
   getShopPublicOrigin,
+  wrapCustomerEmail,
 } from './shop-notifier.service';
 
 describe('getDeliveryDelayText', () => {
@@ -312,6 +319,227 @@ describe('shop-notifier helpers', () => {
       expect(html).toContain('115.70');
     });
   });
+
+  /**
+   * L'enveloppe est commune aux QUATRE mails client. Les assertions portent
+   * donc sur les quatre rendus a la fois : dupliquer l'habillage dans chaque
+   * fonction est precisement ce que ces tests doivent empecher.
+   */
+  describe('enveloppe commune aux mails client', () => {
+    const clientMails: [string, string][] = [
+      ['confirmation', buildCustomerOrderEmailHtml(order)],
+      ['expédition', buildStatusChangeHtml(order, 'SHIPPED')],
+      ['annulation', buildStatusChangeHtml(order, 'CANCELLED')],
+      ['remboursement', buildStatusChangeHtml(order, 'REFUNDED')],
+    ];
+
+    it.each(clientMails)('habille le mail de %s', (_name, html) => {
+      // Colonne de 600 px centrée
+      expect(html).toContain('width="600"');
+      expect(html).toContain('max-width:600px');
+      // Logo en tête, servi par la pièce jointe et jamais par une URL distante
+      expect(html).toContain(`src="cid:${CUSTOMER_EMAIL_LOGO_CID}"`);
+      expect(html).not.toMatch(/src="https?:/);
+      // Pied de page au nom de la structure
+      expect(html).toContain('Team Divergentes');
+    });
+
+    it.each(clientMails)('reste lisible images bloquées sur le mail de %s', (_name, html) => {
+      // Seul le logo est une image, et il porte un texte de remplacement.
+      expect(html).toContain('alt="Team Divergentes"');
+      expect((html.match(/<img /g) ?? []).length).toBe(1);
+    });
+
+    it.each(clientMails)(
+      'n’emploie que des styles qui survivent aux clients mail (%s)',
+      (_name, html) => {
+        expect(html).not.toContain('<style');
+        expect(html).not.toContain('@media');
+        expect(html).not.toContain('display:flex');
+        expect(html).not.toContain('display:grid');
+        expect(html).not.toContain('class=');
+        expect(html).toContain('<table');
+      },
+    );
+
+    /** Regle de rédaction du projet : pas de bords arrondis. */
+    it.each(clientMails)('ne pose aucun bord arrondi (%s)', (_name, html) => {
+      expect(html).not.toContain('border-radius');
+    });
+
+    /** Regle de rédaction du projet : pas de tiret cadratin dans la copie client. */
+    it('n’introduit aucun tiret cadratin dans l’habillage', () => {
+      expect(wrapCustomerEmail('CONTENU')).not.toContain('—');
+    });
+
+    it('laisse le mail interne à l’équipe sans habillage', () => {
+      const html = buildOrderEmailHtml(order);
+      expect(html).not.toContain('cid:');
+      expect(html).not.toContain('max-width:600px');
+    });
+  });
+
+  /**
+   * L'US ne touche qu'a la presentation : le contenu, lui, doit sortir
+   * intact de l'habillage. C'est le risque principal d'un refactor de rendu.
+   */
+  describe('contenu métier préservé par l’habillage', () => {
+    it('conserve montants, adresse et délai dans le mail de confirmation', () => {
+      process.env.SHOP_DELIVERY_DELAY_TEXT = 'sous 10 jours ouvrés';
+      const html = buildCustomerOrderEmailHtml(order);
+      expect(html).toContain('Sous-total');
+      expect(html).toContain('109.80');
+      expect(html).toContain('Frais de port');
+      expect(html).toContain('5.90');
+      expect(html).toContain('Total payé');
+      expect(html).toContain('115.70');
+      expect(html).toContain('1 rue du Test, 75001 Paris, FR');
+      expect(html).toContain('sous 10 jours ouvrés');
+      delete process.env.SHOP_DELIVERY_DELAY_TEXT;
+    });
+
+    it('conserve les mentions légales du mail de confirmation', () => {
+      const html = buildCustomerOrderEmailHtml(order);
+      expect(html).toContain('Droit de rétractation');
+      expect(html).toContain('L221-28');
+      expect(html).toContain('Garanties légales');
+      expect(html).toContain('L217-3');
+      expect(html).toContain('1641');
+    });
+
+    it('conserve les trois liens légaux, cliquables', () => {
+      process.env.SHOP_PUBLIC_URL = 'https://teamdivergentes.fr';
+      for (const html of [
+        buildCustomerOrderEmailHtml(order),
+        buildStatusChangeHtml(order, 'SHIPPED'),
+      ]) {
+        expect(html).toContain('href="https://teamdivergentes.fr/conditions-generales-de-vente"');
+        expect(html).toContain('href="https://teamdivergentes.fr/retractation"');
+        expect(html).toContain('href="https://teamdivergentes.fr/politique-de-confidentialite"');
+      }
+      delete process.env.SHOP_PUBLIC_URL;
+    });
+
+    it('conserve le numéro de suivi et l’adresse dans le mail d’expédition', () => {
+      const html = buildStatusChangeHtml(
+        { ...(order as object), trackingNumber: 'AB123' } as never,
+        'SHIPPED',
+      );
+      expect(html).toContain('Numéro de suivi');
+      expect(html).toContain('AB123');
+      expect(html).toContain('1 rue du Test, 75001 Paris, FR');
+    });
+
+    it('conserve les montants des mails d’annulation et de remboursement', () => {
+      expect(buildStatusChangeHtml(order, 'CANCELLED')).toContain('115.70');
+      expect(buildStatusChangeHtml(order, 'REFUNDED')).toContain('115.70');
+      expect(buildStatusChangeHtml(order, 'REFUNDED')).toContain('établissement bancaire');
+    });
+
+    it('n’ajoute pas de liens légaux là où le message n’en portait pas', () => {
+      expect(buildStatusChangeHtml(order, 'CANCELLED')).not.toContain(
+        'conditions-generales-de-vente',
+      );
+      expect(buildStatusChangeHtml(order, 'REFUNDED')).not.toContain('Pour en savoir plus');
+    });
+
+    it('échappe toujours le flocage après habillage', () => {
+      const hostile = {
+        ...(order as object),
+        items: [
+          {
+            productName: 'Maillot',
+            size: 'M',
+            flockingText: '<script>alert(1)</script>',
+            quantity: 1,
+            unitPriceCents: 4990,
+          },
+        ],
+      } as never;
+      for (const html of [
+        buildCustomerOrderEmailHtml(hostile),
+        buildStatusChangeHtml(hostile, 'SHIPPED'),
+      ]) {
+        expect(html).not.toContain('<script>alert');
+        expect(html).toContain('&lt;script&gt;');
+      }
+    });
+  });
+
+  /**
+   * L'habillage est HTML seulement. Une version texte qui se mettrait a
+   * contenir du balisage signifierait que l'enveloppe a fuite hors de son
+   * perimetre.
+   */
+  describe('versions texte inchangées', () => {
+    const textes: [string, string][] = [
+      ['confirmation', buildCustomerOrderEmailText(order)],
+      ['expédition', buildStatusChangeText(order, 'SHIPPED')],
+      ['annulation', buildStatusChangeText(order, 'CANCELLED')],
+      ['remboursement', buildStatusChangeText(order, 'REFUNDED')],
+    ];
+
+    it.each(textes)('ne contient aucun balisage (%s)', (_name, text) => {
+      expect(text).not.toContain('<');
+      expect(text).not.toContain('cid:');
+      expect(text).not.toContain('style=');
+      expect(text).not.toContain('&amp;');
+    });
+
+    it('conserve mot pour mot le corps du mail de confirmation', () => {
+      const text = buildCustomerOrderEmailText(order);
+      expect(text).toContain('Bonjour Jean Dupont,');
+      expect(text).toContain(
+        'Nous vous confirmons la réception de votre commande DVG-2026-0042, réglée avec succès.',
+      );
+      expect(text).toContain('Détail de votre commande :');
+      expect(text).toContain('Total payé : 115.70 €');
+      expect(text).toContain('Adresse de livraison :');
+      expect(text).toContain("L'équipe Team Divergentes");
+    });
+
+    it('conserve mot pour mot le corps du mail d’expédition', () => {
+      const text = buildStatusChangeText(
+        { ...(order as object), trackingNumber: 'AB123' } as never,
+        'SHIPPED',
+      );
+      expect(text).toContain('Votre commande DVG-2026-0042 vient de quitter nos ateliers.');
+      expect(text).toContain('Numéro de suivi : AB123');
+    });
+  });
+
+  describe('buildCustomerEmailAttachments', () => {
+    it('déclare le logo en pièce jointe inline référencée par cid', () => {
+      const attachments = buildCustomerEmailAttachments();
+      expect(attachments).toHaveLength(1);
+      const [logo] = attachments as {
+        filename: string;
+        content: Buffer;
+        contentType: string;
+        cid: string;
+        contentDisposition: string;
+      }[];
+      expect(logo.cid).toBe(CUSTOMER_EMAIL_LOGO_CID);
+      expect(logo.filename).toBe('logo-dvg.png');
+      expect(logo.contentType).toBe('image/png');
+      expect(logo.contentDisposition).toBe('inline');
+      expect(Buffer.isBuffer(logo.content)).toBe(true);
+      expect(logo.content.length).toBeGreaterThan(0);
+      // Signature PNG : garde-fou contre un fichier vide ou d'un autre format,
+      // qui n'apparaitrait autrement qu'a la lecture du mail.
+      expect(logo.content.subarray(1, 4).toString('ascii')).toBe('PNG');
+    });
+
+    /**
+     * Le fichier est un asset non-TypeScript : `nest build` ne le copie que
+     * grace a `compilerOptions.assets` de nest-cli.json. Ce test echoue si
+     * quelqu'un deplace l'asset sans mettre a jour la configuration.
+     */
+    it('trouve le logo à côté du service, en source comme après compilation', () => {
+      expect(existsSync(CUSTOMER_EMAIL_LOGO_PATH)).toBe(true);
+      expect(CUSTOMER_EMAIL_LOGO_PATH.endsWith('shop/assets/logo-dvg.png')).toBe(true);
+    });
+  });
 });
 
 describe('ShopNotifierService.notifyNewOrder', () => {
@@ -372,6 +600,35 @@ describe('ShopNotifierService.notifyNewOrder', () => {
     expect(recipients).toContain('boutique@example.com');
     expect(recipients).toContain(order.customerEmail);
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Le logo voyage en piece jointe `cid:` et non par une URL : un mail qui
+   * dependrait d'une image distante s'afficherait sans logo chez la plupart
+   * des clients, et signalerait l'ouverture du message a nos serveurs. Le mail
+   * interne a l'equipe n'est pas habille et ne doit donc rien emporter.
+   */
+  it('joint le logo au mail client, et à lui seul', async () => {
+    mockConfigService.getValue.mockImplementation((key: string) =>
+      Promise.resolve(smtpConfig[key] ?? null),
+    );
+    mockSendMail.mockResolvedValue({ messageId: 'ok' });
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
+
+    await service.notifyNewOrder(order);
+
+    const calls = mockSendMail.mock.calls as unknown as {
+      to: string;
+      html: string;
+      attachments?: { cid: string }[];
+    }[][];
+    const team = calls.find((call) => call[0].to === 'boutique@example.com')![0];
+    const customer = calls.find((call) => call[0].to === order.customerEmail)![0];
+
+    expect(customer.attachments).toHaveLength(1);
+    expect(customer.attachments![0].cid).toBe(CUSTOMER_EMAIL_LOGO_CID);
+    expect(customer.html).toContain(`cid:${CUSTOMER_EMAIL_LOGO_CID}`);
+    expect(team.attachments).toBeUndefined();
   });
 
   it('ne rejette pas si le mail client échoue mais les deux autres canaux réussissent', async () => {
@@ -443,12 +700,19 @@ describe('ShopNotifierService.notifyNewOrder', () => {
       ({ ...(order as object), status, ...extra }) as never;
 
     /** Le mail effectivement remis a nodemailer, type plutot que `any`. */
-    const firstMail = (): { to: string; subject: string; text: string; html: string } => {
+    const firstMail = (): {
+      to: string;
+      subject: string;
+      text: string;
+      html: string;
+      attachments?: { cid: string }[];
+    } => {
       const calls = mockSendMail.mock.calls as unknown as {
         to: string;
         subject: string;
         text: string;
         html: string;
+        attachments?: { cid: string }[];
       }[][];
       return calls[0][0];
     };
@@ -490,6 +754,19 @@ describe('ShopNotifierService.notifyNewOrder', () => {
       expect(sent).toBe(true);
       expect(firstMail().subject).toContain(expected);
     });
+
+    it.each(['SHIPPED', 'CANCELLED', 'REFUNDED'])(
+      'habille le mail de %s et y joint le logo',
+      async (status) => {
+        await service.notifyStatusChange(at(status), 'PAID');
+
+        const mail = firstMail();
+        expect(mail.html).toContain(`cid:${CUSTOMER_EMAIL_LOGO_CID}`);
+        expect(mail.html).toContain('max-width:600px');
+        expect(mail.attachments).toHaveLength(1);
+        expect(mail.attachments![0].cid).toBe(CUSTOMER_EMAIL_LOGO_CID);
+      },
+    );
 
     /**
      * Le declencheur est la transition, pas l'etat d'arrivee : rouvrir une
