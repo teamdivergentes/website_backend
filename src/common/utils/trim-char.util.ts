@@ -23,3 +23,21 @@ export function trimChar(value: string, char: string): string {
 
   return value.slice(start, end);
 }
+
+/**
+ * Meme chose, en fin de chaine seulement.
+ *
+ * Distincte de `trimChar` a dessein : rogner aussi le debut changerait le sens
+ * d'une URL protocol-relative (`//exemple.fr` deviendrait `exemple.fr`). La
+ * fonction sert a normaliser une origine publique qui part dans les courriels
+ * clients, ou une difference de ce genre se voit.
+ */
+export function trimTrailingChar(value: string, char: string): string {
+  let end = value.length;
+
+  while (end > 0 && value[end - 1] === char) {
+    end -= 1;
+  }
+
+  return value.slice(0, end);
+}
