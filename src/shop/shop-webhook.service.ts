@@ -45,38 +45,57 @@ export class ShopWebhookService {
     //
     // Un echec de comptage ne doit pas faire echouer une commande deja payee :
     // le pire qu'il produit est une utilisation de trop accordee plus tard.
-    if (order.discountCodeId) {
-      try {
-        await this.discounts.consume(order.discountCodeId);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(
+    const discountCodeId = order.discountCodeId;
+    if (discountCodeId) {
+      await this.bestEffort(
+        (message) =>
           `Utilisation du code ${order.discountCode ?? '?'} non comptee sur ${order.reference}: ${message}`,
-        );
-      }
+        () => this.discounts.consume(discountCodeId),
+      );
     }
 
     // Une notification en echec ne doit jamais annuler une commande deja payee.
-    try {
-      await this.notifier.notifyNewOrder(order);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Notification de la commande ${order.reference} en echec: ${message}`);
-    }
+    await this.bestEffort(
+      (message) => `Notification de la commande ${order.reference} en echec: ${message}`,
+      () => this.notifier.notifyNewOrder(order),
+    );
 
     // Survente residuelle : deux paiements concurrents ont vide le stock d'une
     // taille geree sous zero entre le devis et le webhook. La commande reste
     // due — le client a paye — mais l'equipe doit le savoir pour gerer le
     // manque a la production.
     if (shortfalls.length > 0) {
-      try {
-        await this.notifier.notifyStockShortfall(order, shortfalls);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(
+      await this.bestEffort(
+        (message) =>
           `Alerte de rupture de stock pour la commande ${order.reference} en echec: ${message}`,
-        );
-      }
+        () => this.notifier.notifyStockShortfall(order, shortfalls),
+      );
+    }
+  }
+
+  /**
+   * Execute une action accessoire a une commande DEJA PAYEE, en journalisant
+   * son echec sans jamais le propager.
+   *
+   * Les trois suites du paiement — comptage du bon de reduction, notification
+   * de l'equipe, alerte de rupture — partagent la meme regle : aucune d'elles
+   * ne doit faire echouer le webhook, parce que l'argent est encaisse et qu'un
+   * echec renverrait a Stripe un signal de rejeu qui ne rejouerait rien
+   * d'utile. Elles partageaient aussi, jusqu'ici, le meme bloc `try/catch`
+   * recopie trois fois.
+   *
+   * Le message est construit par l'appelant : c'est lui qui sait ce qui a
+   * echoue, et un libelle generique rendrait la journalisation inutilisable.
+   */
+  private async bestEffort(
+    describeFailure: (message: string) => string,
+    action: () => Promise<unknown>,
+  ): Promise<void> {
+    try {
+      await action();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(describeFailure(message));
     }
   }
 
