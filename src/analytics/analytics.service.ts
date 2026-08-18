@@ -32,7 +32,7 @@ export class AnalyticsService {
     const propertyId = process.env.GA_PROPERTY_ID;
     const streamId = process.env.GA_STREAM_ID;
     const clientEmail = process.env.GA_CLIENT_EMAIL;
-    const privateKey = process.env.GA_PRIVATE_KEY?.replaceAll('\\n', '\n');
+    const privateKey = process.env.GA_PRIVATE_KEY?.replaceAll(String.raw`\n`, '\n');
 
     if (propertyId && clientEmail && privateKey) {
       if (!/^\d+$/.test(propertyId)) {
