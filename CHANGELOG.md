@@ -1,3 +1,15 @@
+# [1.7.0](https://github.com/teamdivergentes/website_backend/compare/v1.6.0...v1.7.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **shop:** résorber les anomalies Sonar introduites par le stock et les remboursements ([#202](https://github.com/teamdivergentes/website_backend/issues/202)) ([68dab60](https://github.com/teamdivergentes/website_backend/commit/68dab604b29bd192197d2048a1efb373a1145380))
+
+
+### Features
+
+* **shop:** stock, remboursements, gamme de tailles et identité client ([#200](https://github.com/teamdivergentes/website_backend/issues/200)) ([9fb2f76](https://github.com/teamdivergentes/website_backend/commit/9fb2f765ffdd6e624a5d1e687d0414696342c362))
+
 # [1.6.0](https://github.com/teamdivergentes/website_backend/compare/v1.5.2...v1.6.0) (2026-08-14)
 
 
