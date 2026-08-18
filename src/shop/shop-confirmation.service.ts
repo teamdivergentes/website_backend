@@ -66,7 +66,7 @@ export class ShopConfirmationService {
 
     return {
       reference: order.reference,
-      firstName: firstNameOf(order.customerName),
+      firstName: firstNameOf(order.customerFirstName, order.customerName),
       paid: order.status !== 'PENDING',
       maskedEmail: maskEmail(order.customerEmail),
       items: order.items.map((item) => ({
@@ -82,16 +82,35 @@ export class ShopConfirmationService {
 }
 
 /**
- * Premier mot du nom transmis par Stripe.
+ * Prenom du client, pour la seule personnalisation de la page de remerciement.
  *
  * On ne renvoie jamais le nom complet : « Merci Maxime » suffit a personnaliser,
  * « Merci Maxime Bellet » transforme une URL en fiche d'identite. Le champ est
  * saisi librement par le client, d'ou le garde-fou de longueur — un « prenom »
  * de 200 caracteres n'est pas un prenom, et n'a rien a faire dans un titre.
+ *
+ * Deux sources, dans cet ordre :
+ *
+ *   1. `customerFirstName`, le champ « Prenom » de la page de paiement. C'est
+ *      le client qui a decoupe son identite, il n'y a rien a deviner.
+ *   2. `customerName`, le nom complet du bloc d'adresse, dont on prend le
+ *      premier mot. Repli pour les commandes anterieures aux champs separes,
+ *      et devinette assumee : « Dupont Jean » donne « Dupont ».
  */
-export function firstNameOf(customerName: string): string | null {
-  const first = customerName.trim().split(/\s+/)[0] ?? '';
-  return first.length > 0 && first.length <= 40 ? first : null;
+/*
+ * Les deux parametres tolerent `undefined` a dessein. Cette fonction sert la
+ * page de remerciement, affichee juste apres un paiement reussi : un titre
+ * impersonnel y est un desagrement, une exception y est un ecran d'erreur
+ * apres encaissement. Aucun defaut de donnee ne merite ce prix.
+ */
+export function firstNameOf(
+  firstName: string | null | undefined,
+  customerName: string | null | undefined,
+): string | null {
+  const explicit = (firstName ?? '').trim();
+  const candidate =
+    explicit.length > 0 ? explicit : ((customerName ?? '').trim().split(/\s+/)[0] ?? '');
+  return candidate.length > 0 && candidate.length <= 40 ? candidate : null;
 }
 
 /**

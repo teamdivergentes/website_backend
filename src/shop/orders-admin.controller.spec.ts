@@ -14,6 +14,7 @@ describe('OrdersAdminController', () => {
     getCounters: jest.fn(),
     markSent: jest.fn(),
     update: jest.fn(),
+    refund: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -58,6 +59,10 @@ describe('OrdersAdminController', () => {
       expect(getPerms('update')).toContain(PERMISSIONS.COMMANDES_WRITE);
     });
 
+    it('le remboursement exige commandes:write', () => {
+      expect(getPerms('refund')).toContain(PERMISSIONS.COMMANDES_WRITE);
+    });
+
     // Les compteurs alimentent le dashboard et la page Statistiques : c'est une
     // lecture, elle ne doit jamais exiger le droit d'ecriture.
     it('les compteurs exigent commandes:read', () => {
@@ -81,6 +86,16 @@ describe('OrdersAdminController', () => {
         lastThirtyDays: 7,
         windowDays: 30,
       });
+    });
+  });
+
+  describe('refund', () => {
+    it('délègue au service avec l’identifiant de commande', async () => {
+      const refunded = { id: 1, status: 'REFUNDED' };
+      mockService.refund.mockResolvedValue(refunded);
+
+      await expect(controller.refund(1)).resolves.toBe(refunded);
+      expect(mockService.refund).toHaveBeenCalledWith(1);
     });
   });
 });

@@ -1,7 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import Stripe from 'stripe';
 import { ORDER_COUNTER_WINDOW_DAYS, OrdersAdminService } from './orders-admin.service';
 import { ShopNotifierService } from './shop-notifier.service';
+import { StripeService } from './stripe.service';
 import { PrismaService } from '../prisma.service';
 
 describe('OrdersAdminService', () => {
@@ -15,9 +22,17 @@ describe('OrdersAdminService', () => {
       updateMany: jest.fn(),
       count: jest.fn(),
     },
+    shopProductSize: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    // `refund` recredite le stock et met à jour la commande dans la même
+    // transaction : l'implementation, posee dans le `beforeEach` ci-dessous,
+    // rejoue le callback avec ce meme faux client. Declaree nue ici pour
+    // eviter la reference circulaire qu'introduirait `mockPrisma` dans son
+    // propre litteral.
+    $transaction: jest.fn(),
   };
 
   const mockNotifier = { notifyStatusChange: jest.fn() };
+  const mockStripe = { refundPayment: jest.fn(), findLatestRefund: jest.fn() };
 
   const pendingOrder = {
     id: 1,
@@ -47,11 +62,18 @@ describe('OrdersAdminService', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    // `resetAllMocks` retire aussi l'implementation posee sur `$transaction` :
+    // elle doit etre reposee ici, apres coup, sans quoi le mock redevient un
+    // jest.fn() nu qui ne rejoue jamais le callback de transaction.
+    mockPrisma.$transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
+      callback(mockPrisma),
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersAdminService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ShopNotifierService, useValue: mockNotifier },
+        { provide: StripeService, useValue: mockStripe },
       ],
     }).compile();
     service = module.get<OrdersAdminService>(OrdersAdminService);
@@ -279,6 +301,202 @@ describe('OrdersAdminService', () => {
       // Zero s'affiche : masquer le bloc le rendrait indistinguable d'une panne,
       // et c'est au lancement qu'on regarde ce chiffre.
       await expect(service.getCounters()).resolves.toMatchObject({ total: 0, lastThirtyDays: 0 });
+    });
+  });
+
+  describe('refund', () => {
+    const paidOrder = {
+      id: 1,
+      reference: 'DVG-2026-0042',
+      status: 'PAID',
+      stripePaymentIntentId: 'pi_test_1',
+      items: [
+        { productId: 10, productName: 'Maillot', size: 'M', quantity: 2 },
+        { productId: 20, productName: 'Hoodie', size: 'L', quantity: 1 },
+      ],
+    };
+
+    beforeEach(() => {
+      mockPrisma.order.findUnique.mockResolvedValue(paidOrder);
+      mockStripe.refundPayment.mockResolvedValue({ id: 're_test_1' });
+      mockPrisma.order.update.mockResolvedValue({ ...paidOrder, status: 'REFUNDED' });
+      mockNotifier.notifyStatusChange.mockResolvedValue(true);
+    });
+
+    it('lève NotFoundException si la commande est introuvable', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue(null);
+
+      await expect(service.refund(999)).rejects.toThrow(NotFoundException);
+      expect(mockStripe.refundPayment).not.toHaveBeenCalled();
+    });
+
+    it.each(['REFUNDED', 'CANCELLED', 'PENDING'])(
+      'lève ConflictException (409) sur une commande %s',
+      async (status) => {
+        mockPrisma.order.findUnique.mockResolvedValue({ ...paidOrder, status });
+
+        await expect(service.refund(1)).rejects.toThrow(ConflictException);
+        expect(mockStripe.refundPayment).not.toHaveBeenCalled();
+      },
+    );
+
+    it('lève BadRequestException sans identifiant de paiement Stripe', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        ...paidOrder,
+        stripePaymentIntentId: null,
+      });
+
+      await expect(service.refund(1)).rejects.toThrow(BadRequestException);
+      expect(mockStripe.refundPayment).not.toHaveBeenCalled();
+    });
+
+    it('rembourse intégralement via Stripe sur le payment intent de la commande', async () => {
+      await service.refund(1);
+
+      expect(mockStripe.refundPayment).toHaveBeenCalledWith('pi_test_1');
+    });
+
+    it('passe la commande en REFUNDED avec l’identifiant de remboursement et la date', async () => {
+      await service.refund(1);
+
+      expect(mockPrisma.order.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        include: { items: true },
+        data: {
+          status: 'REFUNDED',
+          stripeRefundId: 're_test_1',
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          refundedAt: expect.any(Date),
+        },
+      });
+    });
+
+    it('recrédite le stock des tailles gérées de chaque ligne, par écriture atomique', async () => {
+      mockPrisma.shopProductSize.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.refund(1);
+
+      expect(mockPrisma.shopProductSize.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { productId: 10, label: 'M', stock: { not: null } },
+        data: { stock: { increment: 2 } },
+      });
+      expect(mockPrisma.shopProductSize.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { productId: 20, label: 'L', stock: { not: null } },
+        data: { stock: { increment: 1 } },
+      });
+      // Increment atomique, sans lecture prealable : pas de fenetre de
+      // lecture-puis-ecriture a proteger, contrairement au decompte.
+      expect(mockPrisma.shopProductSize.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('ignore une ligne dont le produit a été supprimé depuis (SetNull)', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        ...paidOrder,
+        items: [{ productId: null, productName: 'Maillot', size: 'M', quantity: 1 }],
+      });
+
+      await service.refund(1);
+
+      expect(mockPrisma.shopProductSize.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('prévient le client du remboursement par le même canal qu’un changement de statut', async () => {
+      await service.refund(1);
+
+      expect(mockNotifier.notifyStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'REFUNDED' }),
+        'PAID',
+      );
+    });
+
+    it('n’échoue pas quand le mail au client échoue : le remboursement reste acté', async () => {
+      mockNotifier.notifyStatusChange.mockRejectedValue(new Error('SMTP indisponible'));
+
+      await expect(service.refund(1)).resolves.toMatchObject({ status: 'REFUNDED' });
+    });
+
+    it('ne modifie rien en base quand Stripe refuse le remboursement pour une raison autre qu’un remboursement déjà effectué', async () => {
+      mockStripe.refundPayment.mockRejectedValue(
+        new Stripe.errors.StripeInvalidRequestError({
+          type: 'invalid_request_error',
+          code: 'payment_intent_unexpected_state',
+          message: 'This PaymentIntent is not in a state refundable',
+        }),
+      );
+
+      await expect(service.refund(1)).rejects.toThrow(BadRequestException);
+      expect(mockStripe.findLatestRefund).not.toHaveBeenCalled();
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('remonte une erreur 502 quand Stripe est injoignable', async () => {
+      mockStripe.refundPayment.mockRejectedValue(new Error('ECONNRESET'));
+
+      await expect(service.refund(1)).rejects.toThrow(BadGatewayException);
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it('retourne la commande mise à jour', async () => {
+      await expect(service.refund(1)).resolves.toMatchObject({ status: 'REFUNDED' });
+    });
+
+    describe('idempotence : Stripe indique un remboursement déjà effectué (charge_already_refunded)', () => {
+      const alreadyRefundedError = new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        code: 'charge_already_refunded',
+        message: 'The charge has already been refunded.',
+      });
+
+      it('retrouve le remboursement existant et poursuit la mise à jour en base', async () => {
+        mockStripe.refundPayment.mockRejectedValue(alreadyRefundedError);
+        mockStripe.findLatestRefund.mockResolvedValue({ id: 're_existing_1' });
+
+        await service.refund(1);
+
+        expect(mockStripe.findLatestRefund).toHaveBeenCalledWith('pi_test_1');
+        expect(mockPrisma.order.update).toHaveBeenCalledWith({
+          where: { id: 1 },
+          include: { items: true },
+          data: {
+            status: 'REFUNDED',
+            stripeRefundId: 're_existing_1',
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            refundedAt: expect.any(Date),
+          },
+        });
+      });
+
+      it('recrédite quand même le stock et prévient le client', async () => {
+        mockStripe.refundPayment.mockRejectedValue(alreadyRefundedError);
+        mockStripe.findLatestRefund.mockResolvedValue({ id: 're_existing_1' });
+        mockPrisma.shopProductSize.updateMany.mockResolvedValue({ count: 1 });
+
+        await service.refund(1);
+
+        expect(mockPrisma.shopProductSize.updateMany).toHaveBeenCalled();
+        expect(mockNotifier.notifyStatusChange).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'REFUNDED' }),
+          'PAID',
+        );
+      });
+
+      it('rend un double-clic admin inoffensif : le second appel aboutit au même remboursement', async () => {
+        // Le premier appel a deja rembourse ; le second rencontre directement
+        // `charge_already_refunded` cote Stripe.
+        mockStripe.refundPayment.mockRejectedValue(alreadyRefundedError);
+        mockStripe.findLatestRefund.mockResolvedValue({ id: 're_existing_1' });
+
+        await expect(service.refund(1)).resolves.toMatchObject({ status: 'REFUNDED' });
+      });
+
+      it('échoue en 502 si aucun remboursement n’est retrouvé malgré le code Stripe', async () => {
+        mockStripe.refundPayment.mockRejectedValue(alreadyRefundedError);
+        mockStripe.findLatestRefund.mockResolvedValue(null);
+
+        await expect(service.refund(1)).rejects.toThrow(BadGatewayException);
+        expect(mockPrisma.order.update).not.toHaveBeenCalled();
+      });
     });
   });
 });

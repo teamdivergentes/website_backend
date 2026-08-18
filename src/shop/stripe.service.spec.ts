@@ -121,6 +121,42 @@ describe('StripeService.createCheckoutSession — zone de livraison', () => {
     expect(displayName).toBe('Livraison Europe');
     expect(displayName).not.toContain('France');
   });
+
+  /**
+   * La liste explicite est ce qui empeche une case cochee dans le tableau de
+   * bord Stripe de modifier le tunnel de vente sans revue de code. Le test
+   * verifie donc autant ce qui est propose que le fait de proposer une liste :
+   * la laisser absente rebasculerait sur les methodes automatiques.
+   */
+  it('n’accepte que la carte, PayPal et Klarna', async () => {
+    const types = (await createdParams()).payment_method_types;
+
+    expect(types).toEqual(['card', 'paypal', 'klarna']);
+  });
+
+  /**
+   * Apple Pay n'est pas un `payment_method_type` : c'est un portefeuille
+   * adosse a `card`, que Stripe affiche selon l'appareil du client. Le
+   * demander explicitement fait echouer la creation de session — d'ou ce
+   * garde-fou, qui documente le piege autant qu'il le previent.
+   */
+  it('ne demande pas Apple Pay comme moyen de paiement distinct', async () => {
+    const types = (await createdParams()).payment_method_types ?? [];
+
+    expect(types).not.toContain('apple_pay');
+    expect(types).toContain('card');
+  });
+
+  it('demande le prenom et le nom en deux champs distincts', async () => {
+    const fields = (await createdParams()).custom_fields ?? [];
+
+    expect(fields.map((field) => field.key)).toEqual(['prenom', 'nom']);
+    expect(fields.map((field) => field.label.custom)).toEqual(['Prénom', 'Nom']);
+    // Facultatifs, ils ne serviraient a rien : c'est precisement la saisie
+    // libre du nom complet qu'ils viennent remplacer.
+    expect(fields.every((field) => field.optional === false)).toBe(true);
+    expect(fields.every((field) => field.type === 'text')).toBe(true);
+  });
 });
 
 /**
@@ -149,6 +185,69 @@ describe('withSessionPlaceholder', () => {
     // `URL.searchParams` produirait `%7BCHECKOUT_SESSION_ID%7D` : le site
     // recevrait le placeholder en toutes lettres au lieu de l'identifiant.
     expect(withSessionPlaceholder('https://site.fr/merci')).not.toContain('%7B');
+  });
+});
+
+describe('StripeService.refundPayment', () => {
+  let service: StripeService;
+  let create: jest.Mock;
+
+  beforeEach(() => {
+    service = new StripeService();
+    create = jest.fn();
+    jest
+      .spyOn(service as unknown as { getClient: () => unknown }, 'getClient')
+      .mockReturnValue({ refunds: { create } });
+  });
+
+  it('rembourse intégralement, sans transmettre de montant', async () => {
+    create.mockResolvedValue({ id: 're_test_1' });
+
+    const result = await service.refundPayment('pi_test_1');
+
+    expect(result).toEqual({ id: 're_test_1' });
+    // Un seul champ transmis, sans `amount` : Stripe rembourse alors la
+    // totalité du paiement.
+    expect(create).toHaveBeenCalledWith({ payment_intent: 'pi_test_1' });
+  });
+
+  it('remonte l’erreur Stripe telle quelle, sans rien avaler', async () => {
+    create.mockRejectedValue(
+      new Stripe.errors.StripeInvalidRequestError({
+        type: 'invalid_request_error',
+        message: 'Charge already refunded',
+      }),
+    );
+
+    await expect(service.refundPayment('pi_test_1')).rejects.toThrow('Charge already refunded');
+  });
+});
+
+describe('StripeService.findLatestRefund', () => {
+  let service: StripeService;
+  let list: jest.Mock;
+
+  beforeEach(() => {
+    service = new StripeService();
+    list = jest.fn();
+    jest
+      .spyOn(service as unknown as { getClient: () => unknown }, 'getClient')
+      .mockReturnValue({ refunds: { list } });
+  });
+
+  it('interroge Stripe filtré sur le payment intent, limité au plus récent', async () => {
+    list.mockResolvedValue({ data: [{ id: 're_latest' }] });
+
+    const result = await service.findLatestRefund('pi_test_1');
+
+    expect(result).toEqual({ id: 're_latest' });
+    expect(list).toHaveBeenCalledWith({ payment_intent: 'pi_test_1', limit: 1 });
+  });
+
+  it('rend null quand Stripe ne connaît aucun remboursement sur ce paiement', async () => {
+    list.mockResolvedValue({ data: [] });
+
+    await expect(service.findLatestRefund('pi_test_1')).resolves.toBeNull();
   });
 });
 

@@ -68,4 +68,17 @@ export class OrdersAdminController {
   ): Promise<OrderWithItems> {
     return this.ordersService.update(id, dto);
   }
+
+  /**
+   * Remboursement intégral, toujours total : aucun montant en entrée, Stripe
+   * rembourse ce qu'il a réellement encaissé. Même permission d'écriture que
+   * les autres mutations de commande : rembourser est une action au moins
+   * aussi sensible que changer un statut.
+   */
+  @Post('api/admin/orders/:id/refund')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(PERMISSIONS.COMMANDES_WRITE)
+  refund(@Param('id', ParseIntPipe) id: number): Promise<OrderWithItems> {
+    return this.ordersService.refund(id);
+  }
 }

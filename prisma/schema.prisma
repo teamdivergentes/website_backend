@@ -385,6 +385,15 @@ model ShopProductSize {
   productId Int
   label     String
   position  Int         @default(0)
+  /// Stock restant pour cette taille. `null` = non gere, illimite : c'est le
+  /// comportement d'avant cette colonne, et il reste le defaut de toute taille
+  /// existante. Un entier >= 0 active le suivi ; il est decremente au paiement
+  /// confirme (webhook), jamais a l'ajout au panier, pour ne pas reserver un
+  /// stock sur un panier qui ne sera peut-etre jamais paye.
+  ///
+  /// Jamais expose tel quel au public : seul un booleen `inStock` derive
+  /// atteint le catalogue, pour ne pas divulguer un volume de vente.
+  stock     Int?
   product   ShopProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([productId, label])
@@ -608,15 +617,37 @@ model Order {
   publicTotalCents Int @default(0)
 
   /// Renseignes par le webhook : inconnus tant que le client n'a pas paye.
-  customerEmail   String @default("")
-  customerName    String @default("")
-  shippingAddress Json   @default("{}")
+  customerEmail String @default("")
+  customerName  String @default("")
+
+  /// Prenom et nom saisis separement sur la page de paiement, via les champs
+  /// personnalises de Stripe.
+  ///
+  /// `customerName` reste le nom complet du bloc d'adresse, celui qui part sur
+  /// l'etiquette d'expedition ; ces deux champs-ci portent l'identite telle que
+  /// le client la decoupe lui-meme. On en tirait le prenom en prenant le
+  /// premier mot de `customerName`, ce qui se trompait sur « Dupont Jean »
+  /// comme sur un pseudo.
+  ///
+  /// Vides sur toute commande anterieure a leur introduction, d'ou le defaut :
+  /// le code appelant doit retomber sur `customerName` quand ils le sont.
+  customerFirstName String @default("")
+  customerLastName  String @default("")
+  shippingAddress   Json   @default("{}")
 
   status           OrderStatus @default(PAID)
   sentToMerchantAt DateTime?
   merchantBatchId  String?
   trackingNumber   String?
   adminNote        String?     @db.Text
+
+  /// Identifiant du remboursement Stripe, pose au remboursement integral
+  /// declenche depuis l'admin. Distinct de `stripePaymentIntentId` : l'un paie,
+  /// l'autre rembourse, et une commande peut un jour porter les deux sans que
+  /// l'un efface l'autre.
+  stripeRefundId String?
+  /// Horodatage du remboursement, `null` tant qu'aucun n'a ete effectue.
+  refundedAt     DateTime?
 
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt

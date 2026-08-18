@@ -7,6 +7,7 @@ import { orderFee, retailUnitPrice, shippingCost, shippingPrice, unitCost } from
 import { applicableUnitPrice } from './shop-discount';
 import { AppliedDiscount, ShopDiscountService } from './shop-discount.service';
 import { PricingTier, ShippingMethod } from '../../generated/prisma';
+import { OutOfStockException, OutOfStockItem } from './shop-stock.exception';
 
 /** Nombre total d'articles accepte dans un panier, toutes lignes confondues. */
 export const MAX_CART_ITEMS = 20;
@@ -151,14 +152,35 @@ export class ShopPricingService {
     });
     const productsById = new Map(products.map((product) => [product.id, product]));
 
+    // Ecarts de stock releves pendant la construction des lignes. Collectes a
+    // part plutot que de rejeter des la premiere : un panier a plusieurs
+    // lignes en rupture merite un seul rapport complet, pas un aller-retour
+    // par ligne fautive.
+    const outOfStock: OutOfStockItem[] = [];
+
     const lines = items.map((item) => {
       const product = productsById.get(item.productId);
       if (!product) {
         throw new BadRequestException('Produit introuvable ou indisponible');
       }
 
-      if (!product.sizes.some((size) => size.label === item.size)) {
+      const size = product.sizes.find((candidate) => candidate.label === item.size);
+      if (!size) {
         throw new BadRequestException(`Taille indisponible pour « ${product.name} »`);
+      }
+
+      // Stock `null` = non gere, illimite : c'est le comportement d'avant
+      // cette colonne. Un stock gere insuffisant ferme le panier ici, AVANT
+      // tout appel a Stripe ; aucune reservation n'est prise, le decompte
+      // reel n'a lieu qu'au paiement confirme (webhook).
+      if (typeof size.stock === 'number' && item.quantity > size.stock) {
+        outOfStock.push({
+          productId: product.id,
+          sizeId: size.id,
+          size: size.label,
+          requested: item.quantity,
+          available: size.stock,
+        });
       }
 
       const flockingText = normalizeFlocking(item.flockingText);
@@ -202,6 +224,10 @@ export class ShopPricingService {
         publicLineTotalCents: (publicUnitCents + publicFlockingCents) * item.quantity,
       };
     });
+
+    if (outOfStock.length > 0) {
+      throw new OutOfStockException(outOfStock);
+    }
 
     const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
     const publicSubtotalCents = lines.reduce((sum, line) => sum + line.publicLineTotalCents, 0);

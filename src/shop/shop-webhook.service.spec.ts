@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, Logger } from '@nestjs/common';
-import { ShopWebhookService } from './shop-webhook.service';
+import { ShopWebhookService, customFieldsIdentity } from './shop-webhook.service';
 import { StripeService } from './stripe.service';
 import { ShopNotifierService } from './shop-notifier.service';
 import { PrismaService } from '../prisma.service';
@@ -17,8 +17,15 @@ describe('ShopWebhookService', () => {
   };
   const mockPrisma = {
     order: { updateMany: jest.fn(), findUniqueOrThrow: jest.fn(), findUnique: jest.fn() },
+    shopProductSize: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    // `markPaid` decremente le stock dans la meme transaction que le passage
+    // en PAID : l'implementation, posee dans le `beforeEach` ci-dessous,
+    // rejoue le callback avec ce meme faux client (`tx` === `this.prisma`
+    // depuis le service). Declaree nue ici pour eviter la reference
+    // circulaire qu'introduirait `mockPrisma` dans son propre litteral.
+    $transaction: jest.fn(),
   };
-  const mockNotifier = { notifyNewOrder: jest.fn() };
+  const mockNotifier = { notifyNewOrder: jest.fn(), notifyStockShortfall: jest.fn() };
   const mockDiscounts = { consume: jest.fn() };
 
   const payload = Buffer.from('{}');
@@ -55,6 +62,12 @@ describe('ShopWebhookService', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    // `resetAllMocks` retire aussi l'implementation posee sur `$transaction` :
+    // elle doit etre reposee ici, apres coup, sans quoi le mock redevient un
+    // jest.fn() nu qui ne rejoue jamais le callback de transaction.
+    mockPrisma.$transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
+      callback(mockPrisma),
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShopWebhookService,
@@ -227,6 +240,143 @@ describe('ShopWebhookService', () => {
     });
   });
 
+  describe('décompte de stock au paiement confirmé', () => {
+    const paidOrderWithItems = {
+      ...paidOrder,
+      items: [
+        { productId: 10, productName: 'Maillot', size: 'M', quantity: 2 },
+        { productId: 20, productName: 'Hoodie', size: 'L', quantity: 1 },
+      ],
+    };
+
+    beforeEach(() => {
+      mockStripe.constructWebhookEvent.mockReturnValue(completedEvent);
+      mockPrisma.order.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.order.findUniqueOrThrow.mockResolvedValue(paidOrderWithItems);
+    });
+
+    it('décrémente le stock des tailles gérées par une écriture atomique conditionnelle, dans la même transaction que le passage en PAID', async () => {
+      mockPrisma.shopProductSize.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { productId: 10, label: 'M', stock: { not: null, gte: 2 } },
+        data: { stock: { decrement: 2 } },
+      });
+      expect(mockPrisma.shopProductSize.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { productId: 20, label: 'L', stock: { not: null, gte: 1 } },
+        data: { stock: { decrement: 1 } },
+      });
+      // Le decompte atomique a suffi : aucune relecture, aucune ecriture
+      // supplementaire n'est necessaire.
+      expect(mockPrisma.shopProductSize.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.update).not.toHaveBeenCalled();
+    });
+
+    it('ne perd aucune décrémentation sous accès concurrent : deux paiements simultanés sur la même taille ne s’écrasent pas', async () => {
+      // Le mock illustre la garantie apportee par l'UPDATE conditionnel de
+      // Postgres : la seconde transaction, serialisee par le verrou de ligne,
+      // reevalue `stock >= quantite` sur la valeur DEJA decrementee par la
+      // premiere — elle echoue proprement (count: 0) plutot que d'ecraser le
+      // travail de l'autre avec une valeur calculee sur une lecture perimee.
+      mockPrisma.shopProductSize.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // premier paiement : stock 2 -> 0
+        .mockResolvedValueOnce({ count: 1 });
+      mockPrisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...paidOrderWithItems,
+        items: [{ productId: 10, productName: 'Maillot', size: 'M', quantity: 2 }],
+      });
+
+      await service.handleEvent(payload, signature);
+
+      // Rien n'a ete lu avant d'ecrire : la condition vit dans le UPDATE
+      // lui-meme, pas dans du code applicatif qui pourrait s'appuyer sur une
+      // valeur obsolete.
+      expect(mockPrisma.shopProductSize.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('ignore une ligne dont le produit a été supprimé depuis (SetNull)', async () => {
+      mockPrisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...paidOrderWithItems,
+        items: [{ productId: null, productName: 'Maillot', size: 'M', quantity: 1 }],
+      });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.shopProductSize.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.update).not.toHaveBeenCalled();
+    });
+
+    it('ignore une taille non gérée : le décompte atomique échoue, la relecture confirme un stock nul', async () => {
+      mockPrisma.shopProductSize.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.shopProductSize.findUnique.mockResolvedValue({ id: 1, stock: null });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.shopProductSize.update).not.toHaveBeenCalled();
+      expect(mockNotifier.notifyStockShortfall).not.toHaveBeenCalled();
+    });
+
+    it('borne le stock à zéro en cas de survente résiduelle, et notifie l’équipe', async () => {
+      // Le decompte atomique de la premiere ligne echoue (stock insuffisant
+      // au moment de l'ecriture) ; celui de la seconde reussit.
+      mockPrisma.shopProductSize.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
+      mockPrisma.shopProductSize.findUnique.mockResolvedValueOnce({ id: 1, stock: 1 });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.shopProductSize.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { stock: 0 },
+      });
+      expect(mockNotifier.notifyStockShortfall).toHaveBeenCalledWith(
+        paidOrderWithItems,
+        expect.arrayContaining([
+          expect.objectContaining({
+            productId: 10,
+            size: 'M',
+            sizeId: 1,
+            requested: 2,
+            available: 1,
+          }),
+        ]),
+      );
+    });
+
+    it('ne notifie rien quand le stock suffit partout', async () => {
+      mockPrisma.shopProductSize.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockNotifier.notifyStockShortfall).not.toHaveBeenCalled();
+    });
+
+    it('ne touche pas au stock sur un rejeu de webhook', async () => {
+      mockPrisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.shopProductSize.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.shopProductSize.update).not.toHaveBeenCalled();
+    });
+
+    it('n’annule pas la commande si l’alerte de rupture de stock échoue', async () => {
+      mockPrisma.shopProductSize.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValue({ count: 1 });
+      mockPrisma.shopProductSize.findUnique.mockResolvedValueOnce({ id: 1, stock: 0 });
+      mockNotifier.notifyStockShortfall.mockRejectedValue(new Error('SMTP down'));
+
+      await expect(service.handleEvent(payload, signature)).resolves.toBeUndefined();
+    });
+  });
+
   describe('autres événements', () => {
     it('ignore un type d’événement non géré', async () => {
       mockStripe.constructWebhookEvent.mockReturnValue({
@@ -238,5 +388,51 @@ describe('ShopWebhookService', () => {
 
       expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Le prenom et le nom viennent des champs personnalises de la page de
+ * paiement. Toute session creee avant leur introduction n'en porte aucun : la
+ * lecture doit rendre du vide, jamais lever, sous peine de perdre une commande
+ * deja encaissee au moment ou le webhook l'enregistre.
+ */
+describe('customFieldsIdentity', () => {
+  const sessionWith = (fields: unknown): Parameters<typeof customFieldsIdentity>[0] =>
+    ({ custom_fields: fields }) as Parameters<typeof customFieldsIdentity>[0];
+
+  it('lit le prenom et le nom par leur cle, quel que soit leur ordre', () => {
+    const identity = customFieldsIdentity(
+      sessionWith([
+        { key: 'nom', type: 'text', text: { value: 'Dupont' } },
+        { key: 'prenom', type: 'text', text: { value: 'Jean' } },
+      ]),
+    );
+
+    expect(identity).toEqual({ firstName: 'Jean', lastName: 'Dupont' });
+  });
+
+  it('retire les espaces de bordure sans retailler la valeur', () => {
+    const identity = customFieldsIdentity(
+      sessionWith([
+        { key: 'prenom', type: 'text', text: { value: '  Marie-Claire  ' } },
+        { key: 'nom', type: 'text', text: { value: ' de La Tour ' } },
+      ]),
+    );
+
+    expect(identity).toEqual({ firstName: 'Marie-Claire', lastName: 'de La Tour' });
+  });
+
+  it('rend du vide sur une session anterieure aux champs personnalises', () => {
+    expect(customFieldsIdentity(sessionWith(undefined))).toEqual({ firstName: '', lastName: '' });
+    expect(customFieldsIdentity(sessionWith([]))).toEqual({ firstName: '', lastName: '' });
+  });
+
+  it('ignore un champ personnalise etranger a l’identite', () => {
+    const identity = customFieldsIdentity(
+      sessionWith([{ key: 'message', type: 'text', text: { value: 'bonne chance' } }]),
+    );
+
+    expect(identity).toEqual({ firstName: '', lastName: '' });
   });
 });

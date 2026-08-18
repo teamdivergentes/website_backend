@@ -743,7 +743,11 @@ async function main() {
     },
   });
 
-  const TEXTILE_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+  // Gamme complete du patron 2026 : les trois maillots partagent le meme, ils
+  // partagent donc la meme amplitude. « XXS » et non « 2XS » : la notation
+  // doit etre la meme aux deux bouts du selecteur, ou elle se lit comme deux
+  // gammes differentes.
+  const TEXTILE_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
 
   // Les prix sont provisoires : ils sont editables depuis l'admin sans
   // redeploiement, le seed ne fait qu'amorcer le catalogue.
@@ -751,12 +755,12 @@ async function main() {
     {
       slug: 'maillot-2026-dvg',
       name: 'Maillot 2026 — Team Divergentes',
-      shortDescription: 'Le maillot officiel de la structure, saison 2026.',
+      shortDescription: 'Notre maillot, toutes sections confondues.',
       description:
-        'Le maillot de toute la structure, sans distinction de section ni de jeu. ' +
-        'Il reprend les codes posés en 2017 : noir profond, vert Divergentes, logo ' +
-        "sublimé dans la maille plutôt qu'imprimé dessus. Celui qu'on met quand on " +
-        'vient représenter DVG en entier.',
+        "Celui qu'on porte quand on représente DVG en entier, sans distinction de " +
+        'section ni de jeu. Il reprend les codes posés en 2017 : noir profond, vert ' +
+        "Divergentes, logo sublimé dans la maille plutôt qu'imprimé dessus. Le mettre, " +
+        "c'est se ranger de notre côté.",
       priceCents: 4000,
       images: [
         { url: 'assets/img/shop/maillot-2026-dvg-front.webp', label: 'face' },
@@ -776,12 +780,12 @@ async function main() {
     {
       slug: 'maillot-2026-joker',
       name: 'Maillot 2026 — DVG × Joker',
-      shortDescription: "Aux couleurs de l'équipe EVA Joker.",
+      shortDescription: 'Nos couleurs, version EVA Joker.',
       description:
-        "La déclinaison d'EVA Joker. Même patron, même maille, même finition que le " +
-        "maillot de structure : seuls les liserés, l'habillage des manches et le blason " +
-        'de la section changent. Le vert monte sur les épaules, le motif reprend ' +
-        "l'univers de l'équipe.",
+        'Le maillot de notre section EVA Joker. Même patron, même maille, même finition ' +
+        "que celui de la structure : seuls les liserés, l'habillage des manches et le " +
+        'blason changent. Le vert monte sur les épaules, le motif reprend ' +
+        "l'univers de l'équipe. C'est le maillot de ceux qui suivent Joker avant tout.",
       priceCents: 4000,
       images: [
         { url: 'assets/img/shop/maillot-2026-joker-front.webp', label: 'face' },
@@ -798,12 +802,12 @@ async function main() {
     {
       slug: 'maillot-2026-mystic',
       name: 'Maillot 2026 — DVG × Mystic',
-      shortDescription: "Aux couleurs de l'équipe EVA Mystic.",
+      shortDescription: 'Nos couleurs, version EVA Mystic.',
       description:
-        "La déclinaison d'EVA Mystic. Les deux titres de champion de France, 2022 et " +
-        "2023, sont inscrits sur le vêtement : ce n'est pas un ornement, c'est ce que la " +
-        "section est allée chercher. Un maillot d'esport ne sert pas à courir, il sert à " +
-        'dire de quel côté on est assis.',
+        'Le maillot de notre section EVA Mystic. Nos deux titres de champion de France, ' +
+        "2022 et 2023, sont inscrits sur le vêtement : ce n'est pas un ornement, c'est ce " +
+        "que la section est allée chercher. Un maillot d'esport ne sert pas à courir, il " +
+        'sert à dire de quel côté on est assis.',
       priceCents: 4000,
       images: [
         { url: 'assets/img/shop/maillot-2026-mystic-front.webp', label: 'face' },
