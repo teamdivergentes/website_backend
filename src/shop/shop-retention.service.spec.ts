@@ -53,13 +53,24 @@ describe('ShopRetentionService', () => {
         where: {
           createdAt: { lt: new Date('2021-07-29T00:00:00.000Z') },
           status: { not: 'PENDING' },
-          OR: [{ customerEmail: { not: '' } }, { customerName: { not: '' } }],
+          OR: [
+            { customerEmail: { not: '' } },
+            { customerName: { not: '' } },
+            { customerFirstName: { not: '' } },
+            { customerLastName: { not: '' } },
+          ],
         },
         select: { id: true },
       });
       expect(mockPrisma.order.updateMany).toHaveBeenCalledWith({
         where: { id: { in: [1, 2] } },
-        data: { customerEmail: '', customerName: '', shippingAddress: {} },
+        data: {
+          customerEmail: '',
+          customerName: '',
+          customerFirstName: '',
+          customerLastName: '',
+          shippingAddress: {},
+        },
       });
       expect(mockPrisma.orderItem.updateMany).toHaveBeenCalledWith({
         where: { orderId: { in: [1, 2] }, flockingText: { not: null } },

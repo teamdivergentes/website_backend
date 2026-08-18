@@ -67,3 +67,6 @@ reports/
 
 # ESLint cache
 .eslintcache
+
+# Playwright / rapports de tests locaux
+test-results/

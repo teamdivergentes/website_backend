@@ -1,6 +1,14 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { OrderStatus } from '../../generated/prisma';
+import Stripe from 'stripe';
+import { OrderStatus, Prisma } from '../../generated/prisma';
 import { PrismaService } from '../prisma.service';
 import { isPrismaNotFoundError } from '../common/utils/prisma-errors';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -11,6 +19,31 @@ import {
   ShopNotifierService,
 } from './shop-notifier.service';
 import { OrderMargin, orderMargin } from './shop-costs';
+import { StripeService } from './stripe.service';
+
+/**
+ * Statuts depuis lesquels un remboursement intégral est refusé.
+ *
+ *   REFUNDED  — déjà remboursée, un second remboursement Stripe échouerait de
+ *               toute façon, autant le dire en français plutôt que de
+ *               répercuter l'erreur brute de l'API.
+ *   CANCELLED — l'annulation porte déjà sa propre communication de
+ *               remboursement (cf. ShopNotifierService) ; cette route ne
+ *               double pas ce chemin.
+ *   PENDING   — session de paiement jamais aboutie : rien n'a été encaissé,
+ *               il n'y a rien à rembourser.
+ */
+const NON_REFUNDABLE_STATUSES: readonly OrderStatus[] = ['REFUNDED', 'CANCELLED', 'PENDING'];
+
+function nonRefundableReason(status: OrderStatus): string {
+  if (status === 'REFUNDED') {
+    return 'Cette commande a déjà été remboursée';
+  }
+  if (status === 'CANCELLED') {
+    return 'Cette commande est annulée, elle ne peut pas être remboursée depuis cet écran';
+  }
+  return "Cette commande n'a jamais été payée, elle ne peut pas être remboursée";
+}
 
 /** Une commande, augmentee de sa marge. Ne quitte jamais l'administration. */
 export interface OrderWithMargin extends OrderWithItems {
@@ -57,6 +90,7 @@ export class OrdersAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifier: ShopNotifierService,
+    private readonly stripe: StripeService,
   ) {}
 
   /**
@@ -204,6 +238,132 @@ export class OrdersAdminService {
     }
 
     return order;
+  }
+
+  /**
+   * Remboursement intégral d'une commande, déclenché depuis l'admin.
+   *
+   * L'appel à Stripe précède toute écriture : un échec Stripe ne modifie rien
+   * en base, l'erreur remonte telle quelle. Une fois le remboursement
+   * confirmé, la mise à jour de la commande, le recrédit du stock des tailles
+   * gérées et la pose de `stripeRefundId` / `refundedAt` se font dans la MÊME
+   * transaction — soit tout est à jour, soit rien ne bouge en base.
+   *
+   * **Idempotence sur `charge_already_refunded`.** Si Stripe rembourse avec
+   * succès mais que l'écriture en base échoue juste après (crash, coupure
+   * réseau), la commande reste PAID alors que l'argent est déjà parti : sans
+   * rattrapage, toute relance échouerait indéfiniment avec cette même erreur
+   * Stripe, la base restant fausse pour toujours. Ce code précis n'est donc
+   * pas traité comme un échec : le remboursement déjà existant est retrouvé
+   * via `stripe.refunds.list` et l'écriture en base reprend comme si
+   * `refundPayment` avait réussi. Ça rend aussi inoffensif un double-clic
+   * admin concurrent, qui produirait la même erreur Stripe sur le second
+   * appel.
+   *
+   * Le mail client (EPIC-47) part APRES l'écriture, par le même chemin que
+   * tout changement de statut : `notifyStatusChange` sait déjà construire le
+   * message REFUNDED. Son échec est journalisé et n'annule jamais un
+   * remboursement déjà acté.
+   */
+  async refund(id: number): Promise<OrderWithItems> {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    if (!order) {
+      throw new NotFoundException(`Commande ${id} introuvable`);
+    }
+
+    if (NON_REFUNDABLE_STATUSES.includes(order.status)) {
+      throw new ConflictException(nonRefundableReason(order.status));
+    }
+
+    if (!order.stripePaymentIntentId) {
+      throw new BadRequestException(
+        `Commande ${order.reference} : aucun paiement Stripe associé, remboursement impossible`,
+      );
+    }
+
+    let refund: { id: string };
+    try {
+      refund = await this.stripe.refundPayment(order.stripePaymentIntentId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue';
+      this.logger.error(
+        `Remboursement Stripe échoué pour la commande ${order.reference}: ${message}`,
+      );
+
+      if (error instanceof Stripe.errors.StripeError && error.code === 'charge_already_refunded') {
+        const existing = await this.stripe.findLatestRefund(order.stripePaymentIntentId);
+        if (!existing) {
+          throw new BadGatewayException(
+            'Stripe indique un remboursement déjà effectué, mais aucun remboursement associé n’a été retrouvé',
+          );
+        }
+        this.logger.warn(
+          `Commande ${order.reference} : remboursement Stripe déjà effectué (${existing.id}), reprise de la mise à jour en base`,
+        );
+        refund = existing;
+      } else if (error instanceof Stripe.errors.StripeError) {
+        // Une erreur Stripe typée (identifiant inconnu, etat de paiement
+        // incompatible...) est une reponse claire de l'API sur l'etat du
+        // paiement : elle merite un 400, pas un 502 qui laisserait croire a
+        // une panne reseau. Toute autre erreur (compte injoignable, timeout)
+        // reste un 502.
+        throw new BadRequestException(`Remboursement refusé par Stripe : ${message}`);
+      } else {
+        throw new BadGatewayException('Erreur de communication avec Stripe lors du remboursement');
+      }
+    }
+
+    const refundedAt = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.recreditStock(tx, order);
+      return tx.order.update({
+        where: { id },
+        include: { items: true },
+        data: { status: 'REFUNDED', stripeRefundId: refund.id, refundedAt },
+      });
+    });
+
+    try {
+      const sent = await this.notifier.notifyStatusChange(updated, order.status);
+      if (sent) {
+        this.logger.log(`Commande ${updated.reference} : client prévenu du remboursement`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Commande ${updated.reference} remboursée mais le mail au client a échoué: ${message}`,
+      );
+    }
+
+    return updated;
+  }
+
+  /**
+   * Re-crédite le stock des tailles gérées d'une commande remboursée.
+   *
+   * Symétrique du décompte fait au webhook (`ShopWebhookService`) : ne touche
+   * qu'aux tailles à stock géré (`stock: { not: null }`), et ignore les
+   * lignes dont le produit a disparu depuis. Écriture ATOMIQUE
+   * (`increment`), pas un lecture-puis-écriture : un incrément est
+   * intrinsèquement sûr sous les accès concurrents, il n'a pas besoin de
+   * condition — à la différence du décompte, qui doit vérifier un plancher.
+   * Aucun plafond haut n'est nécessaire non plus : la quantité rendue est
+   * exactement celle qui avait été décomptée à l'achat, jamais plus.
+   */
+  private async recreditStock(tx: Prisma.TransactionClient, order: OrderWithItems): Promise<void> {
+    for (const item of order.items) {
+      if (item.productId === null) {
+        continue;
+      }
+
+      await tx.shopProductSize.updateMany({
+        where: { productId: item.productId, label: item.size, stock: { not: null } },
+        data: { stock: { increment: item.quantity } },
+      });
+    }
   }
 }
 

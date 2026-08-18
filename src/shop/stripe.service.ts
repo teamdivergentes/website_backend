@@ -2,6 +2,68 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import Stripe from 'stripe';
 import { SHIPPING_COUNTRIES, SHIPPING_DISPLAY_NAME } from './shop-shipping-zone';
 
+/**
+ * Moyens de paiement proposes au client, arretes ici plutot que laisses a la
+ * configuration dynamique du tableau de bord Stripe.
+ *
+ * Sans cette liste, Stripe applique les « methodes de paiement automatiques »
+ * : la page de paiement propose alors tout ce qui est actif sur le compte, et
+ * une case cochee par erreur dans le tableau de bord change le tunnel de vente
+ * sans qu'aucune ligne de code ne bouge. La liste explicite fait de ce choix
+ * une decision versionnee.
+ *
+ * **Apple Pay et Google Pay ne sont pas des entrees de cette liste.** Ce sont
+ * des portefeuilles adosses a `card` : Stripe les affiche de lui-meme quand
+ * l'appareil et le navigateur du client les supportent. Les demander
+ * separement est impossible, et les retirer l'est tout autant — accepter la
+ * carte, c'est accepter ses portefeuilles.
+ *
+ * Meme remarque pour Link, le portefeuille de Stripe : il se desactive
+ * uniquement depuis le tableau de bord, pas depuis cet appel.
+ *
+ * Klarna suppose que la methode soit activee sur le compte et que la devise
+ * et le pays de facturation la supportent ; a defaut, Stripe la masque
+ * silencieusement plutot que d'echouer.
+ */
+const PAYMENT_METHOD_TYPES: Stripe.Checkout.SessionCreateParams.PaymentMethodType[] = [
+  'card',
+  'paypal',
+  'klarna',
+];
+
+/**
+ * Prenom et nom demandes separement sur la page de paiement.
+ *
+ * Stripe ne collecte qu'un seul champ « nom complet », dans le bloc d'adresse.
+ * Nous en tirions le prenom en prenant le premier mot, ce qui se trompe des
+ * que le client saisit « Dupont Jean », un pseudo, ou un prenom compose : le
+ * courriel de confirmation s'ouvrait alors sur un « Bonjour Dupont ». Deux
+ * champs distincts suppriment la devinette.
+ *
+ * Ils s'ajoutent au champ nom de l'adresse de livraison, qu'ils ne remplacent
+ * pas : Stripe ne permet pas de scinder celui-ci. Le client saisit donc son
+ * identite deux fois, ce qui est le prix de l'exactitude sur l'etiquette
+ * d'expedition comme dans nos courriels.
+ */
+const IDENTITY_FIELD_MAX_LENGTH = 60;
+
+const IDENTITY_CUSTOM_FIELDS: Stripe.Checkout.SessionCreateParams.CustomField[] = [
+  {
+    key: 'prenom',
+    label: { type: 'custom', custom: 'Prénom' },
+    type: 'text',
+    optional: false,
+    text: { maximum_length: IDENTITY_FIELD_MAX_LENGTH },
+  },
+  {
+    key: 'nom',
+    label: { type: 'custom', custom: 'Nom' },
+    type: 'text',
+    optional: false,
+    text: { maximum_length: IDENTITY_FIELD_MAX_LENGTH },
+  },
+];
+
 export interface CheckoutLine {
   /** Libelle affiche sur la page Stripe et sur le recu client. */
   label: string;
@@ -104,6 +166,8 @@ export class StripeService {
       expires_at: Math.floor(params.expiresAt.getTime() / 1000),
       discounts,
       mode: 'payment',
+      payment_method_types: PAYMENT_METHOD_TYPES,
+      custom_fields: IDENTITY_CUSTOM_FIELDS,
       line_items: params.lines.map((line) => ({
         quantity: line.quantity,
         price_data: {
@@ -245,6 +309,47 @@ export class StripeService {
       this.logger.warn(`Commission Stripe de la session ${sessionId} indisponible: ${message}`);
       return null;
     }
+  }
+
+  /**
+   * Rembourse intégralement un paiement, identifié par son payment intent.
+   *
+   * Toujours l'intégralité : aucun montant n'est transmis à Stripe, qui
+   * rembourse alors la totalité du paiement encaissé. Cohérent avec
+   * l'invariant du reste du module boutique — aucun montant ne vient jamais
+   * d'ailleurs que de ce qui a été réellement encaissé.
+   *
+   * Ne capture aucune erreur : une erreur Stripe (paiement déjà remboursé,
+   * identifiant inconnu, compte injoignable) doit remonter telle quelle à
+   * l'appelant, qui décide de la traduire en réponse HTTP — rien ici ne doit
+   * être écrit en base tant que Stripe n'a pas confirmé.
+   */
+  async refundPayment(paymentIntentId: string): Promise<{ id: string }> {
+    const refund = await this.getClient().refunds.create({ payment_intent: paymentIntentId });
+    return { id: refund.id };
+  }
+
+  /**
+   * Retrouve le remboursement le plus récent d'un paiement.
+   *
+   * Sert de rattrapage quand `refundPayment` échoue avec le code Stripe
+   * `charge_already_refunded` : le paiement a bien été remboursé (par cet
+   * appel-ci ou par un précédent dont l'écriture en base a échoué juste
+   * après), et c'est ce remboursement existant qu'il faut relier à la
+   * commande plutôt que d'en tenter un second. `null` quand Stripe ne
+   * connaît aucun remboursement sur ce paiement, cas qui ne devrait pas se
+   * produire si `charge_already_refunded` a été renvoyé mais que l'appelant
+   * doit pouvoir distinguer d'une trouvaille.
+   */
+  async findLatestRefund(paymentIntentId: string): Promise<{ id: string } | null> {
+    // Stripe liste du plus recent au plus ancien : `limit: 1` donne
+    // directement le dernier remboursement, sans tri cote application.
+    const refunds = await this.getClient().refunds.list({
+      payment_intent: paymentIntentId,
+      limit: 1,
+    });
+    const [latest] = refunds.data;
+    return latest ? { id: latest.id } : null;
   }
 
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {

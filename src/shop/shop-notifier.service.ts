@@ -7,6 +7,21 @@ import { ShopSettingsService } from './shop-settings.service';
 export type OrderWithItems = Order & { items: OrderItem[] };
 
 /**
+ * Une ligne de commande dont le decompte au webhook a fait passer le stock
+ * d'une taille geree sous zero : deux paiements confirmes concurrents ont
+ * franchi ensemble la verification faite au devis, qui ne reserve rien.
+ * `available` est le stock qu'il restait juste avant ce decompte.
+ */
+export interface StockShortfallLine {
+  productId: number;
+  productName: string;
+  size: string;
+  sizeId: number;
+  requested: number;
+  available: number;
+}
+
+/**
  * Statuts dont l'atteinte previent le client par mail.
  *
  * Arbitrage PO du 2026-08-07. Sont volontairement absents :
@@ -146,6 +161,52 @@ export class ShopNotifierService {
   }
 
   /**
+   * Alerte l'equipe d'une survente residuelle : le decompte au webhook a fait
+   * passer le stock d'au moins une taille geree sous zero. La commande reste
+   * due — le client a paye — mais l'equipe doit savoir qu'elle devra gerer un
+   * manque a la production.
+   *
+   * Mêmes deux canaux internes que `notifyNewOrder` (mail equipe, Discord),
+   * pas de mail client : ce n'est pas son information, sa commande n'est pas
+   * remise en cause. Semantique du throw identique à `notifyNewOrder` : le
+   * stock est deja decompte avant l'appel, l'appelant capture systematiquement
+   * l'exception pour ne jamais faire echouer le webhook Stripe ; elle ne sert
+   * qu'a signaler que les deux canaux sont tombes ensemble.
+   */
+  async notifyStockShortfall(
+    order: OrderWithItems,
+    shortfalls: StockShortfallLine[],
+  ): Promise<void> {
+    const results = { teamEmail: false, discord: false };
+
+    try {
+      await this.sendStockShortfallTeamEmail(order, shortfalls);
+      results.teamEmail = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Mail équipe de rupture de stock pour la commande ${order.reference} en échec: ${message}`,
+      );
+    }
+
+    try {
+      await this.postToDiscordWebhook(buildStockShortfallDiscordEmbed(order, shortfalls));
+      results.discord = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Webhook Discord de rupture de stock pour la commande ${order.reference} en échec: ${message}`,
+      );
+    }
+
+    if (!results.teamEmail && !results.discord) {
+      throw new Error(
+        `Aucune alerte de rupture de stock envoyée pour la commande ${order.reference}`,
+      );
+    }
+  }
+
+  /**
    * Cree un transporteur SMTP a partir de la config stockee en base.
    * Partage entre le mail equipe et le mail client : les deux canaux mail
    * echouent ensemble si le SMTP est mal configure, ce qui est le
@@ -210,6 +271,31 @@ export class ShopNotifierService {
   }
 
   private async sendDiscord(order: OrderWithItems): Promise<void> {
+    await this.postToDiscordWebhook(buildOrderDiscordEmbed(order));
+  }
+
+  private async sendStockShortfallTeamEmail(
+    order: OrderWithItems,
+    shortfalls: StockShortfallLine[],
+  ): Promise<void> {
+    const [{ transporter, user }, legacyRecipient, settings] = await Promise.all([
+      this.createTransporter(),
+      this.config.getValue('shop_team_email'),
+      this.settings.get(),
+    ]);
+    const to = settings.ordersNotifyEmail || legacyRecipient || user;
+
+    await transporter.sendMail({
+      from: user,
+      to,
+      subject: `Survente détectée — commande ${order.reference}`,
+      text: buildStockShortfallEmailText(order, shortfalls),
+      html: buildStockShortfallEmailHtml(order, shortfalls),
+    });
+  }
+
+  /** Poste un embed sur le webhook Discord de la boutique. Partagé entre la notification de commande et l'alerte de rupture de stock. */
+  private async postToDiscordWebhook(embed: DiscordEmbed): Promise<void> {
     const webhookUrl = await this.config.getValue('shop_discord_webhook');
     if (!webhookUrl) {
       throw new Error('Discord webhook not configured');
@@ -221,7 +307,7 @@ export class ShopNotifierService {
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ embeds: [buildOrderDiscordEmbed(order)] }),
+        body: JSON.stringify({ embeds: [embed] }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -679,6 +765,61 @@ export function buildOrderDiscordEmbed(order: OrderWithItems): DiscordEmbed {
       {
         name: 'Coordonnées client',
         value: 'Voir le back-office boutique pour le nom, l’e-mail et l’adresse de livraison.',
+      },
+    ],
+  };
+}
+
+/**
+ * Decrit une ligne en survente : ce que l'equipe doit recouper avec le
+ * fournisseur pour savoir combien de pieces manquent reellement.
+ */
+function describeStockShortfall(line: StockShortfallLine): string {
+  return `${line.productName} — taille ${line.size} : ${line.requested} demandé(s), ${line.available} disponible(s)`;
+}
+
+export function buildStockShortfallEmailText(
+  order: OrderWithItems,
+  shortfalls: StockShortfallLine[],
+): string {
+  return [
+    `Survente détectée sur la commande ${order.reference}`,
+    '',
+    "La commande reste valide (le client a payé), mais le stock d'au moins une taille est tombé à zéro :",
+    ...shortfalls.map((line) => `  - ${describeStockShortfall(line)}`),
+  ].join('\n');
+}
+
+export function buildStockShortfallEmailHtml(
+  order: OrderWithItems,
+  shortfalls: StockShortfallLine[],
+): string {
+  const items = shortfalls
+    .map((line) => `<li>${escapeHtml(describeStockShortfall(line))}</li>`)
+    .join('\n');
+
+  return `<h2>Survente détectée sur la commande ${escapeHtml(order.reference)}</h2>
+<p>La commande reste valide (le client a payé), mais le stock d'au moins une taille est tombé à zéro :</p>
+<ul>
+${items}
+</ul>`;
+}
+
+/**
+ * Meme regle RGPD que `buildOrderDiscordEmbed` : aucune donnee personnelle du
+ * client dans cet embed.
+ */
+export function buildStockShortfallDiscordEmbed(
+  order: OrderWithItems,
+  shortfalls: StockShortfallLine[],
+): DiscordEmbed {
+  return {
+    title: `⚠️ Survente détectée — commande ${order.reference}`,
+    color: 0xe74c3c,
+    fields: [
+      {
+        name: 'Lignes en dépassement',
+        value: shortfalls.map((line) => `• ${describeStockShortfall(line)}`).join('\n'),
       },
     ],
   };

@@ -572,4 +572,69 @@ describe('ShopNotifierService.notifyNewOrder', () => {
       expect(mail.text).toMatch(/115\.70 €/);
     });
   });
+
+  describe('notifyStockShortfall', () => {
+    const shortfalls = [
+      { productId: 1, productName: 'Maillot', size: 'M', sizeId: 10, requested: 3, available: 1 },
+    ];
+
+    beforeEach(() => {
+      mockConfigService.getValue.mockImplementation((key: string) =>
+        Promise.resolve(smtpConfig[key] ?? null),
+      );
+    });
+
+    it('envoie une alerte équipe par mail et Discord', async () => {
+      mockSendMail.mockResolvedValue({ messageId: 'ok' });
+      global.fetch = jest.fn().mockResolvedValue({ ok: true });
+
+      await service.notifyStockShortfall(order, shortfalls);
+
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      const calls = mockSendMail.mock.calls as unknown as { to: string; subject: string }[][];
+      expect(calls[0][0].to).toBe('boutique@example.com');
+      expect(calls[0][0].subject).toContain('Survente');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('ne prévient jamais le client : aucun mail hors des deux canaux internes', async () => {
+      mockSendMail.mockResolvedValue({ messageId: 'ok' });
+      global.fetch = jest.fn().mockResolvedValue({ ok: true });
+
+      await service.notifyStockShortfall(order, shortfalls);
+
+      const calls = mockSendMail.mock.calls as unknown as { to: string }[][];
+      const recipients = calls.map((call) => call[0].to);
+      expect(recipients).not.toContain(order.customerEmail);
+    });
+
+    it('ne rejette pas si un seul canal réussit', async () => {
+      mockSendMail.mockResolvedValue({ messageId: 'ok' });
+      global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+
+      await expect(service.notifyStockShortfall(order, shortfalls)).resolves.toBeUndefined();
+    });
+
+    it('rejette si les deux canaux échouent', async () => {
+      mockSendMail.mockRejectedValue(new Error('SMTP down'));
+      global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+
+      await expect(service.notifyStockShortfall(order, shortfalls)).rejects.toThrow(
+        `Aucune alerte de rupture de stock envoyée pour la commande ${order.reference}`,
+      );
+    });
+
+    it('détaille les lignes en dépassement dans le mail équipe', async () => {
+      mockSendMail.mockResolvedValue({ messageId: 'ok' });
+      global.fetch = jest.fn().mockResolvedValue({ ok: true });
+
+      await service.notifyStockShortfall(order, shortfalls);
+
+      const calls = mockSendMail.mock.calls as unknown as { text: string }[][];
+      expect(calls[0][0].text).toContain('Maillot');
+      expect(calls[0][0].text).toContain('taille M');
+      expect(calls[0][0].text).toContain('3');
+      expect(calls[0][0].text).toContain('1');
+    });
+  });
 });
