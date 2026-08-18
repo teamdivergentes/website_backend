@@ -33,7 +33,11 @@ import { StripeService } from './stripe.service';
  *   PENDING   — session de paiement jamais aboutie : rien n'a été encaissé,
  *               il n'y a rien à rembourser.
  */
-const NON_REFUNDABLE_STATUSES: readonly OrderStatus[] = ['REFUNDED', 'CANCELLED', 'PENDING'];
+const NON_REFUNDABLE_STATUSES: ReadonlySet<OrderStatus> = new Set([
+  'REFUNDED',
+  'CANCELLED',
+  'PENDING',
+]);
 
 function nonRefundableReason(status: OrderStatus): string {
   if (status === 'REFUNDED') {
@@ -274,7 +278,7 @@ export class OrdersAdminService {
       throw new NotFoundException(`Commande ${id} introuvable`);
     }
 
-    if (NON_REFUNDABLE_STATUSES.includes(order.status)) {
+    if (NON_REFUNDABLE_STATUSES.has(order.status)) {
       throw new ConflictException(nonRefundableReason(order.status));
     }
 
@@ -284,37 +288,7 @@ export class OrdersAdminService {
       );
     }
 
-    let refund: { id: string };
-    try {
-      refund = await this.stripe.refundPayment(order.stripePaymentIntentId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erreur inconnue';
-      this.logger.error(
-        `Remboursement Stripe échoué pour la commande ${order.reference}: ${message}`,
-      );
-
-      if (error instanceof Stripe.errors.StripeError && error.code === 'charge_already_refunded') {
-        const existing = await this.stripe.findLatestRefund(order.stripePaymentIntentId);
-        if (!existing) {
-          throw new BadGatewayException(
-            'Stripe indique un remboursement déjà effectué, mais aucun remboursement associé n’a été retrouvé',
-          );
-        }
-        this.logger.warn(
-          `Commande ${order.reference} : remboursement Stripe déjà effectué (${existing.id}), reprise de la mise à jour en base`,
-        );
-        refund = existing;
-      } else if (error instanceof Stripe.errors.StripeError) {
-        // Une erreur Stripe typée (identifiant inconnu, etat de paiement
-        // incompatible...) est une reponse claire de l'API sur l'etat du
-        // paiement : elle merite un 400, pas un 502 qui laisserait croire a
-        // une panne reseau. Toute autre erreur (compte injoignable, timeout)
-        // reste un 502.
-        throw new BadRequestException(`Remboursement refusé par Stripe : ${message}`);
-      } else {
-        throw new BadGatewayException('Erreur de communication avec Stripe lors du remboursement');
-      }
-    }
+    const refund = await this.refundViaStripe(order, order.stripePaymentIntentId);
 
     const refundedAt = new Date();
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -339,6 +313,58 @@ export class OrdersAdminService {
     }
 
     return updated;
+  }
+
+  /**
+   * Appelle Stripe et rend le remboursement, en rattrapant le seul cas d'échec
+   * qui n'en est pas un.
+   *
+   * `charge_already_refunded` signifie que le remboursement a bien eu lieu chez
+   * Stripe et que c'est notre base qui est en retard — typiquement un premier
+   * appel dont la réponse s'est perdue, ou deux admins simultanés. Le reprendre
+   * plutôt que de le rejeter évite une commande encaissée, remboursée chez
+   * Stripe, et affichée comme non remboursée chez nous.
+   *
+   * Extrait de `refund` pour la lisibilité : la méthode appelante enchaînait
+   * les gardes d'entrée, ce rattrapage et l'écriture transactionnelle, ce qui
+   * la rendait difficile à suivre d'un bout à l'autre.
+   */
+  private async refundViaStripe(
+    order: OrderWithItems,
+    paymentIntentId: string,
+  ): Promise<{ id: string }> {
+    try {
+      return await this.stripe.refundPayment(paymentIntentId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue';
+      this.logger.error(
+        `Remboursement Stripe échoué pour la commande ${order.reference}: ${message}`,
+      );
+
+      if (!(error instanceof Stripe.errors.StripeError)) {
+        throw new BadGatewayException('Erreur de communication avec Stripe lors du remboursement');
+      }
+
+      if (error.code !== 'charge_already_refunded') {
+        // Une erreur Stripe typée (identifiant inconnu, etat de paiement
+        // incompatible...) est une reponse claire de l'API sur l'etat du
+        // paiement : elle merite un 400, pas un 502 qui laisserait croire a
+        // une panne reseau.
+        throw new BadRequestException(`Remboursement refusé par Stripe : ${message}`);
+      }
+
+      const existing = await this.stripe.findLatestRefund(paymentIntentId);
+      if (!existing) {
+        throw new BadGatewayException(
+          'Stripe indique un remboursement déjà effectué, mais aucun remboursement associé n’a été retrouvé',
+        );
+      }
+
+      this.logger.warn(
+        `Commande ${order.reference} : remboursement Stripe déjà effectué (${existing.id}), reprise de la mise à jour en base`,
+      );
+      return existing;
+    }
   }
 
   /**
