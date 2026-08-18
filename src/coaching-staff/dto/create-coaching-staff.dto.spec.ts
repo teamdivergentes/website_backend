@@ -65,23 +65,13 @@ describe('CreateCoachingStaffDto — validation', () => {
 
   // ─── Slug pattern ────────────────────────────────────────────────────────────
 
-  it('rejette slug avec majuscules (SEC-002)', async () => {
-    const errors = await validateDto({ ...validPayload, slug: 'Jean-Coach' });
-    expect(errors.some((e) => e.property === 'slug')).toBe(true);
-  });
-
-  it('rejette slug avec underscore (SEC-002)', async () => {
-    const errors = await validateDto({ ...validPayload, slug: 'jean_coach' });
-    expect(errors.some((e) => e.property === 'slug')).toBe(true);
-  });
-
-  it('rejette slug avec tiret en debut (SEC-002)', async () => {
-    const errors = await validateDto({ ...validPayload, slug: '-jean-coach' });
-    expect(errors.some((e) => e.property === 'slug')).toBe(true);
-  });
-
-  it('rejette slug avec tiret en fin (SEC-002)', async () => {
-    const errors = await validateDto({ ...validPayload, slug: 'jean-coach-' });
+  it.each([
+    ['majuscules', 'Jean-Coach'],
+    ['underscore', 'jean_coach'],
+    ['tiret en debut', '-jean-coach'],
+    ['tiret en fin', 'jean-coach-'],
+  ])('rejette slug avec %s (SEC-002)', async (_libelle, slug) => {
+    const errors = await validateDto({ ...validPayload, slug });
     expect(errors.some((e) => e.property === 'slug')).toBe(true);
   });
 

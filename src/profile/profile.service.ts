@@ -10,7 +10,7 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class ProfileService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private excludePassword<T extends { password: string }>(user: T): Omit<T, 'password'> {
     const { password: _password, ...result } = user;

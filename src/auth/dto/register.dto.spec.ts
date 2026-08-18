@@ -32,28 +32,18 @@ describe('RegisterDto — validation (SEC-014)', () => {
 
   // ─── SEC-014 : complexité minimale ───────────────────────────────────────────
 
-  it('rejette un password sans majuscule (motdepasse1)', async () => {
-    const errors = await validateDto({ ...validPayload, password: 'motdepasse1' });
+  // Trois classes de caracteres, trois messages distincts : le tableau porte
+  // le mot attendu dans le message, qui est ce que le test verifie vraiment.
+  it.each([
+    ['sans majuscule', 'motdepasse1', 'majuscule'],
+    ['sans minuscule', 'MOTDEPASSE1', 'minuscule'],
+    ['sans chiffre', 'MotDePasse', 'chiffre'],
+  ])('rejette un password %s (%s)', async (_libelle, password, attendu) => {
+    const errors = await validateDto({ ...validPayload, password });
     const passwordErrors = errors.filter((e) => e.property === 'password');
     expect(passwordErrors.length).toBeGreaterThan(0);
     const constraints = passwordErrors.flatMap((e) => Object.values(e.constraints ?? {}));
-    expect(constraints.some((msg) => msg.includes('majuscule'))).toBe(true);
-  });
-
-  it('rejette un password sans minuscule (MOTDEPASSE1)', async () => {
-    const errors = await validateDto({ ...validPayload, password: 'MOTDEPASSE1' });
-    const passwordErrors = errors.filter((e) => e.property === 'password');
-    expect(passwordErrors.length).toBeGreaterThan(0);
-    const constraints = passwordErrors.flatMap((e) => Object.values(e.constraints ?? {}));
-    expect(constraints.some((msg) => msg.includes('minuscule'))).toBe(true);
-  });
-
-  it('rejette un password sans chiffre (MotDePasse)', async () => {
-    const errors = await validateDto({ ...validPayload, password: 'MotDePasse' });
-    const passwordErrors = errors.filter((e) => e.property === 'password');
-    expect(passwordErrors.length).toBeGreaterThan(0);
-    const constraints = passwordErrors.flatMap((e) => Object.values(e.constraints ?? {}));
-    expect(constraints.some((msg) => msg.includes('chiffre'))).toBe(true);
+    expect(constraints.some((msg) => msg.includes(attendu))).toBe(true);
   });
 
   it('rejette un password avec seulement des chiffres (12345678)', async () => {

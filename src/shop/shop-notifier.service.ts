@@ -5,6 +5,7 @@ import * as nodemailer from 'nodemailer';
 import { Order, OrderItem, OrderStatus } from '../../generated/prisma';
 import { ConfigService } from '../config/config.service';
 import { ShopSettingsService } from './shop-settings.service';
+import { trimChar } from '../common/utils/trim-char.util';
 
 export type OrderWithItems = Order & { items: OrderItem[] };
 
@@ -384,7 +385,7 @@ export function describeCustomerItem(item: OrderItem): string {
 export function getShopPublicOrigin(): string {
   const explicit = process.env.SHOP_PUBLIC_URL?.trim();
   if (explicit) {
-    return explicit.replace(/\/+$/, '');
+    return trimChar(explicit, '/');
   }
   const successUrl = process.env.SHOP_SUCCESS_URL ?? 'http://localhost:4200/boutique/merci';
   try {

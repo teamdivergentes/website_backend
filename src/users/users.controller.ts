@@ -34,7 +34,7 @@ interface RequestWithUser extends Request {
 @Controller('api/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
-  constructor(private usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) {}
 
   @Get()
   @Roles('admin')

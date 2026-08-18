@@ -17,10 +17,10 @@ import { AnalyticsRealtimeService } from './analytics-realtime.service';
 
 @Injectable()
 export class AnalyticsService {
-  private analyticsClient!: BetaAnalyticsDataClient;
-  private propertyId!: string;
-  private streamId: string | null = null;
-  private isConfigured: boolean = false;
+  private readonly analyticsClient!: BetaAnalyticsDataClient;
+  private readonly propertyId!: string;
+  private readonly streamId: string | null = null;
+  private readonly isConfigured: boolean = false;
   private readonly logger = new Logger(AnalyticsService.name);
 
   constructor(
@@ -32,7 +32,7 @@ export class AnalyticsService {
     const propertyId = process.env.GA_PROPERTY_ID;
     const streamId = process.env.GA_STREAM_ID;
     const clientEmail = process.env.GA_CLIENT_EMAIL;
-    const privateKey = process.env.GA_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    const privateKey = process.env.GA_PRIVATE_KEY?.replaceAll('\\n', '\n');
 
     if (propertyId && clientEmail && privateKey) {
       if (!/^\d+$/.test(propertyId)) {
@@ -56,9 +56,10 @@ export class AnalyticsService {
         });
         this.propertyId = propertyId;
         this.isConfigured = true;
-        this.logger.log(
-          `Google Analytics client configuré${this.streamId ? ` (stream: ${this.streamId})` : ' (pas de filtre stream)'}`,
-        );
+        const streamSuffix = this.streamId
+          ? ` (stream: ${this.streamId})`
+          : ' (pas de filtre stream)';
+        this.logger.log(`Google Analytics client configuré${streamSuffix}`);
       } catch {
         this.logger.error(
           "Erreur lors de l'initialisation du client Google Analytics. Vérifiez GA_PROPERTY_ID, GA_CLIENT_EMAIL et GA_PRIVATE_KEY.",

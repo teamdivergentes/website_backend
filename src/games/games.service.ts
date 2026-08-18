@@ -8,8 +8,8 @@ import { ReorderGamesDto } from './dto/reorder-games.dto';
 @Injectable()
 export class GamesService {
   constructor(
-    private prisma: PrismaService,
-    private uploadService: UploadService,
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
   ) {}
 
   /**
@@ -18,7 +18,7 @@ export class GamesService {
   private extractFilename(url: string | null): string | null {
     if (!url) return null;
     const parts = url.split('/');
-    return parts[parts.length - 1];
+    return parts.at(-1) ?? null;
   }
 
   /**

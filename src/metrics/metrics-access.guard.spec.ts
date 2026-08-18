@@ -30,27 +30,16 @@ describe('MetricsAccessGuard', () => {
   // IP loopback autorisées par défaut
   // -------------------------------------------------------------------------
   describe('loopback autorisé par défaut (sans METRICS_ALLOWED_IPS)', () => {
-    it('autorise 127.0.0.1', () => {
+    // Le libelle est porte par le tableau : il documente POURQUOI chaque
+    // adresse est acceptee, ce qu'une simple liste d'IP ne dirait pas.
+    it.each([
+      ['loopback IPv4', '127.0.0.1'],
+      ['loopback IPv6', '::1'],
+      ['loopback IPv4 mappe en IPv6', '::ffff:127.0.0.1'],
+      ['plage Docker 172.x.x.x', '172.20.0.5'],
+    ])('autorise %s', (_libelle, ip) => {
       const guard = new MetricsAccessGuard();
-      const ctx = makeContext('127.0.0.1');
-      expect(guard.canActivate(ctx)).toBe(true);
-    });
-
-    it('autorise ::1', () => {
-      const guard = new MetricsAccessGuard();
-      const ctx = makeContext('::1');
-      expect(guard.canActivate(ctx)).toBe(true);
-    });
-
-    it('autorise le loopback IPv4-mapped IPv6', () => {
-      const guard = new MetricsAccessGuard();
-      const ctx = makeContext('::ffff:127.0.0.1');
-      expect(guard.canActivate(ctx)).toBe(true);
-    });
-
-    it('autorise la plage Docker 172.x.x.x', () => {
-      const guard = new MetricsAccessGuard();
-      const ctx = makeContext('172.20.0.5');
+      const ctx = makeContext(ip);
       expect(guard.canActivate(ctx)).toBe(true);
     });
   });
@@ -59,15 +48,12 @@ describe('MetricsAccessGuard', () => {
   // IP externe non listée → 403
   // -------------------------------------------------------------------------
   describe('IP externe non autorisée → 403', () => {
-    it('bloque une IP publique non listée', () => {
+    it.each([
+      ['une IP publique non listée', '8.8.8.8'],
+      ['une IP privée non listée', '192.168.1.100'],
+    ])('bloque %s', (_libelle, ip) => {
       const guard = new MetricsAccessGuard();
-      const ctx = makeContext('8.8.8.8');
-      expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
-    });
-
-    it('bloque 192.168.1.100 si non listée', () => {
-      const guard = new MetricsAccessGuard();
-      const ctx = makeContext('192.168.1.100');
+      const ctx = makeContext(ip);
       expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
     });
   });

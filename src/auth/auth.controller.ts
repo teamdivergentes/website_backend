@@ -47,7 +47,7 @@ const cookieOptions = (
 
 @Controller('api/auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('register')
   @UseGuards(RolesGuard)

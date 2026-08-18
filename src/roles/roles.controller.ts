@@ -19,7 +19,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 @Controller('api/roles')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class RolesController {
-  constructor(private rolesService: RolesService) {}
+  constructor(private readonly rolesService: RolesService) {}
 
   // Accessible à tous les utilisateurs authentifiés (pour les dropdowns)
   @Get()
