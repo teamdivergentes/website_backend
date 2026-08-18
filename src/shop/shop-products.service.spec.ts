@@ -70,7 +70,11 @@ describe('ShopProductsService', () => {
       expect(catalog.shippingStandardCents).toBe(500);
       expect(catalog.freeShippingThresholdCents).toBe(12000);
       expect(catalog.products).toHaveLength(1);
-      expect(catalog.products[0].sizes).toEqual(['M', 'L']);
+      expect(catalog.products[0].sizes).toEqual([
+        { label: 'M', inStock: true },
+        { label: 'L', inStock: true },
+      ]);
+      expect(catalog.products[0].soldOut).toBe(false);
     });
 
     it('ne retourne que les produits actifs', async () => {
@@ -102,6 +106,79 @@ describe('ShopProductsService', () => {
       expect(catalog.products).toEqual([]);
       expect(catalog.shopEnabled).toBe(false);
       expect(mockPrisma.shopProduct.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stock public', () => {
+    it('expose une taille non gérée comme toujours disponible', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        { ...JOKER, sizes: [{ label: 'M', stock: null }] },
+      ]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].sizes).toEqual([{ label: 'M', inStock: true }]);
+    });
+
+    it('expose une taille à stock épuisé comme indisponible', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        {
+          ...JOKER,
+          sizes: [
+            { label: 'M', stock: 0 },
+            { label: 'L', stock: 3 },
+          ],
+        },
+      ]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].sizes).toEqual([
+        { label: 'M', inStock: false },
+        { label: 'L', inStock: true },
+      ]);
+    });
+
+    it('ne révèle jamais de quantité au public', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        { ...JOKER, sizes: [{ label: 'M', stock: 42 }] },
+      ]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(JSON.stringify(catalog.products[0])).not.toContain('42');
+    });
+
+    it('marque le produit épuisé quand toutes ses tailles sont indisponibles', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        {
+          ...JOKER,
+          sizes: [
+            { label: 'M', stock: 0 },
+            { label: 'L', stock: 0 },
+          ],
+        },
+      ]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].soldOut).toBe(true);
+    });
+
+    it('ne marque pas le produit épuisé quand au moins une taille reste disponible', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        {
+          ...JOKER,
+          sizes: [
+            { label: 'M', stock: 0 },
+            { label: 'L', stock: 1 },
+          ],
+        },
+      ]);
+
+      const catalog = await service.findPublicCatalog();
+
+      expect(catalog.products[0].soldOut).toBe(false);
     });
   });
 
@@ -190,16 +267,41 @@ describe('ShopProductsService', () => {
         slug: 'maillot-test',
         name: 'Test',
         priceCents: 4990,
-        sizes: [' m ', 'M', 'l'],
+        sizes: [{ label: ' m ' }, { label: 'M' }, { label: 'l' }],
       });
 
       const calls = mockPrisma.shopProduct.create.mock.calls as unknown as {
-        data: { sizes: { create: { label: string; position: number }[] } };
+        data: {
+          sizes: { create: { label: string; position: number; stock: number | null }[] };
+        };
       }[][];
       const { sizes } = calls[0][0].data;
       expect(sizes.create).toEqual([
-        { label: 'M', position: 0 },
-        { label: 'L', position: 1 },
+        { label: 'M', position: 0, stock: null },
+        { label: 'L', position: 1, stock: null },
+      ]);
+    });
+
+    it('reporte le stock saisi par taille, non géré par défaut', async () => {
+      mockPrisma.shopProduct.create.mockResolvedValue(JOKER);
+
+      await service.create({
+        slug: 'maillot-test',
+        name: 'Test',
+        priceCents: 4990,
+        sizes: [{ label: 'M', stock: 5 }, { label: 'L' }],
+      });
+
+      const calls = mockPrisma.shopProduct.create.mock.calls as unknown as {
+        data: {
+          sizes: { create: { label: string; position: number; stock: number | null }[] };
+        };
+      }[][];
+      const { sizes } = calls[0][0].data;
+      expect(sizes.create).toEqual([
+        { label: 'M', position: 0, stock: 5 },
+        // Absent = non géré, illimité : équivalent à `null`.
+        { label: 'L', position: 1, stock: null },
       ]);
     });
 
@@ -207,13 +309,23 @@ describe('ShopProductsService', () => {
       mockPrisma.shopProduct.create.mockRejectedValue({ code: 'P2002' });
 
       await expect(
-        service.create({ slug: 'existant', name: 'Test', priceCents: 100, sizes: ['M'] }),
+        service.create({
+          slug: 'existant',
+          name: 'Test',
+          priceCents: 100,
+          sizes: [{ label: 'M' }],
+        }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('rejette un produit dont aucune taille n’est exploitable', async () => {
       await expect(
-        service.create({ slug: 'vide', name: 'Test', priceCents: 100, sizes: ['  ', ''] }),
+        service.create({
+          slug: 'vide',
+          name: 'Test',
+          priceCents: 100,
+          sizes: [{ label: '  ' }, { label: '' }],
+        }),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -226,7 +338,7 @@ describe('ShopProductsService', () => {
         slug: 'maillot-test',
         name: 'Test',
         priceCents: 4990,
-        sizes: ['M'],
+        sizes: [{ label: 'M' }],
         images,
       });
 

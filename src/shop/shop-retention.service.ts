@@ -23,10 +23,19 @@ const CUSTOMER_DATA_RETENTION_YEARS = 5;
  */
 const ABANDONED_PENDING_MAX_AGE_DAYS = 7;
 
-/** Valeurs neutres utilisees pour remplacer les coordonnees personnelles. */
+/**
+ * Valeurs neutres utilisees pour remplacer les coordonnees personnelles.
+ *
+ * Toute colonne d'identite ajoutee a `Order` doit etre reportee ici, sans quoi
+ * la purge de retention laisse derriere elle la donnee qu'elle est censee
+ * effacer — et le manque ne se voit nulle part, puisque l'anonymisation
+ * continue de rendre un compte non nul.
+ */
 const ANONYMIZED_ORDER_FIELDS = {
   customerEmail: '',
   customerName: '',
+  customerFirstName: '',
+  customerLastName: '',
   shippingAddress: {},
 };
 
@@ -118,7 +127,14 @@ export class ShopRetentionService {
         where: {
           createdAt: { lt: cutoff },
           status: { not: 'PENDING' },
-          OR: [{ customerEmail: { not: '' } }, { customerName: { not: '' } }],
+          // Une commande ne portant plus que son prenom et son nom separes doit
+          // rester eligible : le filtre sert l'idempotence, pas la selection.
+          OR: [
+            { customerEmail: { not: '' } },
+            { customerName: { not: '' } },
+            { customerFirstName: { not: '' } },
+            { customerLastName: { not: '' } },
+          ],
         },
         select: { id: true },
       });

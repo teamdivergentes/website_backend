@@ -17,6 +17,30 @@ import {
 } from 'class-validator';
 
 /**
+ * Une taille de produit. L'ordre du tableau fait l'ordre d'affichage, comme
+ * pour les visuels : la position n'est pas transmise.
+ */
+export class ShopProductSizeDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Le libellé de la taille est obligatoire' })
+  @MaxLength(10, { message: 'La taille ne peut pas dépasser 10 caractères' })
+  label: string;
+
+  /**
+   * Stock restant pour cette taille. `null` (ou absent) = non géré, illimité :
+   * c'est le comportement d'avant cette colonne. Un entier positif ou nul
+   * active le suivi ; jamais négatif, qui n'aurait aucun sens physique.
+   *
+   * `@IsOptional()` laisse passer `null` autant qu'une absence de champ : les
+   * deux disent la même chose, « je ne gère pas le stock de cette taille ».
+   */
+  @IsOptional()
+  @IsInt({ message: 'Le stock doit être un entier' })
+  @Min(0, { message: 'Le stock ne peut pas être négatif' })
+  stock?: number | null;
+}
+
+/**
  * Un visuel de la galerie. L'ordre du tableau fait l'ordre d'affichage : la
  * position n'est pas transmise, elle serait une seconde source de verite que
  * rien ne garantirait coherente avec l'ordre recu.
@@ -134,9 +158,9 @@ export class CreateShopProductDto {
   @IsArray()
   @ArrayNotEmpty({ message: 'Au moins une taille est obligatoire' })
   @ArrayMaxSize(12)
-  @IsString({ each: true })
-  @MaxLength(10, { each: true })
-  sizes: string[];
+  @ValidateNested({ each: true })
+  @Type(() => ShopProductSizeDto)
+  sizes: ShopProductSizeDto[];
 }
 
 export class UpdateShopProductDto {
@@ -226,7 +250,7 @@ export class UpdateShopProductDto {
   @IsArray()
   @ArrayNotEmpty({ message: 'Au moins une taille est obligatoire' })
   @ArrayMaxSize(12)
-  @IsString({ each: true })
-  @MaxLength(10, { each: true })
-  sizes?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => ShopProductSizeDto)
+  sizes?: ShopProductSizeDto[];
 }

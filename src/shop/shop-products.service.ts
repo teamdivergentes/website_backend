@@ -4,6 +4,7 @@ import { ShopSettingsService } from './shop-settings.service';
 import {
   CreateShopProductDto,
   ShopProductImageDto,
+  ShopProductSizeDto,
   UpdateShopProductDto,
 } from './dto/shop-product.dto';
 import { isPrismaUniqueConstraintError } from '../common/utils/prisma-errors';
@@ -14,6 +15,17 @@ export interface PublicProductImage {
   url: string;
   label: string;
   isBack: boolean;
+}
+
+/**
+ * Une taille telle qu'elle est exposee publiquement.
+ *
+ * `inStock` et jamais une quantite : le public ne doit connaitre qu'un
+ * disponible/indisponible, pas un volume de vente ni un seuil de rupture.
+ */
+export interface PublicProductSize {
+  label: string;
+  inStock: boolean;
 }
 
 /** Vue publique d'un produit : ni cout interne, ni champ d'administration. */
@@ -41,7 +53,9 @@ export interface PublicShopProduct {
   flockingFeeCents: number;
   flockingTopPct: number;
   flockingLeftPct: number;
-  sizes: string[];
+  sizes: PublicProductSize[];
+  /** Vrai quand aucune taille n'est disponible. Le front l'affiche comme épuisé. */
+  soldOut: boolean;
 }
 
 export interface PublicCatalog {
@@ -229,17 +243,20 @@ function assertPromotionConsistent(
   }
 }
 
-function normalizeSizes(sizes: string[]): { label: string; position: number }[] {
+function normalizeSizes(
+  sizes: ShopProductSizeDto[],
+): { label: string; position: number; stock: number | null }[] {
   const seen = new Set<string>();
-  const normalized: { label: string; position: number }[] = [];
+  const normalized: { label: string; position: number; stock: number | null }[] = [];
 
   for (const raw of sizes) {
-    const label = raw.trim().toUpperCase();
+    const label = raw.label.trim().toUpperCase();
     if (label.length === 0 || seen.has(label)) {
       continue;
     }
     seen.add(label);
-    normalized.push({ label, position: normalized.length });
+    // `undefined` et `null` disent la même chose : stock non géré, illimité.
+    normalized.push({ label, position: normalized.length, stock: raw.stock ?? null });
   }
 
   if (normalized.length === 0) {
@@ -312,9 +329,18 @@ type ProductWithSizes = {
   flockingFeeCents: number;
   flockingTopPct: number;
   flockingLeftPct: number;
-  sizes: { label: string }[];
+  sizes: { label: string; stock: number | null }[];
   images: { url: string; label: string; isBack: boolean; isCard: boolean }[];
 };
+
+/**
+ * Une taille non gérée (`stock` nul ou absent) est toujours disponible.
+ * `undefined` est accepté au même titre que `null` : les deux disent « pas de
+ * suivi de stock sur cette taille ».
+ */
+function isSizeInStock(stock: number | null | undefined): boolean {
+  return typeof stock !== 'number' || stock > 0;
+}
 
 function toPublicProduct(product: ProductWithSizes, now: Date = new Date()): PublicShopProduct {
   const images = product.images.map((image) => ({
@@ -332,6 +358,11 @@ function toPublicProduct(product: ProductWithSizes, now: Date = new Date()): Pub
   const payable = applicableUnitPrice(product, now);
   const onPromotion = payable < product.priceCents;
 
+  const sizes = product.sizes.map((size) => ({
+    label: size.label,
+    inStock: isSizeInStock(size.stock),
+  }));
+
   return {
     id: product.id,
     slug: product.slug,
@@ -346,6 +377,10 @@ function toPublicProduct(product: ProductWithSizes, now: Date = new Date()): Pub
     flockingFeeCents: product.flockingFeeCents,
     flockingTopPct: product.flockingTopPct,
     flockingLeftPct: product.flockingLeftPct,
-    sizes: product.sizes.map((size) => size.label),
+    sizes,
+    // Un produit sans aucune taille disponible est épuisé. Les tailles sont
+    // obligatoires à la création (`normalizeSizes`), la liste n'est donc
+    // jamais vide ici.
+    soldOut: sizes.every((size) => !size.inStock),
   };
 }

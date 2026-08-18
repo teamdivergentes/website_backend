@@ -320,6 +320,102 @@ describe('ShopPricingService', () => {
     });
   });
 
+  describe('stock géré', () => {
+    it('accepte une ligne dont la quantité tient dans le stock restant', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        {
+          ...JOKER,
+          sizes: [
+            { id: 1, label: 'M', stock: 3 },
+            { id: 2, label: 'L', stock: 0 },
+          ],
+        },
+      ]);
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 2 }],
+        tier: 'PUBLIC',
+      });
+
+      expect(cart.lines[0].quantity).toBe(2);
+    });
+
+    it('n’applique aucune limite sur une taille non gérée (stock null)', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        { ...JOKER, sizes: [{ id: 1, label: 'M', stock: null }] },
+      ]);
+
+      const cart = await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 10 }],
+        tier: 'PUBLIC',
+      });
+
+      expect(cart.lines[0].quantity).toBe(10);
+    });
+
+    it('refuse une ligne dont la quantité dépasse le stock restant, avec le code OUT_OF_STOCK', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        { ...JOKER, sizes: [{ id: 1, label: 'M', stock: 1 }] },
+      ]);
+
+      await expect(
+        service.priceCart({
+          items: [{ productId: 1, size: 'M', quantity: 2 }],
+          tier: 'PUBLIC',
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: {
+          code: 'OUT_OF_STOCK',
+          items: [{ productId: 1, sizeId: 1, requested: 2, available: 1 }],
+        },
+      });
+    });
+
+    it('rapporte chaque ligne en rupture, pas seulement la première', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        {
+          ...JOKER,
+          sizes: [
+            { id: 1, label: 'M', stock: 0 },
+            { id: 2, label: 'L', stock: 0 },
+          ],
+        },
+      ]);
+
+      await expect(
+        service.priceCart({
+          items: [
+            { productId: 1, size: 'M', quantity: 1 },
+            { productId: 1, size: 'L', quantity: 1 },
+          ],
+          tier: 'PUBLIC',
+        }),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'OUT_OF_STOCK',
+          items: [
+            { productId: 1, sizeId: 1, requested: 1, available: 0 },
+            { productId: 1, sizeId: 2, requested: 1, available: 0 },
+          ],
+        },
+      });
+    });
+
+    it('ne réserve rien : le stock en base n’est jamais modifié par le devis', async () => {
+      mockPrisma.shopProduct.findMany.mockResolvedValue([
+        { ...JOKER, sizes: [{ id: 1, label: 'M', stock: 3 }] },
+      ]);
+
+      await service.priceCart({
+        items: [{ productId: 1, size: 'M', quantity: 1 }],
+        tier: 'PUBLIC',
+      });
+
+      expect(mockPrisma.shopProduct.findMany).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('frais de port', () => {
     it('ne compte les frais de port qu’une fois, quel que soit le nombre d’articles', async () => {
       // Franchise ecartee : ce test porte sur le comptage du colis, pas sur le

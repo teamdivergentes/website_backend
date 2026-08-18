@@ -11,6 +11,8 @@ describe('ShopConfirmationService', () => {
   const paidOrder = {
     reference: 'DVG-2026-0042',
     customerName: 'Maxime Bellet',
+    customerFirstName: 'Maxime',
+    customerLastName: 'Bellet',
     customerEmail: 'maxime.bellet@example.com',
     status: 'PAID',
     totalCents: 8500,
@@ -70,7 +72,11 @@ describe('ShopConfirmationService', () => {
     mockPrisma.order.findUnique.mockResolvedValue({
       ...paidOrder,
       status: 'PENDING',
+      // Une commande PENDING n'est jamais passee par le webhook : aucun champ
+      // d'identite n'est renseigne, pas seulement le nom complet.
       customerName: '',
+      customerFirstName: '',
+      customerLastName: '',
       customerEmail: '',
     });
 
@@ -96,17 +102,38 @@ describe('ShopConfirmationService', () => {
 });
 
 describe('firstNameOf', () => {
-  it('ne garde que le premier mot', () => {
-    expect(firstNameOf('Maxime Bellet')).toBe('Maxime');
-    expect(firstNameOf('  Jean-Pierre  Martin ')).toBe('Jean-Pierre');
+  it('prefere le champ prenom au decoupage du nom complet', () => {
+    expect(firstNameOf('Jean', 'Dupont Jean')).toBe('Jean');
+    expect(firstNameOf('  Marie-Claire  ', 'Durand Marie-Claire')).toBe('Marie-Claire');
+  });
+
+  /**
+   * Le repli est la raison d'etre des deux champs separes : sans eux, une
+   * identite saisie « nom prenom » donnait un « Bonjour Dupont ». Le test fige
+   * ce comportement comme un pis-aller, pas comme une intention.
+   */
+  it('retombe sur le premier mot du nom complet quand le prenom manque', () => {
+    expect(firstNameOf('', 'Maxime Bellet')).toBe('Maxime');
+    expect(firstNameOf('   ', '  Jean-Pierre  Martin ')).toBe('Jean-Pierre');
+    expect(firstNameOf('', 'Dupont Jean')).toBe('Dupont');
+  });
+
+  /**
+   * La page de remerciement s'affiche apres encaissement : une donnee absente
+   * doit y couter le prenom, jamais un ecran d'erreur.
+   */
+  it('tolere une identite absente sans lever', () => {
+    expect(firstNameOf(undefined, undefined)).toBeNull();
+    expect(firstNameOf(null, 'Maxime Bellet')).toBe('Maxime');
   });
 
   it('rend null sur un nom absent ou aberrant', () => {
-    expect(firstNameOf('')).toBeNull();
-    expect(firstNameOf('   ')).toBeNull();
+    expect(firstNameOf('', '')).toBeNull();
+    expect(firstNameOf('   ', '   ')).toBeNull();
     // Champ libre cote Stripe : une chaine de 200 caracteres n'est pas un
     // prenom et n'a rien a faire dans un titre de page.
-    expect(firstNameOf('a'.repeat(60))).toBeNull();
+    expect(firstNameOf('', 'a'.repeat(60))).toBeNull();
+    expect(firstNameOf('a'.repeat(60), 'Maxime Bellet')).toBeNull();
   });
 });
 
