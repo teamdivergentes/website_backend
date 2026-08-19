@@ -109,6 +109,7 @@ jobs:
     # le laisser sur self-hosted revenait a faire dependre 100% de la CI de la
     # sante des 2 runners du VPS — exactement le gel observe le 2026-07-22.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -215,6 +216,7 @@ jobs:
     # pas de service, pas de reseau interne). Bascule sur GitHub-hosted pour
     # liberer les 2 runners self-hosted et rester disponible s'ils tombent.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     # Skip for github_actions bumps (no code changed)
     if: |
@@ -268,6 +270,7 @@ jobs:
     # Le job ne consomme rien produit par `build` sur le runner : il refait son
     # propre checkout + install depuis le cache npm distant.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     if: |
       needs.build.result == 'success' &&
@@ -333,6 +336,7 @@ jobs:
     # service Postgres, cf. step "Resolve postgres host") et sur la puissance
     # CPU/IO du VPS pour la suite supertest complete.
     runs-on: [self-hosted, linux, docker]
+    timeout-minutes: 25
     needs: build
     if: |
       needs.build.outputs.is-dependabot-actions != 'true' &&
@@ -480,6 +484,7 @@ jobs:
     # les plus longs du pipeline : le laisser sur self-hosted monopolisait un
     # des 2 runners partages pendant de longues minutes.
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: build
     if: |
       needs.build.outputs.is-dependabot-actions != 'true' &&
@@ -625,6 +630,7 @@ jobs:
     # EPIC-39/US2 : le SAST n'analyse que des sources checkoutees, aucun besoin
     # du VPS. Bascule sur GitHub-hosted (le repo frontend y est deja).
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: build
     # SAST: main/tag/dispatch only — saves ~3 min per PR push.
     # Never runs for Dependabot (no new application code to scan).
@@ -673,6 +679,7 @@ jobs:
     # vers https://sonarqube.tellebma.fr, expose publiquement via Traefik — il
     # n'a donc besoin ni du daemon Docker du VPS ni de son reseau interne.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build, test-unit]
     if: |
       needs.build.outputs.is-dependabot-actions != 'true' &&
@@ -798,6 +805,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   release-rebuild:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch' && inputs.deploy_tag != ''
     permissions:
       contents: read
@@ -919,6 +927,7 @@ jobs:
     # ensuite consommee localement par scan-image et smoke-release sur le meme
     # daemon. Basculer ce job perdrait le cache et allongerait fortement le build.
     runs-on: [self-hosted, linux, docker]
+    timeout-minutes: 40
     # EPIC-39/US3 : `release-rebuild` est ajoute aux `needs` uniquement pour
     # ordonnancer — il doit avoir termine (restauration eventuelle de l'image)
     # AVANT que le step de verification GHCR de ce job ne s'execute, sinon on
@@ -1095,6 +1104,7 @@ jobs:
     # buildee sur ce meme daemon Docker : la scanner ailleurs imposerait un
     # pull complet depuis GHCR a chaque run.
     runs-on: [self-hosted, linux, docker]
+    timeout-minutes: 25
     needs: [docker]
     if: ${{ !cancelled() && needs.docker.result == 'success' }}
     permissions:
@@ -1155,6 +1165,7 @@ jobs:
   # apres smoke-release (cf. job du meme nom).
   deploy-preprod:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build, lint, test-unit, semgrep, docker, scan-image]
     if: |
       !cancelled() &&
@@ -1211,6 +1222,7 @@ jobs:
     # daemon Docker du VPS et la fait dialoguer avec le service Postgres via le
     # reseau `github_network_*` — meme topologie que test-e2e.
     runs-on: [self-hosted, linux, docker]
+    timeout-minutes: 15
     needs: [docker, scan-image, release-rebuild]
     if: |
       !cancelled() &&
@@ -1391,6 +1403,7 @@ jobs:
   #   a ete confirmee presente par le job docker + smoke-release dispatch.
   deploy-prod:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build, lint, test-unit, semgrep, docker, scan-image, smoke-release]
     if: |
       !cancelled() &&
@@ -1438,6 +1451,7 @@ jobs:
 
   pr-report:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [build, lint, test-unit, test-e2e, semgrep, docker, scan-image, deploy-preprod, deploy-prod]
     if: |
       always() &&
@@ -1502,6 +1516,7 @@ jobs:
   # Semantic Release (auto-tag sur main)
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build, lint, test-unit, semgrep, docker]
     if: |
       !cancelled() &&
@@ -1569,6 +1584,7 @@ jobs:
   #      automatiquement depuis les sources du tag au lieu d'echouer.
   check-tag-run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [release]
     if: |
       needs.release.result == 'success' &&
@@ -1661,6 +1677,7 @@ jobs:
   # Job final pour determiner le statut global du workflow
   workflow-status:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [build, lint, test-unit, test-e2e, semgrep, sonarqube, docker, scan-image, smoke-release, deploy-preprod, deploy-prod, release, pr-report, notify, mutation-test, check-tag-run, release-rebuild]
     if: always()
     permissions: {}

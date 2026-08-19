@@ -31,6 +31,7 @@ permissions: {}
 jobs:
   notify:
     runs-on: [self-hosted, linux, vps, docker]
+    timeout-minutes: 10
     permissions: {}
     steps:
       - name: Send Discord notification
