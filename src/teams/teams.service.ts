@@ -10,8 +10,8 @@ import { generateTeamSlug, extractFilenameFromUrl } from './utils/team-slug.util
 @Injectable()
 export class TeamsService {
   constructor(
-    private prisma: PrismaService,
-    private uploadService: UploadService,
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
   ) {}
 
   /**

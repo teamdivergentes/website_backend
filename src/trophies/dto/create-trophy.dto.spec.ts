@@ -47,14 +47,11 @@ describe('CreateTrophyDto — validation', () => {
     expect(errors.some((e) => e.property === 'placement')).toBe(true);
   });
 
-  it('rejette un placement < 1', async () => {
-    const dto = plainToInstance(CreateTrophyDto, { ...validBase, placement: 0 });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'placement')).toBe(true);
-  });
-
-  it('rejette un placement > 999', async () => {
-    const dto = plainToInstance(CreateTrophyDto, { ...validBase, placement: 1000 });
+  it.each([
+    ['en dessous de la borne basse', 0],
+    ['au dessus de la borne haute', 1000],
+  ])('rejette un placement %s (%i)', async (_libelle, placement) => {
+    const dto = plainToInstance(CreateTrophyDto, { ...validBase, placement });
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'placement')).toBe(true);
   });

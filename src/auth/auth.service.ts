@@ -38,9 +38,9 @@ export class AuthService {
   readonly jwtExpiresIn: string = process.env.JWT_EXPIRES_IN ?? '7d';
 
   constructor(
-    private usersService: UsersService,
-    private jwtService: JwtService,
-    private prisma: PrismaService,
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
@@ -136,7 +136,7 @@ export class AuthService {
       where: { id: userId },
     });
 
-    if (!user || !user.actif) {
+    if (!user?.actif) {
       throw new UnauthorizedException('Utilisateur non autorisé');
     }
 

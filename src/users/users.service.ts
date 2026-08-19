@@ -14,7 +14,7 @@ export type UserWithRole = User & { role: Role };
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private excludePassword<T extends { password: string }>(user: T): Omit<T, 'password'> {
     const { password: _password, ...result } = user;
@@ -131,7 +131,7 @@ export class UsersService {
         email: data.email,
         password: hashedPassword,
         roleId: roleId,
-        actif: data.actif !== undefined ? data.actif : true,
+        actif: data.actif ?? true,
       },
       include: { role: true },
     });

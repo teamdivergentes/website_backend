@@ -4,18 +4,19 @@ import { CreateRecruitmentDto } from './dto/create-recruitment.dto';
 import { UpdateRecruitmentDto } from './dto/update-recruitment.dto';
 import { ReorderDto } from './dto/reorder.dto';
 import { Prisma } from '../../generated/prisma';
+import { trimChar } from '../common/utils/trim-char.util';
 
 @Injectable()
 export class RecruitmentService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private slugify(text: string): string {
-    return text
+    const slug = text
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // strip accents
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-') // non-alphanumeric → dash
-      .replace(/^-+|-+$/g, ''); // trim leading/trailing dashes
+      .replace(/[^a-z0-9]+/g, '-'); // non-alphanumeric → dash
+    return trimChar(slug, '-');
   }
 
   private async generateUniqueSlug(title: string, excludeId?: number): Promise<string> {

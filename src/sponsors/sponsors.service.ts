@@ -5,6 +5,7 @@ import { SponsorImagesService } from './sponsor-images.service';
 import { CreateSponsorDto } from './dto/create-sponsor.dto';
 import { UpdateSponsorDto } from './dto/update-sponsor.dto';
 import { ReorderSponsorsDto } from './dto/reorder.dto';
+import { trimChar } from '../common/utils/trim-char.util';
 
 @Injectable()
 export class SponsorsService {
@@ -17,12 +18,12 @@ export class SponsorsService {
    * Generate slug from name
    */
   private generateSlug(name: string): string {
-    return name
+    const slug = name
       .toLowerCase()
       .normalize('NFD')
       .replaceAll(/[̀-ͯ]/g, '')
-      .replaceAll(/[^a-z0-9]+/g, '-')
-      .replaceAll(/^-+|-+$/g, '');
+      .replaceAll(/[^a-z0-9]+/g, '-');
+    return trimChar(slug, '-');
   }
 
   /**

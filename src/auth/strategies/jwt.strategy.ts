@@ -30,7 +30,7 @@ export function getJwtSecret(): string {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private prisma: PrismaService) {
+  constructor(private readonly prisma: PrismaService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         // Priorité 1 : cookie HttpOnly (sécurité maximale)
@@ -72,7 +72,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       include: { role: true },
     });
 
-    if (!user || !user.actif) {
+    if (!user?.actif) {
       throw new UnauthorizedException('Utilisateur non autorisé');
     }
 

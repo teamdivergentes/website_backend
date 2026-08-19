@@ -20,7 +20,7 @@ interface RequestWithUser extends Request {
 @Controller('api/profile')
 @UseGuards(JwtAuthGuard)
 export class ProfileController {
-  constructor(private profileService: ProfileService) {}
+  constructor(private readonly profileService: ProfileService) {}
 
   @Get()
   getProfile(@Request() req: RequestWithUser) {
