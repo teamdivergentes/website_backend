@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/teamdivergentes/website_backend/compare/v1.7.0...v1.7.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **ci:** borner la durée de chaque job du pipeline ([22937b7](https://github.com/teamdivergentes/website_backend/commit/22937b7e647bbcab2ea8fd34d1f0d4de8b59ddbe)), closes [#204](https://github.com/teamdivergentes/website_backend/issues/204)
+
 # [1.7.0](https://github.com/teamdivergentes/website_backend/compare/v1.6.0...v1.7.0) (2026-08-18)
 
 
