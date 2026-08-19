@@ -3,35 +3,6 @@ import Stripe from 'stripe';
 import { SHIPPING_COUNTRIES, SHIPPING_DISPLAY_NAME } from './shop-shipping-zone';
 
 /**
- * Moyens de paiement proposes au client, arretes ici plutot que laisses a la
- * configuration dynamique du tableau de bord Stripe.
- *
- * Sans cette liste, Stripe applique les « methodes de paiement automatiques »
- * : la page de paiement propose alors tout ce qui est actif sur le compte, et
- * une case cochee par erreur dans le tableau de bord change le tunnel de vente
- * sans qu'aucune ligne de code ne bouge. La liste explicite fait de ce choix
- * une decision versionnee.
- *
- * **Apple Pay et Google Pay ne sont pas des entrees de cette liste.** Ce sont
- * des portefeuilles adosses a `card` : Stripe les affiche de lui-meme quand
- * l'appareil et le navigateur du client les supportent. Les demander
- * separement est impossible, et les retirer l'est tout autant — accepter la
- * carte, c'est accepter ses portefeuilles.
- *
- * Meme remarque pour Link, le portefeuille de Stripe : il se desactive
- * uniquement depuis le tableau de bord, pas depuis cet appel.
- *
- * Klarna suppose que la methode soit activee sur le compte et que la devise
- * et le pays de facturation la supportent ; a defaut, Stripe la masque
- * silencieusement plutot que d'echouer.
- */
-const PAYMENT_METHOD_TYPES: Stripe.Checkout.SessionCreateParams.PaymentMethodType[] = [
-  'card',
-  'paypal',
-  'klarna',
-];
-
-/**
  * Prenom et nom demandes separement sur la page de paiement.
  *
  * Stripe ne collecte qu'un seul champ « nom complet », dans le bloc d'adresse.
@@ -162,11 +133,32 @@ export class StripeService {
 
     const discounts = params.discountCents > 0 ? [await this.createCoupon(params)] : undefined;
 
+    // Moyens de paiement : delegues aux preferences du tableau de bord
+    // Stripe. Aucun `payment_method_types` n'est passe, volontairement — ce
+    // parametre, quand il est present, prend le pas sur le tableau de bord :
+    // tant qu'il listait `paypal`, decocher PayPal cote compte n'avait aucun
+    // effet et retirer un moyen de paiement demandait une release. Le choix se
+    // fait desormais sur dashboard.stripe.com/settings/payment_methods.
+    //
+    // Ce que cela implique :
+    //
+    // - Ce qui est propose au client n'est plus versionne : une case cochee
+    //   change le tunnel de vente sans revue de code. C'est le prix accepte de
+    //   la souplesse.
+    // - N'activer la que des methodes a confirmation immediate (carte, Klarna,
+    //   portefeuilles). Les methodes a notification differee — SEPA, Bacs,
+    //   virement, Pay by Bank — emettent `checkout.session.completed` avant
+    //   l'encaissement ; `ShopWebhookService` ne traite pas leurs evenements
+    //   `async_payment_*` et refuse toute session non payee, ce qui laisserait
+    //   la commande bloquee en attente.
+    // - Apple Pay, Google Pay et Link restent des portefeuilles adosses a la
+    //   carte, activables depuis ce meme ecran : ils n'ont jamais ete des
+    //   entrees de liste.
+    // - La devise de la session continue de restreindre ce que Stripe affiche.
     const session = await this.getClient().checkout.sessions.create({
       expires_at: Math.floor(params.expiresAt.getTime() / 1000),
       discounts,
       mode: 'payment',
-      payment_method_types: PAYMENT_METHOD_TYPES,
       custom_fields: IDENTITY_CUSTOM_FIELDS,
       line_items: params.lines.map((line) => ({
         quantity: line.quantity,
