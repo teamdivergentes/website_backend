@@ -63,7 +63,7 @@ export class ContactService {
 
     const transporter = nodemailer.createTransport({
       host: smtpHost,
-      port: parseInt(smtpPort || '587', 10),
+      port: Number.parseInt(smtpPort || '587', 10),
       secure: smtpPort === '465',
       auth: {
         user: smtpUser,

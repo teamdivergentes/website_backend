@@ -361,31 +361,15 @@ describe('LinkMetaService', () => {
       jest.restoreAllMocks();
     });
 
-    it('rejette une URL dont le DNS résout vers 127.0.0.1 (loopback)', async () => {
+    // Trois familles d'adresses privees, un seul scenario : le DNS ment et
+    // renvoie une adresse interne pour un domaine public. C'est la parade SSRF.
+    it.each([
+      ['127.0.0.1', 'loopback'],
+      ['169.254.169.254', 'metadata cloud'],
+      ['10.0.0.1', 'RFC1918'],
+    ])('rejette une URL dont le DNS résout vers %s (%s)', async (address) => {
       jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '127.0.0.1',
-        family: 4,
-      });
-
-      await expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejette une URL dont le DNS résout vers 169.254.169.254 (metadata cloud)', async () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '169.254.169.254',
-        family: 4,
-      });
-
-      await expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejette une URL dont le DNS résout vers 10.0.0.1 (RFC1918)', async () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '10.0.0.1',
+        address,
         family: 4,
       });
 
@@ -600,65 +584,19 @@ describe('LinkMetaService', () => {
   // fd00::/8 (ULA) et ::ffff:x.x.x.x (IPv4-mapped) doivent être bloqués.
   // -------------------------------------------------------------------------
   describe('isPrivateIp — ALPHA-SEC-002 IPv6 ULA et IPv4-mapped', () => {
-    it('bloque fd00::1 (ULA fd00::/8)', () => {
-      // Accès via validateUrlWithDns avec DNS mocké
+    // Toutes passent par `validateUrlWithDns` avec un DNS mocke : c'est le seul
+    // acces public a `isPrivateIp`. Le tableau dit quelles plages comptent,
+    // sans recopier six fois le meme echafaudage.
+    it.each([
+      ['fd00::1', 'ULA fd00::/8'],
+      ['fd12:3456::1', 'ULA fd::/8 générique'],
+      ['::ffff:169.254.169.254', 'IPv4-mapped metadata cloud'],
+      ['::ffff:127.0.0.1', 'IPv4-mapped loopback'],
+      ['::ffff:10.0.0.1', 'IPv4-mapped RFC1918'],
+      ['::ffff:192.168.1.1', 'IPv4-mapped RFC1918'],
+    ])('bloque %s (%s)', (address) => {
       jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: 'fd00::1',
-        family: 6,
-      });
-
-      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('bloque fd12:3456::1 (ULA fd::/8 générique)', () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: 'fd12:3456::1',
-        family: 6,
-      });
-
-      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('bloque ::ffff:169.254.169.254 (IPv4-mapped metadata cloud)', () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '::ffff:169.254.169.254',
-        family: 6,
-      });
-
-      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('bloque ::ffff:127.0.0.1 (IPv4-mapped loopback)', () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '::ffff:127.0.0.1',
-        family: 6,
-      });
-
-      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('bloque ::ffff:10.0.0.1 (IPv4-mapped RFC1918)', () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '::ffff:10.0.0.1',
-        family: 6,
-      });
-
-      return expect(service.validateUrlWithDns('https://evil.example.com')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('bloque ::ffff:192.168.1.1 (IPv4-mapped RFC1918)', () => {
-      jest.spyOn(dns.promises, 'lookup').mockResolvedValueOnce({
-        address: '::ffff:192.168.1.1',
+        address,
         family: 6,
       });
 

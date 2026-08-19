@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
-import { rename, unlink } from 'fs/promises';
-import { join } from 'path';
+import { rename, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import sharp from 'sharp';
 
 @Injectable()
@@ -13,12 +13,15 @@ export class UploadService {
     }
 
     try {
-      // Optimize image with sharp
-      const optimizedPath = await this.optimizeImage(file.filename);
+      // L'optimisation se fait SUR PLACE : le fichier optimise remplace
+      // l'original sous le meme nom. Le nom de sortie est donc celui d'entree,
+      // et le faire transiter par une valeur de retour laissait croire que la
+      // methode pouvait en rendre un autre.
+      await this.optimizeImage(file.filename);
 
       return {
-        url: `/uploads/${optimizedPath}`,
-        filename: optimizedPath,
+        url: `/uploads/${file.filename}`,
+        filename: file.filename,
       };
     } catch {
       // Clean up file if optimization fails
@@ -27,7 +30,12 @@ export class UploadService {
     }
   }
 
-  async optimizeImage(filename: string): Promise<string> {
+  /**
+   * Optimise l'image en place : le resultat remplace l'original sous le meme
+   * nom. Ne rend rien — l'appelant connait deja le nom du fichier qu'il a
+   * transmis, et la methode ne peut pas en produire un autre.
+   */
+  async optimizeImage(filename: string): Promise<void> {
     const filePath = join(this.uploadPath, filename);
     const ext = filename.split('.').pop()?.toLowerCase();
 
@@ -41,10 +49,10 @@ export class UploadService {
         .toFile(filePath + '.optimized');
     } else if (ext === 'gif') {
       // Keep original GIF (no optimization to preserve animation)
-      return filename;
+      return;
     } else if (ext === 'svg') {
       // Keep original SVG (vector format, no optimization needed)
-      return filename;
+      return;
     } else if (ext === 'webp') {
       await sharpInstance
         .webp({ quality: 92 })
@@ -61,8 +69,6 @@ export class UploadService {
     // Replace original with optimized
     await unlink(filePath);
     await rename(filePath + '.optimized', filePath);
-
-    return filename;
   }
 
   async deleteImage(filename: string): Promise<void> {

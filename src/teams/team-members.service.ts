@@ -10,8 +10,8 @@ import { generateMemberSlug, extractFilenameFromUrl } from './utils/team-slug.ut
 @Injectable()
 export class TeamMembersService {
   constructor(
-    private prisma: PrismaService,
-    private uploadService: UploadService,
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
   ) {}
 
   /**
@@ -114,34 +114,9 @@ export class TeamMembersService {
         await this.deleteImageSilently(member.image);
       }
 
-      const updateData: Prisma.TeamMemberUpdateInput = {};
-
-      if (updateMemberDto.name !== undefined) {
-        updateData.name = updateMemberDto.name;
-        // Regenerate slug if name changes and no explicit slug provided
-        if (updateMemberDto.slug === undefined) {
-          updateData.slug = generateMemberSlug(updateMemberDto.name);
-        }
-      }
-      if (updateMemberDto.realName !== undefined) updateData.realName = updateMemberDto.realName;
-      if (updateMemberDto.role !== undefined) updateData.role = updateMemberDto.role;
-      if (updateMemberDto.image !== undefined) updateData.image = updateMemberDto.image;
-      if (updateMemberDto.socials !== undefined) updateData.socials = updateMemberDto.socials;
-      if (updateMemberDto.nationality !== undefined)
-        updateData.nationality = updateMemberDto.nationality;
-      if (updateMemberDto.birthDate !== undefined) {
-        updateData.birthDate = updateMemberDto.birthDate
-          ? new Date(updateMemberDto.birthDate)
-          : null;
-      }
-      if (updateMemberDto.biography !== undefined) updateData.biography = updateMemberDto.biography;
-      if (updateMemberDto.customFields !== undefined)
-        updateData.customFields = updateMemberDto.customFields;
-      if (updateMemberDto.slug !== undefined) updateData.slug = updateMemberDto.slug;
-
       return this.prisma.teamMember.update({
         where: { id },
-        data: updateData,
+        data: buildMemberUpdateData(updateMemberDto),
       });
     } catch (error) {
       if (
@@ -266,4 +241,41 @@ export class TeamMembersService {
 
     return member;
   }
+}
+
+/**
+ * Traduit le DTO de modification en patch Prisma.
+ *
+ * Chaque champ suit la meme regle : `undefined` signifie « non transmis, ne
+ * pas toucher », toute autre valeur — `null` compris — signifie « ecrire
+ * ceci ». C'est ce qui interdit d'utiliser un simple etalement du DTO, qui
+ * effacerait en base tout champ absent de la requete.
+ *
+ * Extraite de `update` pour la meme raison : la methode enchainait les
+ * verifications d'appartenance, cette dizaine de gardes et sa traduction
+ * d'erreur Prisma, ce qui rendait illisible le peu qu'elle fait vraiment.
+ */
+export function buildMemberUpdateData(dto: UpdateMemberDto): Prisma.TeamMemberUpdateInput {
+  const data: Prisma.TeamMemberUpdateInput = {};
+
+  if (dto.name !== undefined) {
+    data.name = dto.name;
+    // Le slug suit le nom, sauf si l'appelant en impose un explicitement.
+    if (dto.slug === undefined) {
+      data.slug = generateMemberSlug(dto.name);
+    }
+  }
+  if (dto.realName !== undefined) data.realName = dto.realName;
+  if (dto.role !== undefined) data.role = dto.role;
+  if (dto.image !== undefined) data.image = dto.image;
+  if (dto.socials !== undefined) data.socials = dto.socials;
+  if (dto.nationality !== undefined) data.nationality = dto.nationality;
+  if (dto.birthDate !== undefined) {
+    data.birthDate = dto.birthDate ? new Date(dto.birthDate) : null;
+  }
+  if (dto.biography !== undefined) data.biography = dto.biography;
+  if (dto.customFields !== undefined) data.customFields = dto.customFields;
+  if (dto.slug !== undefined) data.slug = dto.slug;
+
+  return data;
 }

@@ -5,7 +5,7 @@ import { isPublicConfigKey } from './public-config-keys';
 
 @Injectable()
 export class ConfigService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
     return this.prisma.config.findMany({

@@ -347,7 +347,7 @@ describe('shop-notifier helpers', () => {
     it.each(clientMails)('reste lisible images bloquées sur le mail de %s', (_name, html) => {
       // Seul le logo est une image, et il porte un texte de remplacement.
       expect(html).toContain('alt="Team Divergentes"');
-      expect((html.match(/<img /g) ?? []).length).toBe(1);
+      expect(html.match(/<img /g) ?? []).toHaveLength(1);
     });
 
     it.each(clientMails)(
