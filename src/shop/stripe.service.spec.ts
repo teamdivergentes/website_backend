@@ -123,28 +123,21 @@ describe('StripeService.createCheckoutSession — zone de livraison', () => {
   });
 
   /**
-   * La liste explicite est ce qui empeche une case cochee dans le tableau de
-   * bord Stripe de modifier le tunnel de vente sans revue de code. Le test
-   * verifie donc autant ce qui est propose que le fait de proposer une liste :
-   * la laisser absente rebasculerait sur les methodes automatiques.
+   * Aucun `payment_method_types` n'est envoye : ce parametre, quand il est
+   * present, prend le pas sur les preferences du tableau de bord Stripe. Son
+   * absence est donc ce qui rend le choix des moyens de paiement — dont le
+   * retrait de PayPal — pilotable sans deploiement.
+   *
+   * Le test verifie l'absence plutot qu'un contenu : reintroduire une liste,
+   * fut-elle correcte le jour ou elle est ecrite, rendrait a nouveau le
+   * tableau de bord sans effet, et c'est precisement ce qu'on ne veut plus.
+   *
+   * Corollaire utile : Apple Pay, Google Pay et Link ne pouvaient de toute
+   * facon pas figurer dans cette liste — ce sont des portefeuilles adosses a
+   * la carte, et demander `apple_pay` faisait echouer la creation de session.
    */
-  it('n’accepte que la carte, PayPal et Klarna', async () => {
-    const types = (await createdParams()).payment_method_types;
-
-    expect(types).toEqual(['card', 'paypal', 'klarna']);
-  });
-
-  /**
-   * Apple Pay n'est pas un `payment_method_type` : c'est un portefeuille
-   * adosse a `card`, que Stripe affiche selon l'appareil du client. Le
-   * demander explicitement fait echouer la creation de session — d'ou ce
-   * garde-fou, qui documente le piege autant qu'il le previent.
-   */
-  it('ne demande pas Apple Pay comme moyen de paiement distinct', async () => {
-    const types = (await createdParams()).payment_method_types ?? [];
-
-    expect(types).not.toContain('apple_pay');
-    expect(types).toContain('card');
+  it('ne fige aucun moyen de paiement et laisse la main au tableau de bord', async () => {
+    expect((await createdParams()).payment_method_types).toBeUndefined();
   });
 
   it('demande le prenom et le nom en deux champs distincts', async () => {

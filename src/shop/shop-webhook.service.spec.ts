@@ -36,6 +36,7 @@ describe('ShopWebhookService', () => {
     data: {
       object: {
         id: 'cs_test_1',
+        payment_status: 'paid',
         payment_intent: 'pi_test_1',
         amount_total: 11570,
         currency: 'eur',
@@ -115,6 +116,46 @@ describe('ShopWebhookService', () => {
           }),
         }),
       );
+    });
+
+    /**
+     * Depuis que les moyens de paiement viennent du tableau de bord Stripe et
+     * non plus d'une liste versionnee, une methode a notification differee
+     * (SEPA, virement, Pay by Bank) peut etre activee d'un clic. Elle emet cet
+     * evenement AVANT l'encaissement : sans ce garde-fou, la commande passerait
+     * payee, le stock partirait et l'equipe expedierait un colis pour un
+     * paiement qui peut encore echouer.
+     */
+    it('laisse la commande en attente quand le paiement est différé', async () => {
+      mockStripe.constructWebhookEvent.mockReturnValue({
+        ...completedEvent,
+        data: { object: { ...completedEvent.data.object, payment_status: 'unpaid' } },
+      });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
+      expect(mockNotifier.notifyNewOrder).not.toHaveBeenCalled();
+      expect(mockDiscounts.consume).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Un total nul — remise couvrant tout le panier — n'attend aucun paiement.
+     * Le refuser bloquerait une commande pourtant honoree ; `getSessionOutcome`
+     * fait deja la meme lecture de ce statut.
+     */
+    it('traite une commande sans paiement requis', async () => {
+      mockStripe.constructWebhookEvent.mockReturnValue({
+        ...completedEvent,
+        data: {
+          object: { ...completedEvent.data.object, payment_status: 'no_payment_required' },
+        },
+      });
+
+      await service.handleEvent(payload, signature);
+
+      expect(mockPrisma.order.updateMany).toHaveBeenCalled();
+      expect(mockNotifier.notifyNewOrder).toHaveBeenCalledWith(paidOrder);
     });
 
     it('notifie l’équipe une fois la commande payée', async () => {
