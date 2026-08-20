@@ -1,3 +1,15 @@
+# [1.8.0](https://github.com/teamdivergentes/website_backend/compare/v1.7.1...v1.8.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* **shop:** refuser une session Stripe complétée sans paiement ([dea5246](https://github.com/teamdivergentes/website_backend/commit/dea52469db8054ac14cd69911344e5e376536d69))
+
+
+### Features
+
+* **shop:** déléguer les moyens de paiement au tableau de bord Stripe ([f247fb6](https://github.com/teamdivergentes/website_backend/commit/f247fb65b1620278192980f8f4806892bc6eaaf0))
+
 ## [1.7.1](https://github.com/teamdivergentes/website_backend/compare/v1.7.0...v1.7.1) (2026-08-19)
 
 
