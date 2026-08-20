@@ -33,7 +33,34 @@ export class ShopWebhookService {
       return;
     }
 
-    const result = await this.markPaid(event.data.object);
+    // `completed` ne veut pas dire « encaisse ». Depuis que les moyens de
+    // paiement sont pilotes depuis le tableau de bord Stripe et non plus par
+    // une liste versionnee (`stripe.service.ts`), une methode a notification
+    // differee — SEPA, Bacs, virement, Pay by Bank — peut etre activee d'un
+    // clic : elle emet alors cet evenement avec `payment_status: 'unpaid'`,
+    // les fonds n'arrivant que plusieurs jours plus tard. Sans ce filtre, la
+    // commande passerait PAID, le stock serait decremente et l'equipe
+    // notifierait une expedition pour un paiement qui peut encore echouer.
+    //
+    // Le traitement de ces methodes demanderait de gerer
+    // `checkout.session.async_payment_succeeded` et `async_payment_failed`,
+    // ce que ce service ne fait pas. La commande reste donc en attente et le
+    // journal porte de quoi comprendre pourquoi : un blocage visible vaut
+    // mieux qu'un colis parti sans argent.
+    //
+    // `no_payment_required` accompagne un total nul : rien n'est du, la
+    // commande est honoree. `getSessionOutcome` fait la meme lecture.
+    const session = event.data.object;
+    if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+      this.logger.error(
+        `Session ${session.id} completee sans paiement (payment_status=${session.payment_status}) : ` +
+          'commande laissee en attente. Un moyen de paiement a notification differee est ' +
+          'probablement actif dans le tableau de bord Stripe.',
+      );
+      return;
+    }
+
+    const result = await this.markPaid(session);
     if (!result) {
       return;
     }
